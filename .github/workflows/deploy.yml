@@ -15,12 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,7 +33,7 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          VITE_JSONBIN_BIN_ID:  ${{ secrets.VITE_JSONBIN_BIN_ID }}
+          VITE_JSONBIN_BIN_ID: ${{ secrets.VITE_JSONBIN_BIN_ID }}
           VITE_JSONBIN_API_KEY: ${{ secrets.VITE_JSONBIN_API_KEY }}
 
       - name: Upload artifact
@@ -45,6 +41,13 @@ jobs:
         with:
           path: dist
 
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
