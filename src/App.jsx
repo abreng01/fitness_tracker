@@ -34,13 +34,12 @@ function firstDayOfMonth(year, month) {
   return new Date(year, month, 1).getDay();
 }
 
-function streakCount(logs, memberId) {
+function streakCount(memberLogs) {
   let count = 0;
-  const today = todayStr();
-  let d = new Date(today);
+  const d = new Date(todayStr());
   while (true) {
-    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-    const log = logs[memberId]?.[key];
+    const key = d.toISOString().slice(0,10);
+    const log = memberLogs[key];
     if (!log || log.status === "skipped") break;
     count++;
     d.setDate(d.getDate() - 1);
