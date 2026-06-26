@@ -876,12 +876,6 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
       </div>
     </div>}
 
-    {/* Heatmap toggle */}
-    <button onClick={()=>setShowHeatmap(s=>!s)} style={{background:"none",border:"none",cursor:"pointer",fontSize:11,color:member.color,fontWeight:600,padding:0,marginTop:4,marginBottom:showHeatmap?8:0}}>
-      {showHeatmap?"▾ Hide year view":"▸ Year view (heatmap)"}
-    </button>
-    {showHeatmap&&<HeatmapView member={member} logs={logs}/>}
-
     {/* Badges + Stats footer */}
     <div style={{borderTop:`1px solid ${C.border}`,marginTop:12,paddingTop:12,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
       <span style={{fontSize:12,color:C.muted}}><span style={{fontWeight:700,color:C.text}}>{allEarned.size}</span> / {personalBadges.length} badges earned</span>
@@ -1270,8 +1264,6 @@ export default function App(){
         <div style={{fontSize:40,marginBottom:12}}>🌱</div>
         <div style={{fontSize:16,fontWeight:600}}>No members yet. Add one to get started.</div>
       </div>}
-
-      {members.length>0&&<FamilyFeed members={members} logs={logs}/>}
 
       {members.length>0&&<div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:20}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
