@@ -51,11 +51,14 @@ function getActivityLogs(logs, memberId, activityId){
 // ── Streak ────────────────────────────────────────────────────────────────────
 function streakCount(al){
   let count=0;
-  const d=new Date(todayStr());
+  const today=todayStr();
+  const d=new Date(today);
+  // If today isn't logged yet, start counting from yesterday
+  const todayLog=al[today];
+  if(!todayLog||todayLog.status==="skipped") d.setDate(d.getDate()-1);
   while(true){
     const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
     const log=al[key];
-    // Shielded days keep the streak alive
     if(!log||log.status==="skipped") break;
     count++;
     d.setDate(d.getDate()-1);
@@ -97,10 +100,10 @@ function consPct(al,y,m){
   for(let d=1;d<=daysInMonth(y,m);d++){
     const k=`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
     if(k>today) continue;
-    const l=al[k];
-    if(l&&l.status==="shielded") continue; // shielded days excluded from consistency
     app++;
-    if(l&&l.status!=="skipped") done++;
+    const l=al[k];
+    // shielded days count toward consistency (streak + % protected), but not badges
+    if(l&&(l.status!=="skipped")) done++;
   }
   return app===0?0:Math.round((done/app)*100);
 }
