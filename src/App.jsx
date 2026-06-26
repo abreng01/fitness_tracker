@@ -82,7 +82,7 @@ function monthSummary(al,y,m){
   let done=0,missed=0,remaining=0;
   for(let d=1;d<=daysInMonth(y,m);d++){
     const k=`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
-    if(k>today){remaining++;continue;}
+    if(k>=today){remaining++;continue;} // today and future = remaining
     const l=al[k];
     if(l&&l.status!=="skipped") done++;
     else missed++;
@@ -184,6 +184,13 @@ const BADGES=[
   {id:"over7",     e:"🦸",label:"Overachiever",      desc:"20%+ above target 7 days in a row",tier:"silver",check:s=>s.overStreak>=7},
   {id:"steady7",   e:"🎻",label:"Steady Eddie",      desc:"Within 10% of target 7 days",    tier:"silver",check:s=>s.steadyStreak>=7},
   {id:"steady14",  e:"🎯",label:"Dead Accurate",     desc:"Within 10% of target 14 days",   tier:"gold",  check:s=>s.steadyStreak>=14},
+  // ── 📅 Monthly days logged (within a single calendar month)
+  {id:"mon_10",  e:"🗓️",label:"10-Day Month",     desc:"10+ days logged in a month",      tier:"bronze",check:s=>s.bestMonthDays>=10},
+  {id:"mon_15",  e:"📅",label:"15-Day Month",     desc:"15+ days logged in a month",      tier:"bronze",check:s=>s.bestMonthDays>=15},
+  {id:"mon_20",  e:"🌟",label:"20-Day Month",     desc:"20+ days logged in a month",      tier:"silver",check:s=>s.bestMonthDays>=20},
+  {id:"mon_25",  e:"💎",label:"25-Day Month",     desc:"25+ days logged in a month",      tier:"silver",check:s=>s.bestMonthDays>=25},
+  {id:"mon_28",  e:"🏆",label:"Near Perfect",     desc:"28+ days logged in a month",      tier:"gold",  check:s=>s.bestMonthDays>=28},
+  {id:"mon_30",  e:"🌌",label:"Perfect Month",    desc:"Every single day in a month",     tier:"gold",  check:s=>s.bestMonthDays>=30},
   {id:"fam_day",   e:"🤝",label:"Family Day",        desc:"All members logged same day",     tier:"bronze",check:s=>s.famDays>=1},
   {id:"fam_10",    e:"👨‍👩‍👦",label:"Family Strong",  desc:"10 days all members logged",      tier:"silver",check:s=>s.famDays>=10},
   {id:"fam_week",  e:"🏡",label:"Family Week",       desc:"All members 5+ days in a week",   tier:"silver",check:s=>s.famWeeks>=1},
@@ -289,6 +296,18 @@ function computeStats(al,target){
   let totalVol=0;
   for(const[,l]of entries) if(l.status!=="skipped"&&l.value>0) totalVol+=l.value;
 
+  // Best days in a single calendar month
+  let bestMonthDays=0;
+  const allMonths=[...new Set(entries.map(([d])=>d.slice(0,7)))];
+  for(const ym of allMonths){
+    const[y,m]=ym.split("-").map(Number);
+    let daysInMon=0;
+    for(const[ds,l]of entries){
+      if(ds.startsWith(ym)&&l.status!=="skipped"&&l.value>0) daysInMon++;
+    }
+    if(daysInMon>bestMonthDays) bestMonthDays=daysInMon;
+  }
+
   // Best streak ever (not just current)
   let bestStreak=0,bsRun=0;
   for(const[,l]of entries){
@@ -298,7 +317,7 @@ function computeStats(al,target){
 
   return{totalDone,bestVal,bestPct,streak,bestStreak,bestPerf,bestMonPct,highMons,hasPB:bestVal>target,
     bestWeek,consec5w,comeback,perfMon,perfSun,perfWknd,trackDays,overStreak,steadyStreak,
-    totalVol,unit:"",famDays:0,famWeeks:0,famActive:false};
+    totalVol,unit:"",bestMonthDays,famDays:0,famWeeks:0,famActive:false};
 }
 
 function computeFamStats(members,logs){
@@ -935,7 +954,30 @@ export default function App(){
       </div>}
 
       {members.length>0&&<div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:20}}>
-        <div style={{fontWeight:700,fontSize:14,marginBottom:14,color:C.muted}}>FAMILY SUMMARY · {MONTHS[mo].toUpperCase()}</div>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+          <div style={{fontWeight:700,fontSize:14,color:C.muted}}>FAMILY SUMMARY · {MONTHS[mo].toUpperCase()}</div>
+          {/* Monthly leaderboard */}
+          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+            {[...members]
+              .map(m=>{
+                const acts=m.activities||[];
+                const pcts=acts.map(a=>consPct(getActivityLogs(logs,m.id,a.id),yr,mo));
+                const avg=pcts.length?Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length):0;
+                return{m,avg};
+              })
+              .sort((a,b)=>b.avg-a.avg)
+              .map(({m,avg},i)=>(
+                <div key={m.id} style={{display:"flex",alignItems:"center",gap:5,
+                  background:i===0?m.color+"18":C.bg,
+                  border:`1.5px solid ${i===0?m.color+"44":C.border}`,
+                  borderRadius:99,padding:"4px 10px"}}>
+                  <span style={{fontSize:12}}>{i===0?"🥇":i===1?"🥈":"🥉"}</span>
+                  <span style={{fontSize:12}}>{m.emoji}</span>
+                  <span style={{fontSize:12,fontWeight:700,color:i===0?m.color:C.muted}}>{avg}%</span>
+                </div>
+              ))}
+          </div>
+        </div>
         <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
           {members.map(m=>{
             const acts=m.activities||[];
