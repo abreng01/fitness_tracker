@@ -460,6 +460,189 @@ function CalCell({dateStr,member,logs,isToday,onClick}){
   </div>;
 }
 
+
+// ── Badge Drawer ──────────────────────────────────────────────────────────────
+function BadgeDrawer({member, allEarned, acts, logs, onClose}){
+  const personalBadges = BADGES.filter(b=>!FAM_IDS.has(b.id));
+  const earnedList     = personalBadges.filter(b=>allEarned.has(b.id));
+  const lockedList     = personalBadges.filter(b=>!allEarned.has(b.id));
+
+  // Compute "next up" — locked badges with computable progress
+  function getProgress(badge){
+    // Only for volume/streak/days badges that have numeric thresholds
+    const s = badge.check.toString();
+    // Extract threshold from check function e.g. s=>s.streak>=7
+    const streakM   = s.match(/s\.streak>=([\d]+)/);
+    const daysM     = s.match(/s\.totalDone>=([\d]+)/);
+    const trackM    = s.match(/s\.trackDays>=([\d]+)/);
+    const weekM     = s.match(/s\.bestWeek>=([\d]+)/);
+    const perfM     = s.match(/s\.bestPerf>=([\d]+)/);
+    const volSecM   = s.match(/s\.unit==="sec"&&s\.totalVol>=([\d]+)/);
+    const volKmM    = s.match(/s\.unit==="km"&&s\.totalVol>=([\d.]+)/);
+
+    // Compute current values across all activities
+    const today = todayStr();
+    let curStreak=0, curDays=0, curTrack=0, curWeek=0, curPerf=0, curVolSec=0, curVolKm=0;
+    for(const a of acts){
+      const al = getActivityLogs(logs, member.id, a.id);
+      const entries = Object.entries(al).filter(([d])=>d<=today).sort(([x],[y])=>x.localeCompare(y));
+      const sc = streakCount(al);
+      if(sc>curStreak) curStreak=sc;
+      const done = entries.filter(([,l])=>l.status!=="skipped"&&l.value>0);
+      curDays += done.length;
+      if(entries.length>0){
+        const td = Math.round((new Date(today)-new Date(entries[0][0]))/86400000)+1;
+        if(td>curTrack) curTrack=td;
+      }
+      // Best week
+      const wm={};
+      for(const[ds,l]of entries){
+        if(l.status==="skipped"||!l.value) continue;
+        const d=new Date(ds+"T00:00:00"); const dow=(d.getDay()+6)%7;
+        const mon=new Date(d); mon.setDate(d.getDate()-dow);
+        const wk=mon.toISOString().slice(0,10);
+        wm[wk]=(wm[wk]||0)+1;
+      }
+      const wv=Object.values(wm); if(wv.length&&Math.max(...wv)>curWeek) curWeek=Math.max(...wv);
+      // Best perfect streak
+      let bp=0,cp=0;
+      for(const[,l]of entries){if(l.status!=="skipped"&&l.value>=a.target){cp++;if(cp>bp)bp=cp;}else cp=0;}
+      if(bp>curPerf) curPerf=bp;
+      // Volume
+      if(a.unit==="sec") for(const[,l]of done) curVolSec+=l.value;
+      if(a.unit==="km")  for(const[,l]of done) curVolKm+=l.value;
+    }
+
+    if(streakM) return {cur:curStreak, max:parseInt(streakM[1]), label:"day streak"};
+    if(daysM)   return {cur:curDays,   max:parseInt(daysM[1]),   label:"days logged"};
+    if(trackM)  return {cur:curTrack,  max:parseInt(trackM[1]),  label:"days tracking"};
+    if(weekM)   return {cur:curWeek,   max:parseInt(weekM[1]),   label:"days in a week"};
+    if(perfM)   return {cur:curPerf,   max:parseInt(perfM[1]),   label:"days at target"};
+    if(volSecM){const sec=parseInt(volSecM[1]);return {cur:curVolSec,max:sec,label:`sec (${Math.round(sec/60)}min)`};}
+    if(volKmM) {const km=parseFloat(volKmM[1]);return {cur:Math.round(curVolKm*10)/10,max:km,label:"km"};}
+    return null;
+  }
+
+  const nextUp = lockedList
+    .map(b=>({b, prog:getProgress(b)}))
+    .filter(x=>x.prog&&x.prog.cur>0)
+    .sort((a,b)=>(b.prog.cur/b.prog.max)-(a.prog.cur/a.prog.max))
+    .slice(0,5);
+
+  const tierOrder={bronze:0,silver:1,gold:2};
+
+  return <>
+    {/* Overlay */}
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
+    {/* Drawer */}
+    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(480px,92vw)",
+      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
+      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+
+      {/* Drawer header */}
+      <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:28}}>{member.emoji}</span>
+            <div>
+              <div style={{fontWeight:800,fontSize:18}}>{member.name}</div>
+              <div style={{fontSize:12,color:C.muted}}>Achievement progress</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,
+            padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted,lineHeight:1}}>×</button>
+        </div>
+        {/* Hero stat */}
+        <div style={{display:"flex",gap:12}}>
+          {[
+            {label:"Earned",val:earnedList.length,color:C.done},
+            {label:"Locked",val:lockedList.length,color:C.muted},
+            {label:"Total",val:personalBadges.length,color:C.text},
+          ].map(x=><div key={x.label} style={{flex:1,background:C.bg,borderRadius:10,padding:"10px 0",textAlign:"center"}}>
+            <div style={{fontWeight:800,fontSize:22,color:x.color}}>{x.val}</div>
+            <div style={{fontSize:11,color:C.muted}}>{x.label}</div>
+          </div>)}
+        </div>
+        {/* Progress bar */}
+        <div style={{marginTop:12,background:C.border,borderRadius:99,height:6,overflow:"hidden"}}>
+          <div style={{height:"100%",width:`${Math.round((earnedList.length/personalBadges.length)*100)}%`,
+            background:C.done,borderRadius:99,transition:"width 0.6s"}}/>
+        </div>
+        <div style={{fontSize:10,color:C.muted,marginTop:4,textAlign:"right"}}>
+          {Math.round((earnedList.length/personalBadges.length)*100)}% complete
+        </div>
+      </div>
+
+      {/* Scrollable content */}
+      <div style={{flex:1,overflowY:"auto",padding:"0 24px 24px"}}>
+
+        {/* Coming up next */}
+        {nextUp.length>0&&<div style={{marginTop:20}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>🔜 COMING UP NEXT</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {nextUp.map(({b,prog})=>{
+              const tc=TC[b.tier];
+              const pct=Math.min(100,Math.round((prog.cur/prog.max)*100));
+              return <div key={b.id} style={{background:tc.bg,border:`1.5px solid ${tc.bd}`,borderRadius:12,padding:"12px 14px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+                  <span style={{fontSize:22}}>{b.e}</span>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:700,fontSize:13,color:tc.tx}}>{b.label}</div>
+                    <div style={{fontSize:11,color:tc.tx,opacity:0.7}}>{b.desc}</div>
+                  </div>
+                  <div style={{fontSize:13,fontWeight:800,color:tc.tx}}>{pct}%</div>
+                </div>
+                <div style={{background:"rgba(0,0,0,0.08)",borderRadius:99,height:5,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${pct}%`,background:tc.bd,borderRadius:99,transition:"width 0.5s"}}/>
+                </div>
+                <div style={{fontSize:10,color:tc.tx,opacity:0.6,marginTop:4}}>
+                  {prog.cur} / {prog.max} {prog.label}
+                </div>
+              </div>;
+            })}
+          </div>
+        </div>}
+
+        {/* Earned badges */}
+        {earnedList.length>0&&<div style={{marginTop:24}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>🏆 EARNED ({earnedList.length})</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            {[...earnedList].sort((a,b)=>tierOrder[b.tier]-tierOrder[a.tier]).map(b=>{
+              const tc=TC[b.tier];
+              return <div key={b.id} style={{background:tc.bg,border:`1.5px solid ${tc.bd}`,borderRadius:12,padding:"12px 14px",
+                display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:24,flexShrink:0}}>{b.e}</span>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:11,fontWeight:700,color:tc.tx,textTransform:"uppercase",letterSpacing:0.3,opacity:0.6}}>{b.tier}</div>
+                  <div style={{fontSize:13,fontWeight:700,color:tc.tx,lineHeight:1.3}}>{b.label}</div>
+                  <div style={{fontSize:10,color:tc.tx,opacity:0.6,marginTop:1,lineHeight:1.3}}>{b.desc}</div>
+                </div>
+              </div>;
+            })}
+          </div>
+        </div>}
+
+        {/* Locked badges */}
+        {lockedList.length>0&&<div style={{marginTop:24}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>🔒 LOCKED ({lockedList.length})</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            {lockedList.map(b=><div key={b.id} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",
+              display:"flex",alignItems:"center",gap:10,opacity:0.5,filter:"grayscale(1)"}}>
+              <span style={{fontSize:24,flexShrink:0}}>{b.e}</span>
+              <div style={{minWidth:0}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.3}}>{b.tier}</div>
+                <div style={{fontSize:13,fontWeight:700,color:C.muted,lineHeight:1.3}}>{b.label}</div>
+                <div style={{fontSize:10,color:C.muted,marginTop:1,lineHeight:1.3}}>{b.desc}</div>
+              </div>
+            </div>)}
+          </div>
+        </div>}
+      </div>
+    </div>
+  </>;
+}
+
 // ── Member Card ───────────────────────────────────────────────────────────────
 function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,month}){
   const today=todayStr();
@@ -545,28 +728,13 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
       </div>
     </div>}
 
-    {/* Badges */}
-    <div style={{borderTop:`1px solid ${C.border}`,marginTop:12,paddingTop:12}}>
-      <button onClick={()=>setShowBadges(s=>!s)} style={{background:"none",border:"none",cursor:"pointer",fontSize:11,color:member.color,fontWeight:600,padding:0}}>
-        {showBadges?`▾ Hide badges`:`▸ Badges (${allEarned.size}/${personalBadges.length})`}
-      </button>
-      {showBadges&&<div style={{marginTop:10,display:"flex",flexWrap:"wrap",gap:6}}>
-        {personalBadges.map(b=>{
-          const earned=allEarned.has(b.id);const tc=TC[b.tier];
-          return <div key={b.id} title={b.desc} style={{display:"flex",alignItems:"center",gap:5,
-            background:earned?tc.bg:C.bg,border:`1.5px solid ${earned?tc.bd:C.border}`,
-            borderRadius:9,padding:"5px 9px",opacity:earned?1:0.35,filter:earned?"none":"grayscale(1)",transition:"all 0.2s",cursor:"default"}}
-            onMouseEnter={e=>{if(earned)e.currentTarget.style.transform="scale(1.05)";}}
-            onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)";}}>
-            <span style={{fontSize:16}}>{b.e}</span>
-            <div>
-              <div style={{fontSize:10,fontWeight:700,color:earned?tc.tx:C.muted}}>{b.label}</div>
-              <div style={{fontSize:9,color:C.muted}}>{b.desc}</div>
-            </div>
-          </div>;
-        })}
-      </div>}
+    {/* Badges button */}
+    <div style={{borderTop:`1px solid ${C.border}`,marginTop:12,paddingTop:12,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <span style={{fontSize:12,color:C.muted}}><span style={{fontWeight:700,color:C.text}}>{allEarned.size}</span> / {personalBadges.length} badges earned</span>
+      <button onClick={()=>setShowBadges(true)} style={{background:member.color,color:"#fff",border:"none",borderRadius:8,
+        padding:"7px 16px",cursor:"pointer",fontWeight:700,fontSize:12}}>🏆 View badges</button>
     </div>
+    {showBadges&&<BadgeDrawer member={member} allEarned={allEarned} acts={acts} logs={logs} onClose={()=>setShowBadges(false)}/>}
 
     {modal&&<LogModal dateStr={modal} member={member} logs={logs}
       onSaveAll={entries=>{
