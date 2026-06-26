@@ -76,6 +76,20 @@ function consPct(al,y,m){
   return app===0?0:Math.round((done/app)*100);
 }
 
+// ── Month summary stats ──────────────────────────────────────────────────────
+function monthSummary(al,y,m){
+  const today=todayStr();
+  let done=0,missed=0,remaining=0;
+  for(let d=1;d<=daysInMonth(y,m);d++){
+    const k=`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    if(k>today){remaining++;continue;}
+    const l=al[k];
+    if(l&&l.status!=="skipped") done++;
+    else missed++;
+  }
+  return{done,missed,remaining};
+}
+
 // ── Day status for calendar cell ──────────────────────────────────────────────
 function dayStatus(member,logs,ds){
   const acts=member.activities||[];
@@ -128,13 +142,13 @@ function migrateData(raw){
 
 // ── Badge Engine ──────────────────────────────────────────────────────────────
 const BADGES=[
-  {id:"streak_3",  e:"🌱",label:"Seedling",         desc:"3-day streak",                    tier:"bronze",check:s=>s.streak>=3},
-  {id:"streak_7",  e:"🔥",label:"On Fire",           desc:"7-day streak",                    tier:"silver",check:s=>s.streak>=7},
-  {id:"streak_14", e:"⚡",label:"Electric",          desc:"14-day streak",                   tier:"silver",check:s=>s.streak>=14},
-  {id:"streak_21", e:"🌊",label:"In the Flow",       desc:"21-day streak",                   tier:"gold",  check:s=>s.streak>=21},
-  {id:"streak_30", e:"🏆",label:"Unstoppable",       desc:"30-day streak",                   tier:"gold",  check:s=>s.streak>=30},
-  {id:"streak_60", e:"🦁",label:"Lion Heart",        desc:"60-day streak",                   tier:"gold",  check:s=>s.streak>=60},
-  {id:"streak_90", e:"🌋",label:"Force of Nature",   desc:"90-day streak",                   tier:"gold",  check:s=>s.streak>=90},
+  {id:"streak_3",  e:"🌱",label:"Seedling",         desc:"3-day streak",                    tier:"bronze",check:s=>s.bestStreak>=3},
+  {id:"streak_7",  e:"🔥",label:"On Fire",           desc:"7-day streak",                    tier:"silver",check:s=>s.bestStreak>=7},
+  {id:"streak_14", e:"⚡",label:"Electric",          desc:"14-day streak",                   tier:"silver",check:s=>s.bestStreak>=14},
+  {id:"streak_21", e:"🌊",label:"In the Flow",       desc:"21-day streak",                   tier:"gold",  check:s=>s.bestStreak>=21},
+  {id:"streak_30", e:"🏆",label:"Unstoppable",       desc:"30-day streak",                   tier:"gold",  check:s=>s.bestStreak>=30},
+  {id:"streak_60", e:"🦁",label:"Lion Heart",        desc:"60-day streak",                   tier:"gold",  check:s=>s.bestStreak>=60},
+  {id:"streak_90", e:"🌋",label:"Force of Nature",   desc:"90-day streak",                   tier:"gold",  check:s=>s.bestStreak>=90},
   {id:"days_1",    e:"👣",label:"First Step",        desc:"Logged your first day",           tier:"bronze",check:s=>s.totalDone>=1},
   {id:"days_7",    e:"🎯",label:"Week One",          desc:"7 days logged",                   tier:"bronze",check:s=>s.totalDone>=7},
   {id:"days_14",   e:"💪",label:"Two Weeks In",      desc:"14 days logged",                  tier:"bronze",check:s=>s.totalDone>=14},
@@ -274,7 +288,15 @@ function computeStats(al,target){
   }
   let totalVol=0;
   for(const[,l]of entries) if(l.status!=="skipped"&&l.value>0) totalVol+=l.value;
-  return{totalDone,bestVal,bestPct,streak,bestPerf,bestMonPct,highMons,hasPB:bestVal>target,
+
+  // Best streak ever (not just current)
+  let bestStreak=0,bsRun=0;
+  for(const[,l]of entries){
+    if(l.status!=="skipped"&&l.value>0){bsRun++;if(bsRun>bestStreak)bestStreak=bsRun;}
+    else bsRun=0;
+  }
+
+  return{totalDone,bestVal,bestPct,streak,bestStreak,bestPerf,bestMonPct,highMons,hasPB:bestVal>target,
     bestWeek,consec5w,comeback,perfMon,perfSun,perfWknd,trackDays,overStreak,steadyStreak,
     totalVol,unit:"",famDays:0,famWeeks:0,famActive:false};
 }
@@ -472,7 +494,7 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
     // Only for volume/streak/days badges that have numeric thresholds
     const s = badge.check.toString();
     // Extract threshold from check function e.g. s=>s.streak>=7
-    const streakM   = s.match(/s\.streak>=([\d]+)/);
+    const streakM   = s.match(/s\.bestStreak>=([\d]+)/);
     const daysM     = s.match(/s\.totalDone>=([\d]+)/);
     const trackM    = s.match(/s\.trackDays>=([\d]+)/);
     const weekM     = s.match(/s\.bestWeek>=([\d]+)/);
@@ -513,7 +535,17 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
       if(a.unit==="km")  for(const[,l]of done) curVolKm+=l.value;
     }
 
-    if(streakM) return {cur:curStreak, max:parseInt(streakM[1]), label:"day streak"};
+    if(streakM){
+      // For bestStreak, compute best historical streak across activities
+      let best=0,run=0;
+      for(const a of acts){
+        const al=getActivityLogs(logs,member.id,a.id);
+        const es=Object.entries(al).filter(([d])=>d<=today).sort(([x],[y])=>x.localeCompare(y));
+        let r=0;
+        for(const[,l]of es){if(l.status!=="skipped"&&l.value>0){r++;if(r>best)best=r;}else r=0;}
+      }
+      return {cur:best, max:parseInt(streakM[1]), label:"day streak"};
+    }
     if(daysM)   return {cur:curDays,   max:parseInt(daysM[1]),   label:"days logged"};
     if(trackM)  return {cur:curTrack,  max:parseInt(trackM[1]),  label:"days tracking"};
     if(weekM)   return {cur:curWeek,   max:parseInt(weekM[1]),   label:"days in a week"};
@@ -696,6 +728,19 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
       </div>
       <ConsistencyBar pct={avgPct}/>
     </div>
+
+    {/* Month summary */}
+    {(()=>{
+      const summaries=acts.map(a=>monthSummary(getActivityLogs(logs,member.id,a.id),year,month));
+      const done=Math.max(...summaries.map(s=>s.done));
+      const missed=Math.max(...summaries.map(s=>s.missed));
+      const remaining=summaries[0]?.remaining||0;
+      return <div style={{display:"flex",gap:16,marginBottom:12,marginTop:-6}}>
+        <span style={{fontSize:12,color:C.done,fontWeight:600}}>✓ {done} done</span>
+        <span style={{fontSize:12,color:C.missed,fontWeight:600}}>✗ {missed} missed</span>
+        {remaining>0&&<span style={{fontSize:12,color:C.muted}}>{remaining} remaining</span>}
+      </div>;
+    })()}
 
     {/* Today */}
     <div style={{background:member.color+"0E",border:`1px solid ${member.color}28`,borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
