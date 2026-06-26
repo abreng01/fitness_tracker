@@ -114,10 +114,11 @@ function monthSummary(al,y,m){
   let done=0,missed=0,remaining=0;
   for(let d=1;d<=daysInMonth(y,m);d++){
     const k=`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
-    if(k>today){remaining++;continue;} // future days only
+    if(k>today){remaining++;continue;} // future days
     const l=al[k];
-    if(l&&l.status==="shielded") continue; // shielded excluded from done/missed
-    if(l&&l.status!=="skipped") done++;
+    if(!l){if(k===today){remaining++;}else{missed++;}continue;} // no log: today=remaining, past=missed
+    if(l.status==="shielded") continue;
+    if(l.status!=="skipped") done++;
     else missed++;
   }
   return{done,missed,remaining};
