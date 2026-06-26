@@ -97,8 +97,9 @@ function consPct(al,y,m){
   for(let d=1;d<=daysInMonth(y,m);d++){
     const k=`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
     if(k>today) continue;
-    app++;
     const l=al[k];
+    if(l&&l.status==="shielded") continue; // shielded days excluded from consistency
+    app++;
     if(l&&l.status!=="skipped") done++;
   }
   return app===0?0:Math.round((done/app)*100);
@@ -110,8 +111,9 @@ function monthSummary(al,y,m){
   let done=0,missed=0,remaining=0;
   for(let d=1;d<=daysInMonth(y,m);d++){
     const k=`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
-    if(k>=today){remaining++;continue;} // today and future = remaining
+    if(k>=today){remaining++;continue;}
     const l=al[k];
+    if(l&&l.status==="shielded") continue; // shielded excluded from done/missed
     if(l&&l.status!=="skipped") done++;
     else missed++;
   }
@@ -264,11 +266,14 @@ function computeStats(al,target){
   const today=todayStr();
   const entries=Object.entries(al).filter(([d])=>d<=today).sort(([a],[b])=>a.localeCompare(b));
   let totalDone=0,bestVal=0;
-  for(const[,l]of entries) if(l.status!=="skipped"&&l.value>0){totalDone++;if(l.value>bestVal)bestVal=l.value;}
+  for(const[,l]of entries) if(l.status!=="skipped"&&l.status!=="shielded"&&l.value>0){totalDone++;if(l.value>bestVal)bestVal=l.value;}
   const bestPct=target>0?Math.round((bestVal/target)*100):0;
   const streak=streakCount(al);
   let bestPerf=0,cp=0;
-  for(const[,l]of entries){if(l.status!=="skipped"&&l.value>=target){cp++;if(cp>bestPerf)bestPerf=cp;}else cp=0;}
+  for(const[,l]of entries){
+    if(l.status==="shielded"){cp=0;continue;} // shields break perfect streaks
+    if(l.status!=="skipped"&&l.value>=target){cp++;if(cp>bestPerf)bestPerf=cp;}else cp=0;
+  }
   const mons=[...new Set(entries.map(([d])=>d.slice(0,7)))];
   let bestMonPct=0,highMons=0;
   for(const ym of mons){const[y,m]=ym.split("-").map(Number);const p=consPct(al,y,m-1);if(p>bestMonPct)bestMonPct=p;if(p>=80)highMons++;}
@@ -324,7 +329,7 @@ function computeStats(al,target){
     if(ok){cs++;if(cs>steadyStreak)steadyStreak=cs;}else cs=0;
   }
   let totalVol=0;
-  for(const[,l]of entries) if(l.status!=="skipped"&&l.value>0) totalVol+=l.value;
+  for(const[,l]of entries) if(l.status!=="skipped"&&l.status!=="shielded"&&l.value>0) totalVol+=l.value;
 
   // Best days in a single calendar month
   let bestMonthDays=0;
@@ -333,7 +338,7 @@ function computeStats(al,target){
     const[y,m]=ym.split("-").map(Number);
     let daysInMon=0;
     for(const[ds,l]of entries){
-      if(ds.startsWith(ym)&&l.status!=="skipped"&&l.value>0) daysInMon++;
+      if(ds.startsWith(ym)&&l.status!=="skipped"&&l.status!=="shielded"&&l.value>0) daysInMon++;
     }
     if(daysInMon>bestMonthDays) bestMonthDays=daysInMon;
   }
@@ -574,8 +579,8 @@ function CalCell({dateStr,member,logs,isToday,onClick}){
     <span style={{fontSize:10,color:status==="empty"||future?C.muted:"#fff",fontWeight:600}}>
       {new Date(dateStr+"T00:00:00").getDate()}
     </span>
-    {displayVal&&<span style={{fontSize:8,color:"rgba(255,255,255,0.9)",fontWeight:700,lineHeight:1}}>
-      {isPB?"PB!":displayVal}
+    {(isPB||displayVal)&&<span style={{fontSize:8,color:"rgba(255,255,255,0.9)",fontWeight:700,lineHeight:1}}>
+      {isPB?`PB ${displayVal||""}`:displayVal}
     </span>}
   </div>;
 }
@@ -838,10 +843,14 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
       const done=Math.max(...summaries.map(s=>s.done));
       const missed=Math.max(...summaries.map(s=>s.missed));
       const remaining=summaries[0]?.remaining||0;
-      return <div style={{display:"flex",gap:16,marginBottom:12,marginTop:-6}}>
+      const used=shieldsUsed(logs,member.id,acts);
+      const left=4-used;
+      return <div style={{display:"flex",gap:12,marginBottom:12,marginTop:-6,flexWrap:"wrap"}}>
         <span style={{fontSize:12,color:C.done,fontWeight:600}}>✓ {done} done</span>
         <span style={{fontSize:12,color:C.missed,fontWeight:600}}>✗ {missed} missed</span>
-        {remaining>0&&<span style={{fontSize:12,color:C.muted}}>{remaining} remaining</span>}
+        {used>0&&<span style={{fontSize:12,color:"#1565C0",fontWeight:600}}>🛡️ {used} used</span>}
+        {used>0&&<span style={{fontSize:12,color:"#1976D2",fontWeight:600}}>🛡️ {left} left</span>}
+        {remaining>0&&<span style={{fontSize:12,color:C.muted}}>{remaining} days remaining</span>}
       </div>;
     })()}
 
