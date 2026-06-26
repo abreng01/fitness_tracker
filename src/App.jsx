@@ -55,11 +55,39 @@ function streakCount(al){
   while(true){
     const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
     const log=al[key];
+    // Shielded days keep the streak alive
     if(!log||log.status==="skipped") break;
     count++;
     d.setDate(d.getDate()-1);
   }
   return count;
+}
+
+// Count shields used this month across all activities for a member
+function shieldsUsed(logs, memberId, activities){
+  const today=todayStr();
+  const ym=today.slice(0,7); // YYYY-MM
+  let used=0;
+  const counted=new Set(); // count per date not per activity
+  for(const a of(activities||[])){
+    const al=getActivityLogs(logs,memberId,a.id);
+    for(const[d,l]of Object.entries(al)){
+      if(d.startsWith(ym)&&l.status==="shielded"&&!counted.has(d)){
+        counted.add(d);used++;
+      }
+    }
+  }
+  return used;
+}
+
+// ── All-time best value for an activity ──────────────────────────────────────
+function allTimeBest(al){
+  let best=0;
+  const today=todayStr();
+  for(const[d,l]of Object.entries(al)){
+    if(d<=today&&l.status!=="skipped"&&l.value>best) best=l.value;
+  }
+  return best;
 }
 
 // ── Consistency ───────────────────────────────────────────────────────────────
@@ -99,7 +127,9 @@ function dayStatus(member,logs,ds){
     return l?{status:l.status,value:l.value,target:a.target}:null;
   }).filter(Boolean);
   if(loggedActs.length===0) return "empty";
-  const doneActs=loggedActs.filter(l=>l.status!=="skipped");
+  // Shielded days are neither done nor skipped — special status
+  if(loggedActs.every(l=>l.status==="shielded")) return "shielded";
+  const doneActs=loggedActs.filter(l=>l.status!=="skipped"&&l.status!=="shielded");
   if(doneActs.length===0) return "skipped";
   return "done";
 }
@@ -434,7 +464,7 @@ function Toast({badge,onDismiss}){
 }
 
 // ── Multi-activity Log Modal ──────────────────────────────────────────────────
-function LogModal({dateStr,member,logs,onSaveAll,onClose}){
+function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
   const displayDate=new Date(dateStr+"T00:00:00").toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"short"});
   const init=member.activities.map(a=>{
     const ex=getActivityLogs(logs,member.id,a.id)[dateStr];
@@ -478,6 +508,14 @@ function LogModal({dateStr,member,logs,onSaveAll,onClose}){
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
         <button onClick={()=>onSaveAll(entries)} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:member.color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save all</button>
       </div>
+      {/* Shield option */}
+      {shieldsLeft>0&&<div style={{marginTop:10,padding:"10px 14px",background:"#E3F2FD",border:"1.5px solid #90CAF9",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+        <div>
+          <div style={{fontWeight:700,fontSize:13,color:"#1565C0"}}>🛡️ Use a shield</div>
+          <div style={{fontSize:11,color:"#1976D2"}}>{shieldsLeft} of 4 remaining this month · Protects your streak</div>
+        </div>
+        <button onClick={()=>onSaveAll(entries.map(e=>({...e,status:"shielded",value:0})))} style={{background:"#1976D2",color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12,whiteSpace:"nowrap"}}>Use shield</button>
+      </div>}
     </div>
   </div>;
 }
@@ -486,21 +524,25 @@ function LogModal({dateStr,member,logs,onSaveAll,onClose}){
 function CalCell({dateStr,member,logs,isToday,onClick}){
   const future=isFuture(dateStr);
   const status=future?"future":dayStatus(member,logs,dateStr);
-  const bg={future:"transparent",empty:C.empty,skipped:C.missed,done:C.done}[status]||C.empty;
+  const bg={future:"transparent",empty:C.empty,skipped:C.missed,done:C.done,shielded:"#B0BEC5"}[status]||C.empty;
 
-  // Check if any activity exceeded target on this day
+  // Check if any activity exceeded target or set a PB on this day
   const acts=member.activities||[];
   let aboveTarget=false;
+  let isPB=false;
   let displayVal=null;
   if(!future&&status==="done"&&acts.length>0){
     for(const a of acts){
-      const l=getActivityLogs(logs,member.id,a.id)[dateStr];
+      const al=getActivityLogs(logs,member.id,a.id);
+      const l=al[dateStr];
       if(l&&l.status!=="skipped"&&l.value>0){
         if(l.value>a.target){
           aboveTarget=true;
-          // Show value only for single-activity members, keeps it clean
           if(acts.length===1) displayVal=`${l.value}${a.unit}`;
         }
+        // PB: this day's value equals the all-time best AND it's above target
+        const best=allTimeBest(al);
+        if(l.value===best&&l.value>a.target) isPB=true;
       }
     }
   }
@@ -524,15 +566,16 @@ function CalCell({dateStr,member,logs,isToday,onClick}){
   }}
   onMouseEnter={e=>{if(!future)e.currentTarget.style.transform="scale(1.07)";}}
   onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)";}}>
-    {/* Star for above target */}
-    {aboveTarget&&<span style={{
-      position:"absolute",top:2,right:3,fontSize:8,lineHeight:1
-    }}>⭐</span>}
+    {/* Shield icon for protected days */}
+    {status==="shielded"&&<span style={{fontSize:16}}>🛡️</span>}
+    {/* PB crown or star for above target */}
+    {isPB&&<span style={{position:"absolute",top:1,right:2,fontSize:9,lineHeight:1}}>👑</span>}
+    {!isPB&&aboveTarget&&<span style={{position:"absolute",top:2,right:3,fontSize:8,lineHeight:1}}>⭐</span>}
     <span style={{fontSize:10,color:status==="empty"||future?C.muted:"#fff",fontWeight:600}}>
       {new Date(dateStr+"T00:00:00").getDate()}
     </span>
     {displayVal&&<span style={{fontSize:8,color:"rgba(255,255,255,0.9)",fontWeight:700,lineHeight:1}}>
-      {displayVal}
+      {isPB?"PB!":displayVal}
     </span>}
   </div>;
 }
@@ -735,6 +778,8 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
   const today=todayStr();
   const[showCal,setShowCal]=useState(true);
   const[showBadges,setShowBadges]=useState(false);
+  const[showStats,setShowStats]=useState(false);
+  const[showHeatmap,setShowHeatmap]=useState(false);
   const[modal,setModal]=useState(null);
 
   const acts=member.activities||[];
@@ -771,6 +816,9 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
         {bestStreak>0&&<div style={{display:"flex",alignItems:"center",gap:4,background:member.color+"18",border:`1px solid ${member.color}44`,borderRadius:99,padding:"3px 10px"}}>
           <span>🔥</span><span style={{fontSize:12,fontWeight:700,color:member.color}}>{bestStreak}d streak</span>
         </div>}
+        {(()=>{const sl=4-shieldsUsed(logs,member.id,acts);return sl<4&&<div style={{display:"flex",alignItems:"center",gap:3,background:"#E3F2FD",border:"1px solid #90CAF9",borderRadius:99,padding:"3px 9px"}}>
+          <span style={{fontSize:11}}>🛡️</span><span style={{fontSize:11,fontWeight:700,color:"#1565C0"}}>{sl} left</span>
+        </div>;})()}
         <button onClick={()=>onEdit(member)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"4px 10px",cursor:"pointer",fontSize:12,color:C.muted}}>✏️ Edit</button>
       </div>
     </div>
@@ -828,15 +876,24 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
       </div>
     </div>}
 
-    {/* Badges button */}
-    <div style={{borderTop:`1px solid ${C.border}`,marginTop:12,paddingTop:12,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+    {/* Heatmap toggle */}
+    <button onClick={()=>setShowHeatmap(s=>!s)} style={{background:"none",border:"none",cursor:"pointer",fontSize:11,color:member.color,fontWeight:600,padding:0,marginTop:4,marginBottom:showHeatmap?8:0}}>
+      {showHeatmap?"▾ Hide year view":"▸ Year view (heatmap)"}
+    </button>
+    {showHeatmap&&<HeatmapView member={member} logs={logs}/>}
+
+    {/* Badges + Stats footer */}
+    <div style={{borderTop:`1px solid ${C.border}`,marginTop:12,paddingTop:12,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
       <span style={{fontSize:12,color:C.muted}}><span style={{fontWeight:700,color:C.text}}>{allEarned.size}</span> / {personalBadges.length} badges earned</span>
-      <button onClick={()=>setShowBadges(true)} style={{background:member.color,color:"#fff",border:"none",borderRadius:8,
-        padding:"7px 16px",cursor:"pointer",fontWeight:700,fontSize:12}}>🏆 View badges</button>
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={()=>setShowStats(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:C.muted}}>📊 Stats</button>
+        <button onClick={()=>setShowBadges(true)} style={{background:member.color,color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12}}>🏆 Badges</button>
+      </div>
     </div>
     {showBadges&&<BadgeDrawer member={member} allEarned={allEarned} acts={acts} logs={logs} onClose={()=>setShowBadges(false)}/>}
+    {showStats&&<AllTimeStats member={member} logs={logs} onClose={()=>setShowStats(false)}/>}
 
-    {modal&&<LogModal dateStr={modal} member={member} logs={logs}
+    {modal&&<LogModal dateStr={modal} member={member} logs={logs} shieldsLeft={4-shieldsUsed(logs,member.id,acts)}
       onSaveAll={entries=>{
         const prev=new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,member.id,a.id),a.target,a.unit)));
         onLogAll(member.id,modal,entries);
@@ -907,6 +964,231 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
         {!isNew&&<button onClick={()=>{if(window.confirm("Remove?"))onDelete(member.id);}} style={{padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",cursor:"pointer",color:C.missed,fontWeight:600}}>Delete</button>}
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
         <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
+      </div>
+    </div>
+  </div>;
+}
+
+// ── Family Feed ──────────────────────────────────────────────────────────────
+function FamilyFeed({members,logs}){
+  const [expanded,setExpanded]=useState(false);
+  const today=todayStr();
+
+  // Collect all log entries across members and activities
+  const entries=[];
+  for(const m of members){
+    for(const a of(m.activities||[])){
+      const al=getActivityLogs(logs,m.id,a.id);
+      const best=allTimeBest(al);
+      for(const[d,l]of Object.entries(al)){
+        if(d>today) continue;
+        if(l.status==="shielded") continue;
+        entries.push({date:d,member:m,activity:a,log:l,isPB:l.value===best&&l.value>a.target,isAbove:l.value>a.target});
+      }
+    }
+  }
+  entries.sort((a,b)=>b.date.localeCompare(a.date));
+  const shown=expanded?entries.slice(0,30):entries.slice(0,6);
+
+  if(!entries.length) return null;
+
+  function relDate(ds){
+    const diff=Math.round((new Date(today)-new Date(ds))/86400000);
+    if(diff===0)return"Today";if(diff===1)return"Yesterday";
+    if(diff<7)return`${diff} days ago`;
+    return new Date(ds+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"});
+  }
+
+  return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:20,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
+    <div style={{fontWeight:700,fontSize:14,color:C.muted,marginBottom:14,letterSpacing:0.3}}>📣 FAMILY FEED</div>
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {shown.map((en,i)=>{
+        const isSkip=en.log.status==="skipped";
+        return <div key={`${en.member.id}-${en.activity.id}-${en.date}-${i}`} style={{
+          display:"flex",alignItems:"center",gap:10,
+          padding:"9px 12px",borderRadius:10,
+          background:isSkip?C.bg:en.isPB?"#FFFDE7":en.isAbove?C.done+"0F":C.bg,
+          border:`1px solid ${isSkip?C.border:en.isPB?"#F9A825":en.isAbove?C.done+"33":C.border}`,
+        }}>
+          <span style={{fontSize:20,flexShrink:0}}>{en.member.emoji}</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:600,color:C.text}}>
+              <span style={{fontWeight:700}}>{en.member.name}</span>
+              {isSkip
+                ?<span style={{color:C.muted}}> skipped {en.activity.name}</span>
+                :<span> · {en.activity.name}: <span style={{color:en.isPB?"#F9A825":en.isAbove?C.done:C.text,fontWeight:700}}>{en.log.value}{en.activity.unit}</span>
+                  {en.isPB&&" 👑"}{!en.isPB&&en.isAbove&&" ⭐"}
+                </span>}
+            </div>
+          </div>
+          <div style={{fontSize:11,color:C.muted,flexShrink:0,whiteSpace:"nowrap"}}>{relDate(en.date)}</div>
+        </div>;
+      })}
+    </div>
+    {entries.length>6&&<button onClick={()=>setExpanded(s=>!s)} style={{
+      marginTop:10,background:"none",border:"none",cursor:"pointer",
+      fontSize:12,color:C.muted,fontWeight:600,padding:0,width:"100%",textAlign:"center"
+    }}>{expanded?`▲ Show less`:`▾ Show ${Math.min(entries.length-6,24)} more`}</button>}
+  </div>;
+}
+
+// ── All-time Stats Panel ──────────────────────────────────────────────────────
+function AllTimeStats({member,logs,onClose}){
+  const today=todayStr();
+  const acts=member.activities||[];
+
+  const stats=acts.map(a=>{
+    const al=getActivityLogs(logs,member.id,a.id);
+    const entries=Object.entries(al).filter(([d])=>d<=today).sort(([x],[y])=>x.localeCompare(y));
+    const done=entries.filter(([,l])=>l.status!=="skipped"&&l.status!=="shielded"&&l.value>0);
+    const totalVol=done.reduce((s,[,l])=>s+l.value,0);
+    const best=done.reduce((b,[,l])=>Math.max(b,l.value),0);
+    const bestDay=done.find(([,l])=>l.value===best)?.[0];
+    const bestStrk=()=>{let b=0,r=0;for(const[,l]of entries){if(l.status!=="skipped"&&l.status!=="shielded"&&l.value>0){r++;b=Math.max(b,r);}else r=0;}return b;};
+    // Best month
+    const mons=[...new Set(done.map(([d])=>d.slice(0,7)))];
+    let bestMon={ym:"",count:0};
+    for(const ym of mons){const c=done.filter(([d])=>d.startsWith(ym)).length;if(c>bestMon.count)bestMon={ym,count:c};}
+    // Format vol
+    let volStr=`${totalVol}${a.unit}`;
+    if(a.unit==="sec"&&totalVol>=3600) volStr=`${(totalVol/3600).toFixed(1)}hrs (${totalVol}sec)`;
+    else if(a.unit==="sec"&&totalVol>=60) volStr=`${Math.floor(totalVol/60)}min ${totalVol%60}sec`;
+    return{a,totalDays:done.length,totalVol,volStr,best,bestDay,bestStreak:bestStrk(),bestMon};
+  });
+
+  const overallStreak=Math.max(0,...acts.map(a=>streakCount(getActivityLogs(logs,member.id,a.id))));
+  const trackStart=acts.flatMap(a=>Object.keys(getActivityLogs(logs,member.id,a.id))).sort()[0];
+  const trackDays=trackStart?Math.round((new Date(today)-new Date(trackStart))/86400000)+1:0;
+
+  return <>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
+    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(480px,92vw)",
+      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
+      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+
+      <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:28}}>{member.emoji}</span>
+          <div>
+            <div style={{fontWeight:800,fontSize:18}}>{member.name}</div>
+            <div style={{fontSize:12,color:C.muted}}>All-time stats · {trackDays} days tracking</div>
+          </div>
+        </div>
+        <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+      </div>
+
+      <div style={{flex:1,overflowY:"auto",padding:"20px 24px"}}>
+        {stats.map(s=><div key={s.a.id} style={{marginBottom:24}}>
+          <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:12,paddingBottom:8,borderBottom:`1px solid ${C.border}`}}>{s.a.name}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            {[
+              {label:"Total days logged",val:s.totalDays,icon:"📅"},
+              {label:"Total volume",val:s.volStr,icon:"📦"},
+              {label:"Personal best",val:`${s.best}${s.a.unit}`,icon:"👑",sub:s.bestDay?new Date(s.bestDay+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}):""},
+              {label:"Best streak ever",val:`${s.bestStreak} days`,icon:"🔥"},
+              {label:"Best month",val:s.bestMon.ym?`${s.bestMon.count} days`:"—",icon:"🗓️",sub:s.bestMon.ym?new Date(s.bestMon.ym+"-01").toLocaleDateString("en-IN",{month:"long",year:"numeric"}):""},
+            ].map(stat=><div key={stat.label} style={{background:C.bg,borderRadius:12,padding:"12px 14px"}}>
+              <div style={{fontSize:18,marginBottom:4}}>{stat.icon}</div>
+              <div style={{fontWeight:800,fontSize:16,color:C.text,lineHeight:1.2}}>{stat.val}</div>
+              {stat.sub&&<div style={{fontSize:10,color:C.muted,marginTop:2}}>{stat.sub}</div>}
+              <div style={{fontSize:11,color:C.muted,marginTop:3}}>{stat.label}</div>
+            </div>)}
+          </div>
+        </div>)}
+      </div>
+    </div>
+  </>;
+}
+
+// ── Heatmap View ─────────────────────────────────────────────────────────────
+function HeatmapView({member,logs}){
+  const today=todayStr();
+  const todayDate=new Date(today);
+  // Show last 52 weeks (364 days) + padding to start on Sunday
+  const endDate=new Date(todayDate);
+  const startDate=new Date(todayDate);
+  startDate.setDate(startDate.getDate()-363);
+  // Go back to nearest Sunday
+  startDate.setDate(startDate.getDate()-startDate.getDay());
+
+  const acts=member.activities||[];
+  // Build a map of date -> status
+  const dayMap={};
+  const d=new Date(startDate);
+  while(d<=endDate){
+    const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    let status="empty";
+    if(k<=today){
+      let anyDone=false,anyAbove=false,isPB=false;
+      for(const a of acts){
+        const al=getActivityLogs(logs,member.id,a.id);
+        const l=al[k];
+        if(l&&l.status==="shielded"){status="shielded";break;}
+        if(l&&l.status!=="skipped"&&l.value>0){
+          anyDone=true;
+          if(l.value>a.target) anyAbove=true;
+          if(l.value===allTimeBest(al)&&l.value>a.target) isPB=true;
+        } else if(l&&l.status==="skipped") status="skipped";
+      }
+      if(anyDone) status=isPB?"pb":anyAbove?"above":"done";
+    }
+    dayMap[k]=status;
+    d.setDate(d.getDate()+1);
+  }
+
+  // Build weeks array
+  const weeks=[];
+  const cur=new Date(startDate);
+  while(cur<=endDate){
+    const week=[];
+    for(let i=0;i<7;i++){
+      const k=`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(cur.getDate()).padStart(2,"0")}`;
+      week.push({k,status:dayMap[k]||"future",day:cur.getDate(),month:cur.getMonth()});
+      cur.setDate(cur.getDate()+1);
+    }
+    weeks.push(week);
+  }
+
+  const heatBg={
+    empty:"#E8E4DC",skipped:"#E05C5C",
+    done:"#3D9E6E",above:"#2E8B57",pb:"#1B5E20",
+    shielded:"#B0BEC5",future:"transparent"
+  };
+  // Month labels
+  const monthLabels=[];
+  weeks.forEach((wk,wi)=>{
+    const first=wk.find(d=>d.status!=="future");
+    if(first&&first.day<=7) monthLabels.push({wi,label:MONTHS[first.month]});
+  });
+
+  return <div style={{overflowX:"auto",paddingBottom:4}}>
+    <div style={{minWidth:Math.max(weeks.length*13,300)}}>
+      {/* Month labels */}
+      <div style={{display:"flex",marginBottom:2,marginLeft:0}}>
+        {weeks.map((wk,wi)=>{
+          const ml=monthLabels.find(l=>l.wi===wi);
+          return <div key={wi} style={{width:12,marginRight:1,fontSize:8,color:C.muted,flexShrink:0}}>{ml?ml.label:""}</div>;
+        })}
+      </div>
+      {/* Grid: 7 rows (days) × N cols (weeks) */}
+      {[0,1,2,3,4,5,6].map(dow=><div key={dow} style={{display:"flex",gap:1,marginBottom:1}}>
+        {weeks.map((wk,wi)=>{
+          const cell=wk[dow];
+          return <div key={wi} title={cell.k} style={{
+            width:11,height:11,borderRadius:2,flexShrink:0,
+            background:heatBg[cell.status]||"transparent",
+          }}/>;
+        })}
+      </div>)}
+      {/* Legend */}
+      <div style={{display:"flex",gap:10,marginTop:6,flexWrap:"wrap"}}>
+        {[{c:heatBg.done,l:"Done"},{c:heatBg.above,l:"Above target"},{c:heatBg.pb,l:"Personal best"},{c:heatBg.skipped,l:"Skipped"},{c:heatBg.shielded,l:"Shielded"},{c:heatBg.empty,l:"No log"}].map(x=>
+          <div key={x.l} style={{display:"flex",alignItems:"center",gap:3}}>
+            <div style={{width:9,height:9,borderRadius:2,background:x.c,border:`1px solid ${C.border}`}}/>
+            <span style={{fontSize:9,color:C.muted}}>{x.l}</span>
+          </div>
+        )}
       </div>
     </div>
   </div>;
@@ -988,6 +1270,8 @@ export default function App(){
         <div style={{fontSize:40,marginBottom:12}}>🌱</div>
         <div style={{fontSize:16,fontWeight:600}}>No members yet. Add one to get started.</div>
       </div>}
+
+      {members.length>0&&<FamilyFeed members={members} logs={logs}/>}
 
       {members.length>0&&<div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:20}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
