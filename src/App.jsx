@@ -524,7 +524,7 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
 function CalCell({dateStr,member,logs,isToday,onClick}){
   const future=isFuture(dateStr);
   const status=future?"future":dayStatus(member,logs,dateStr);
-  const bg={future:"transparent",empty:C.empty,skipped:C.missed,done:C.done,shielded:"#B0BEC5"}[status]||C.empty;
+  const bg={future:"transparent",empty:C.empty,skipped:C.missed,done:C.done,shielded:"#BBDEFB"}[status]||C.empty;
 
   // Check if any activity exceeded target or set a PB on this day
   const acts=member.activities||[];
