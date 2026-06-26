@@ -487,17 +487,53 @@ function CalCell({dateStr,member,logs,isToday,onClick}){
   const future=isFuture(dateStr);
   const status=future?"future":dayStatus(member,logs,dateStr);
   const bg={future:"transparent",empty:C.empty,skipped:C.missed,done:C.done}[status]||C.empty;
+
+  // Check if any activity exceeded target on this day
+  const acts=member.activities||[];
+  let aboveTarget=false;
+  let displayVal=null;
+  if(!future&&status==="done"&&acts.length>0){
+    for(const a of acts){
+      const l=getActivityLogs(logs,member.id,a.id)[dateStr];
+      if(l&&l.status!=="skipped"&&l.value>0){
+        if(l.value>a.target){
+          aboveTarget=true;
+          // Show value only for single-activity members, keeps it clean
+          if(acts.length===1) displayVal=`${l.value}${a.unit}`;
+        }
+      }
+    }
+  }
+
+  // Above target = richer green + gold border
+  const borderColor = aboveTarget
+    ? "#C9A800"
+    : isToday
+      ? member.color
+      : C.border;
+  const borderWidth = aboveTarget || isToday ? "2px" : "1px";
+  const bgColor = aboveTarget ? "#2E8B57" : bg; // deeper green for above target
+
   return <div onClick={()=>!future&&onClick(dateStr)} style={{
-    background:bg,border:isToday?`2px solid ${member.color}`:`1px solid ${C.border}`,
+    background:bgColor,
+    border:`${borderWidth} solid ${borderColor}`,
     borderRadius:7,minHeight:46,cursor:future?"default":"pointer",
-    opacity:future?0.3:1,display:"flex",alignItems:"center",justifyContent:"center",
-    transition:"transform 0.1s",
+    opacity:future?0.3:1,display:"flex",flexDirection:"column",
+    alignItems:"center",justifyContent:"center",gap:1,
+    transition:"transform 0.1s",position:"relative",
   }}
   onMouseEnter={e=>{if(!future)e.currentTarget.style.transform="scale(1.07)";}}
   onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)";}}>
+    {/* Star for above target */}
+    {aboveTarget&&<span style={{
+      position:"absolute",top:2,right:3,fontSize:8,lineHeight:1
+    }}>⭐</span>}
     <span style={{fontSize:10,color:status==="empty"||future?C.muted:"#fff",fontWeight:600}}>
       {new Date(dateStr+"T00:00:00").getDate()}
     </span>
+    {displayVal&&<span style={{fontSize:8,color:"rgba(255,255,255,0.9)",fontWeight:700,lineHeight:1}}>
+      {displayVal}
+    </span>}
   </div>;
 }
 
