@@ -859,6 +859,41 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
       </div>;
     })()}
 
+    {/* PB Tile */}
+    {(()=>{
+      const pbs=acts.map(a=>{
+        const al=getActivityLogs(logs,member.id,a.id);
+        const today=todayStr();
+        const entries=Object.entries(al).filter(([d])=>d<=today);
+        let bestVal=0,bestDate=null;
+        for(const[d,l]of entries){
+          if(l.status!=="skipped"&&l.status!=="shielded"&&l.value>bestVal){
+            bestVal=l.value;bestDate=d;
+          }
+        }
+        return bestVal>0?{act:a,val:bestVal,date:bestDate}:null;
+      }).filter(Boolean);
+      if(!pbs.length) return null;
+      return <div style={{
+        background:"#FFFDE7",border:"1.5px solid #F9A825",
+        borderRadius:10,padding:"10px 14px",marginBottom:12,
+      }}>
+        <div style={{fontSize:11,fontWeight:700,color:"#F57F17",letterSpacing:0.5,marginBottom:6}}>👑 PERSONAL BEST{pbs.length>1?"S":""}</div>
+        {pbs.map(({act,val,date})=>(
+          <div key={act.id} style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:pbs.length>1?4:0}}>
+            <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+              {pbs.length>1&&<span style={{fontSize:12,color:"#795548"}}>{act.name}</span>}
+              <span style={{fontSize:22,fontWeight:800,color:"#E65100",lineHeight:1}}>{val}</span>
+              <span style={{fontSize:13,fontWeight:600,color:"#E65100"}}>{act.unit}</span>
+            </div>
+            <span style={{fontSize:11,color:"#795548"}}>
+              {date?new Date(date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}):""}
+            </span>
+          </div>
+        ))}
+      </div>;
+    })()}
+
     {/* Today */}
     <div style={{background:member.color+"0E",border:`1px solid ${member.color}28`,borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
       <div style={{flex:1,minWidth:0}}>
