@@ -130,7 +130,7 @@ function dayStatus(member,logs,ds){
   if(!acts.length) return "empty";
   const loggedActs=acts.map(a=>{
     const l=getActivityLogs(logs,member.id,a.id)[ds];
-    return l?{status:l.status,value:l.value,target:a.target}:null;
+    return l?{status:l.status,value:l.value,target:l.target||a.target}:null;
   }).filter(Boolean);
   if(loggedActs.length===0) return "empty";
   // Shielded days are neither done nor skipped — special status
@@ -545,13 +545,14 @@ function CalCell({dateStr,member,logs,isToday,onClick}){
       const al=getActivityLogs(logs,member.id,a.id);
       const l=al[dateStr];
       if(l&&l.status!=="skipped"&&l.value>0){
-        if(l.value>a.target){
+        const effectiveTarget=l.target||a.target; // use stored target if available
+        if(l.value>effectiveTarget){
           aboveTarget=true;
           if(acts.length===1) displayVal=`${l.value}${a.unit}`;
         }
-        // PB: this day's value equals the all-time best AND it's above target
+        // PB: this day's value equals the all-time best AND it's above effective target
         const best=allTimeBest(al);
-        if(l.value===best&&l.value>a.target) isPB=true;
+        if(l.value===best&&l.value>effectiveTarget) isPB=true;
       }
     }
   }
@@ -902,12 +903,17 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
 
     {modal&&<LogModal dateStr={modal} member={member} logs={logs} shieldsLeft={4-shieldsUsed(logs,member.id,acts)}
       onSaveAll={entries=>{
+        // Stamp current target onto each entry so history is preserved
+        const stampedEntries=entries.map(e=>{
+          const act=acts.find(a=>a.id===e.actId);
+          return act?{...e,target:act.target}:e;
+        });
         const prev=new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,member.id,a.id),a.target,a.unit)));
-        onLogAll(member.id,modal,entries);
+        onLogAll(member.id,modal,stampedEntries);
         setTimeout(()=>{
           const next=acts.flatMap(a=>{
-            const en=entries.find(e=>e.actId===a.id);if(!en)return[];
-            const nl={...getActivityLogs(logs,member.id,a.id),[modal]:{value:en.value,status:en.status}};
+            const en=stampedEntries.find(e=>e.actId===a.id);if(!en)return[];
+            const nl={...getActivityLogs(logs,member.id,a.id),[modal]:{value:en.value,status:en.status,target:en.target}};
             return earnedBadges(nl,a.target,a.unit);
           });
           next.filter(id=>!prev.has(id)).forEach(id=>{const b=BADGES.find(x=>x.id===id);if(b)onNewBadge(b);});
