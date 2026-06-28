@@ -176,6 +176,28 @@ function migrateData(raw){
   return { members, logs };
 }
 
+// ── Volume formatter ─────────────────────────────────────────────────────────
+function formatVol(val, unit){
+  if(unit==="sec"){
+    const h=Math.floor(val/3600);
+    const m=Math.floor((val%3600)/60);
+    const s=val%60;
+    if(h>0) return `${h}h ${m}m ${s}s`;
+    if(m>0) return `${m}m ${s}s`;
+    return `${s}s`;
+  }
+  if(unit==="min"){
+    const h=Math.floor(val/60);
+    const m=val%60;
+    return h>0?`${h}h ${m}m`:`${m}m`;
+  }
+  if(unit==="km") return `${val.toFixed(1)} km`;
+  if(unit==="miles") return `${val.toFixed(1)} mi`;
+  if(unit==="steps") return `${val.toLocaleString()} steps`;
+  if(unit==="cal") return `${val} cal`;
+  return `${val} ${unit}`;
+}
+
 // ── Badge Engine ──────────────────────────────────────────────────────────────
 const BADGES=[
   {id:"streak_3",  e:"🌱",label:"Seedling",         desc:"3-day streak",                    tier:"bronze",check:s=>s.bestStreak>=3},
@@ -1242,6 +1264,197 @@ function HeatmapView({member,logs}){
   </div>;
 }
 
+// ── Family Dashboard (Family Tab) ────────────────────────────────────────────
+function FamilyDashboard({members, logs, yr, mo, MONTHS}){
+  const today = todayStr();
+
+  // Compute per-member stats
+  const memberStats = members.map(m => {
+    const acts = m.activities || [];
+    const pcts = acts.map(a => consPct(getActivityLogs(logs, m.id, a.id), yr, mo));
+    const avgPct = pcts.length ? Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length) : 0;
+
+    // Done/missed this month
+    const summaries = acts.map(a => monthSummary(getActivityLogs(logs, m.id, a.id), yr, mo));
+    const done = summaries.length ? Math.max(...summaries.map(s=>s.done)) : 0;
+    const missed = summaries.length ? Math.max(...summaries.map(s=>s.missed)) : 0;
+
+    // Streaks
+    const streaks = acts.map(a => streakCount(getActivityLogs(logs, m.id, a.id)));
+    const curStreak = streaks.length ? Math.max(...streaks) : 0;
+
+    // Best streak ever
+    let bestEver = 0;
+    for(const a of acts){
+      const al = getActivityLogs(logs, m.id, a.id);
+      const entries = Object.entries(al).filter(([d])=>d<=today).sort(([x],[y])=>x.localeCompare(y));
+      let run=0;
+      for(const[,l]of entries){
+        if(l.status!=="skipped"&&l.status!=="shielded"&&l.value>0){run++;if(run>bestEver)bestEver=run;}
+        else run=0;
+      }
+    }
+
+    const shields = shieldsUsed(logs, m.id, acts);
+    const allEarned = new Set(acts.flatMap(a => earnedBadges(getActivityLogs(logs,m.id,a.id), a.target, a.unit)));
+    const personalBadges = BADGES.filter(b=>!FAM_IDS.has(b.id));
+
+    // All-time volume per activity
+    const volumes = acts.map(a => {
+      const al = getActivityLogs(logs, m.id, a.id);
+      let total = 0;
+      for(const[d,l] of Object.entries(al)){
+        if(d<=today&&l.status!=="skipped"&&l.status!=="shielded"&&l.value>0) total+=l.value;
+      }
+      return { act: a, total, formatted: formatVol(total, a.unit) };
+    }).filter(v => v.total > 0);
+
+    return { m, avgPct, done, missed, curStreak, bestEver, shields, badgeCount: allEarned.size, totalBadges: personalBadges.length, volumes };
+  });
+
+  // Sort by consistency for podium
+  const ranked = [...memberStats].sort((a,b) => b.avgPct - a.avgPct);
+
+  // Collect all unique activities across all members for volume table
+  const allActivities = [];
+  const seenActs = new Set();
+  for(const m of members){
+    for(const a of(m.activities||[])){
+      if(!seenActs.has(a.name)){ seenActs.add(a.name); allActivities.push(a); }
+    }
+  }
+
+  const statRows = [
+    { label: "Consistency",    key: "avgPct",     fmt: v => `${v}%`,   highlight: true },
+    { label: "Days done",      key: "done",       fmt: v => v },
+    { label: "Days missed",    key: "missed",     fmt: v => v,         lowBetter: true },
+    { label: "Current streak", key: "curStreak",  fmt: v => v?`🔥 ${v}d`:"—" },
+    { label: "Best streak",    key: "bestEver",   fmt: v => v?`${v}d`:"—" },
+    { label: "Shields used",   key: "shields",    fmt: v => v?`🛡️ ${v}`:"—" },
+    { label: "Badges earned",  key: "badgeCount", fmt: (v,s) => `${v}/${s.totalBadges}` },
+  ];
+
+  const podiumOrder = ranked.length >= 2 ? [ranked[1], ranked[0], ranked[2]].filter(Boolean) : ranked;
+  const podiumHeights = [140, 180, 110];
+  const podiumColors = ["#C0C0C0", "#FFD700", "#CD7F32"];
+  const podiumLabels = ["🥈 2nd", "🥇 1st", "🥉 3rd"];
+
+  return <div style={{display:"flex",flexDirection:"column",gap:16}}>
+
+    {/* Podium */}
+    <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
+      <div style={{fontWeight:700,fontSize:14,color:C.muted,letterSpacing:0.5,marginBottom:20}}>🏆 {MONTHS[mo].toUpperCase()} LEADERBOARD</div>
+      <div style={{display:"flex",alignItems:"flex-end",justifyContent:"center",gap:12,marginBottom:16}}>
+        {podiumOrder.map((s,i)=>{
+          const height = podiumHeights[i];
+          const color = podiumColors[i];
+          const label = podiumLabels[i];
+          return <div key={s.m.id} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8}}>
+            {/* Member info above podium */}
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:28,marginBottom:2}}>{s.m.emoji}</div>
+              <div style={{fontWeight:700,fontSize:14,color:C.text}}>{s.m.name}</div>
+              <div style={{fontWeight:800,fontSize:22,color:s.m.color,lineHeight:1}}>{s.avgPct}%</div>
+              {s.curStreak>0&&<div style={{fontSize:11,color:C.muted}}>🔥 {s.curStreak}d streak</div>}
+            </div>
+            {/* Podium block */}
+            <div style={{
+              width:90,height:height,background:`linear-gradient(180deg, ${color}dd, ${color}88)`,
+              borderRadius:"10px 10px 0 0",display:"flex",flexDirection:"column",
+              alignItems:"center",justifyContent:"flex-start",paddingTop:10,
+              boxShadow:`0 4px 12px ${color}44`,
+            }}>
+              <div style={{fontSize:13,fontWeight:700,color:"#fff",textShadow:"0 1px 3px rgba(0,0,0,0.3)"}}>{label}</div>
+            </div>
+          </div>;
+        })}
+      </div>
+      {/* Podium base */}
+      <div style={{height:8,background:`linear-gradient(90deg, ${C.border}, ${C.muted}44, ${C.border})`,borderRadius:4,margin:"0 20px"}}/>
+    </div>
+
+    {/* Stats scorecard */}
+    <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
+      <div style={{fontWeight:700,fontSize:14,color:C.muted,letterSpacing:0.5,marginBottom:16}}>📊 THIS MONTH · {MONTHS[mo].toUpperCase()}</div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:320}}>
+          <thead>
+            <tr>
+              <th style={{textAlign:"left",fontSize:11,color:C.muted,fontWeight:600,padding:"6px 12px 6px 0",borderBottom:`1px solid ${C.border}`}}></th>
+              {members.map(m=><th key={m.id} style={{textAlign:"center",fontSize:13,fontWeight:700,color:m.color,padding:"6px 12px",borderBottom:`1px solid ${C.border}`}}>{m.name}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {statRows.map((row,ri)=>{
+              const vals = memberStats.map(s => row.key==="badgeCount" ? s[row.key] : s[row.key]);
+              const best = row.lowBetter ? Math.min(...vals) : Math.max(...vals);
+              return <tr key={row.key} style={{background:ri%2===0?"transparent":C.bg+"88"}}>
+                <td style={{fontSize:12,color:C.muted,fontWeight:600,padding:"10px 12px 10px 0",whiteSpace:"nowrap"}}>{row.label}</td>
+                {memberStats.map(s=>{
+                  const val = s[row.key];
+                  const isLeader = members.length>1 && val===best && vals.filter(v=>v===best).length<vals.length;
+                  return <td key={s.m.id} style={{
+                    textAlign:"center",padding:"10px 12px",
+                    fontSize:13,fontWeight:isLeader?700:400,
+                    color:isLeader?s.m.color:C.text,
+                    background:isLeader?s.m.color+"0F":"transparent",
+                    borderRadius:6,
+                  }}>{row.fmt(val,s)}</td>;
+                })}
+              </tr>;
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {/* Volume / All-time stats */}
+    <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
+      <div style={{fontWeight:700,fontSize:14,color:C.muted,letterSpacing:0.5,marginBottom:16}}>📦 ALL-TIME VOLUME</div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:320}}>
+          <thead>
+            <tr>
+              <th style={{textAlign:"left",fontSize:11,color:C.muted,fontWeight:600,padding:"6px 12px 6px 0",borderBottom:`1px solid ${C.border}`}}>Activity</th>
+              {members.map(m=><th key={m.id} style={{textAlign:"center",fontSize:13,fontWeight:700,color:m.color,padding:"6px 12px",borderBottom:`1px solid ${C.border}`}}>{m.name}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {allActivities.map((act,ri)=><tr key={act.id} style={{background:ri%2===0?"transparent":C.bg+"88"}}>
+              <td style={{fontSize:12,color:C.muted,fontWeight:600,padding:"10px 12px 10px 0"}}>{act.name}</td>
+              {memberStats.map(s=>{
+                const vol = s.volumes.find(v=>v.act.name===act.name);
+                return <td key={s.m.id} style={{textAlign:"center",padding:"10px 12px",fontSize:13,color:vol?C.text:C.muted}}>
+                  {vol?vol.formatted:"—"}
+                </td>;
+              })}
+            </tr>)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {/* Family badges */}
+    {(()=>{
+      const fb = earnedFamBadges(members, logs);
+      const famBadgeDefs = BADGES.filter(b=>FAM_IDS.has(b.id));
+      const fbIds = new Set(fb.map(b=>b.id));
+      return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
+        <div style={{fontWeight:700,fontSize:14,color:C.muted,letterSpacing:0.5,marginBottom:12}}>👨‍👩‍👦 FAMILY BADGES · {fb.length}/{famBadgeDefs.length} earned</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+          {famBadgeDefs.map(b=>{
+            const earned=fbIds.has(b.id);const tc=TC[b.tier];
+            return <div key={b.id} title={b.desc} style={{display:"flex",alignItems:"center",gap:6,background:earned?tc.bg:C.bg,border:`1.5px solid ${earned?tc.bd:C.border}`,borderRadius:10,padding:"6px 10px",opacity:earned?1:0.4,filter:earned?"none":"grayscale(1)"}}>
+              <span style={{fontSize:18}}>{b.e}</span>
+              <div><div style={{fontSize:11,fontWeight:700,color:earned?tc.tx:C.muted}}>{b.label}</div><div style={{fontSize:10,color:C.muted}}>{b.desc}</div></div>
+            </div>;
+          })}
+        </div>
+      </div>;
+    })()}
+  </div>;
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function App(){
   const[members,setMembers]=useState(DEF_MEMBERS);
@@ -1300,10 +1513,6 @@ export default function App(){
 
   if(!loaded) return <div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{color:C.muted,fontSize:16}}>Loading…</div></div>;
 
-  const fb=earnedFamBadges(members,logs);
-  const famBadgeDefs=BADGES.filter(b=>FAM_IDS.has(b.id));
-  const fbIds=new Set(fb.map(b=>b.id));
-
   return <div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter','Helvetica Neue',sans-serif",color:C.text}}>
     <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"16px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
       <div>
@@ -1351,58 +1560,7 @@ export default function App(){
       ))}
 
       {/* Family tab */}
-      {activeTab===null&&members.length>0&&<div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:20}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-          <div style={{fontWeight:700,fontSize:14,color:C.muted}}>FAMILY SUMMARY · {MONTHS[mo].toUpperCase()}</div>
-          {/* Monthly leaderboard */}
-          <div style={{display:"flex",gap:6,alignItems:"center"}}>
-            {[...members]
-              .map(m=>{
-                const acts=m.activities||[];
-                const pcts=acts.map(a=>consPct(getActivityLogs(logs,m.id,a.id),yr,mo));
-                const avg=pcts.length?Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length):0;
-                return{m,avg};
-              })
-              .sort((a,b)=>b.avg-a.avg)
-              .map(({m,avg},i)=>(
-                <div key={m.id} style={{display:"flex",alignItems:"center",gap:5,
-                  background:i===0?m.color+"18":C.bg,
-                  border:`1.5px solid ${i===0?m.color+"44":C.border}`,
-                  borderRadius:99,padding:"4px 10px"}}>
-                  <span style={{fontSize:12}}>{i===0?"🥇":i===1?"🥈":"🥉"}</span>
-                  <span style={{fontSize:12}}>{m.emoji}</span>
-                  <span style={{fontSize:12,fontWeight:700,color:i===0?m.color:C.muted}}>{avg}%</span>
-                </div>
-              ))}
-          </div>
-        </div>
-        <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
-          {members.map(m=>{
-            const acts=m.activities||[];
-            const pcts=acts.map(a=>consPct(getActivityLogs(logs,m.id,a.id),yr,mo));
-            const avgP=pcts.length?Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length):0;
-            const stks=acts.map(a=>streakCount(getActivityLogs(logs,m.id,a.id)));
-            const bs=stks.length?Math.max(...stks):0;
-            return <div key={m.id} style={{flex:1,minWidth:140,background:m.color+"10",border:`1px solid ${m.color}30`,borderRadius:12,padding:14}}>
-              <div style={{fontSize:18,marginBottom:4}}>{m.emoji}</div>
-              <div style={{fontWeight:700,fontSize:14}}>{m.name}</div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:8}}>{acts.map(a=>a.name).join(" · ")}</div>
-              <ConsistencyBar pct={avgP}/>
-              <div style={{fontSize:12,fontWeight:700,color:avgP>=80?C.done:avgP>=50?C.partial:C.missed,marginTop:5}}>{avgP}%</div>
-              {bs>0&&<div style={{fontSize:11,color:C.muted,marginTop:3}}>🔥 {bs}d streak</div>}
-            </div>;
-          })}
-        </div>
-        <div style={{borderTop:`1px solid ${C.border}`,paddingTop:14}}>
-          <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>👨‍👩‍👦 FAMILY BADGES · {fb.length}/{famBadgeDefs.length} earned</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-            {famBadgeDefs.map(b=>{const earned=fbIds.has(b.id);const tc=TC[b.tier];return <div key={b.id} title={b.desc} style={{display:"flex",alignItems:"center",gap:6,background:earned?tc.bg:C.bg,border:`1.5px solid ${earned?tc.bd:C.border}`,borderRadius:10,padding:"6px 10px",opacity:earned?1:0.4,filter:earned?"none":"grayscale(1)"}}>
-              <span style={{fontSize:18}}>{b.e}</span>
-              <div><div style={{fontSize:11,fontWeight:700,color:earned?tc.tx:C.muted}}>{b.label}</div><div style={{fontSize:10,color:C.muted}}>{b.desc}</div></div>
-            </div>;})}
-          </div>
-        </div>
-      </div>}
+      {activeTab===null&&members.length>0&&<FamilyDashboard members={members} logs={logs} yr={yr} mo={mo} MONTHS={MONTHS}/>}
     </div>
 
     {toasts.length>0&&<Toast badge={toasts[0]} onDismiss={()=>setToasts(q=>q.slice(1))}/>}
