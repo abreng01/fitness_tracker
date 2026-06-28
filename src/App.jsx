@@ -1214,6 +1214,7 @@ export default function App(){
   const[loaded,setLoaded]=useState(false);
   const[editM,setEditM]=useState(null);
   const[toasts,setToasts]=useState([]);
+  const[activeTab,setActiveTab]=useState(null); // null = show all (family summary)
   const mRef=useRef(members);const lRef=useRef(logs);
   mRef.current=members;lRef.current=logs;
   const mInit=useRef(false);const lInit=useRef(false);
@@ -1231,6 +1232,13 @@ export default function App(){
       setLoaded(true);
     })();
   },[]);
+
+  // Set active tab to first member once loaded
+  useEffect(()=>{
+    if(loaded&&members.length>0&&activeTab===null){
+      setActiveTab(members[0].id);
+    }
+  },[loaded]);
 
   useEffect(()=>{if(!loaded)return;if(!mInit.current){mInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current});},[members,loaded]);
   useEffect(()=>{if(!loaded)return;if(!lInit.current){lInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current});},[logs,loaded]);
@@ -1275,16 +1283,40 @@ export default function App(){
       </div>
     </div>
 
-    <div style={{maxWidth:860,margin:"0 auto",padding:"24px 16px",display:"flex",flexDirection:"column",gap:20}}>
-      {members.map(m=><MemberCard key={m.id} member={m} logs={logs} allMembers={members}
-        onLogAll={handleLogAll} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo}/>)}
+    {/* Tab bar */}
+    {members.length>0&&<div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,position:"sticky",top:65,zIndex:40}}>
+      <div style={{maxWidth:860,margin:"0 auto",padding:"0 16px",display:"flex",gap:0,overflowX:"auto"}}>
+        {members.map(m=>(
+          <button key={m.id} onClick={()=>setActiveTab(m.id)} style={{
+            padding:"12px 20px",border:"none",borderBottom:`3px solid ${activeTab===m.id?m.color:"transparent"}`,
+            background:"none",cursor:"pointer",fontWeight:activeTab===m.id?700:500,
+            fontSize:14,color:activeTab===m.id?m.color:C.muted,
+            whiteSpace:"nowrap",transition:"all 0.15s",
+          }}>{m.name}</button>
+        ))}
+        <button onClick={()=>setActiveTab(null)} style={{
+          padding:"12px 20px",border:"none",borderBottom:`3px solid ${activeTab===null?C.done:"transparent"}`,
+          background:"none",cursor:"pointer",fontWeight:activeTab===null?700:500,
+          fontSize:14,color:activeTab===null?C.done:C.muted,
+          whiteSpace:"nowrap",transition:"all 0.15s",
+        }}>Family</button>
+      </div>
+    </div>}
 
+    <div style={{maxWidth:860,margin:"0 auto",padding:"24px 16px",display:"flex",flexDirection:"column",gap:20}}>
       {members.length===0&&<div style={{textAlign:"center",padding:60,color:C.muted}}>
         <div style={{fontSize:40,marginBottom:12}}>🌱</div>
         <div style={{fontSize:16,fontWeight:600}}>No members yet. Add one to get started.</div>
       </div>}
 
-      {members.length>0&&<div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:20}}>
+      {/* Individual member tab */}
+      {activeTab&&members.filter(m=>m.id===activeTab).map(m=>(
+        <MemberCard key={m.id} member={m} logs={logs} allMembers={members}
+          onLogAll={handleLogAll} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo}/>
+      ))}
+
+      {/* Family tab */}
+      {activeTab===null&&members.length>0&&<div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:20}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
           <div style={{fontWeight:700,fontSize:14,color:C.muted}}>FAMILY SUMMARY · {MONTHS[mo].toUpperCase()}</div>
           {/* Monthly leaderboard */}
