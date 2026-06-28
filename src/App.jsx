@@ -124,6 +124,37 @@ function monthSummary(al,y,m){
   return{done,missed,remaining};
 }
 
+// ── Member-level consistency (handles alternating) ───────────────────────────
+function memberConsPct(member, logs, y, m){
+  if(!member.alternating) {
+    // Average across all activities
+    const acts=member.activities||[];
+    const pcts=acts.map(a=>consPct(getActivityLogs(logs,member.id,a.id),y,m));
+    return pcts.length?Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length):0;
+  }
+  // Alternating: day is done if ANY activity was done
+  const today=todayStr();
+  const acts=member.activities||[];
+  let done=0,app=0;
+  const dim_=daysInMonth(y,m);
+  for(let d=1;d<=dim_;d++){
+    const k=`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    if(k>today) continue;
+    app++;
+    const anyDone=acts.some(a=>{
+      const l=getActivityLogs(logs,member.id,a.id)[k];
+      return l&&l.status!=="skipped"&&l.status!=="shielded"&&l.value>0;
+    });
+    const anyShielded=acts.some(a=>{
+      const l=getActivityLogs(logs,member.id,a.id)[k];
+      return l&&l.status==="shielded";
+    });
+    if(anyShielded){done++;continue;} // shield counts
+    if(anyDone) done++;
+  }
+  return app===0?0:Math.round((done/app)*100);
+}
+
 // ── Day status for calendar cell ──────────────────────────────────────────────
 function dayStatus(member,logs,ds){
   const acts=member.activities||[];
@@ -133,10 +164,12 @@ function dayStatus(member,logs,ds){
     return l?{status:l.status,value:l.value,target:l.target||a.target}:null;
   }).filter(Boolean);
   if(loggedActs.length===0) return "empty";
-  // Shielded days are neither done nor skipped — special status
   if(loggedActs.every(l=>l.status==="shielded")) return "shielded";
   const doneActs=loggedActs.filter(l=>l.status!=="skipped"&&l.status!=="shielded");
   if(doneActs.length===0) return "skipped";
+  // For alternating members: any done = full green
+  // For regular members: all must be done for full green
+  if(member.alternating) return "done";
   return "done";
 }
 
@@ -551,6 +584,118 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
   </div>;
 }
 
+// ── Alternating Log Modal (pick one or more activities) ──────────────────────
+function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
+  const displayDate=new Date(dateStr+"T00:00:00").toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"short"});
+  const acts=member.activities||[];
+
+  // Build initial state
+  const init=acts.map(a=>{
+    const ex=getActivityLogs(logs,member.id,a.id)[dateStr];
+    return{actId:a.id,selected:ex&&ex.status!=="skipped"&&ex.status!=="shielded",status:ex?.status??"none",value:ex?.value??a.target};
+  });
+  const[entries,setEntries]=useState(init);
+  const[isRest,setIsRest]=useState(init.every(e=>e.status==="skipped"));
+
+  const toggleAct=(actId)=>{
+    setIsRest(false);
+    setEntries(p=>p.map(e=>e.actId===actId?{...e,selected:!e.selected,status:!e.selected?"done":"none"}:e));
+  };
+  const updVal=(actId,val)=>setEntries(p=>p.map(e=>e.actId===actId?{...e,value:val}:e));
+  const isDecimal=(u)=>["km","miles","kg","hrs"].includes(u);
+  const anySelected=entries.some(e=>e.selected);
+
+  const handleSave=()=>{
+    const result=acts.map(a=>{
+      const en=entries.find(e=>e.actId===a.id);
+      if(isRest) return{actId:a.id,value:0,status:"skipped",target:a.target};
+      if(en?.selected) return{actId:a.id,value:en.value,status:"done",target:a.target};
+      return{actId:a.id,value:0,status:"skipped",target:a.target};
+    });
+    onSaveAll(result);
+  };
+
+  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
+    <div style={{background:C.surface,borderRadius:18,padding:24,width:"100%",maxWidth:360,boxShadow:"0 8px 40px rgba(0,0,0,0.2)",maxHeight:"88vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+        <span style={{fontSize:26}}>{member.emoji}</span>
+        <div><div style={{fontWeight:700,fontSize:16}}>{member.name}</div><div style={{fontSize:12,color:C.muted}}>{displayDate}</div></div>
+      </div>
+
+      {/* Activity selector */}
+      <div style={{fontSize:12,fontWeight:700,color:C.muted,marginBottom:10,letterSpacing:0.3}}>WHAT DID YOU DO TODAY?</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:16}}>
+        {acts.map(a=>{
+          const en=entries.find(e=>e.actId===a.id);
+          const selected=en?.selected&&!isRest;
+          return <div key={a.id}>
+            <div onClick={()=>toggleAct(a.id)} style={{
+              display:"flex",alignItems:"center",gap:12,padding:"12px 14px",
+              borderRadius:10,border:`2px solid ${selected?member.color:C.border}`,
+              background:selected?member.color+"0F":"transparent",cursor:"pointer",
+              transition:"all 0.15s",
+            }}>
+              <div style={{
+                width:22,height:22,borderRadius:"50%",flexShrink:0,
+                background:selected?member.color:C.border,
+                display:"flex",alignItems:"center",justifyContent:"center",
+              }}>
+                {selected&&<span style={{color:"#fff",fontSize:13,fontWeight:700}}>✓</span>}
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:600,fontSize:14,color:C.text}}>{a.name}</div>
+                <div style={{fontSize:11,color:C.muted}}>Target: {a.target} {a.unit}</div>
+              </div>
+            </div>
+            {/* Value input when selected */}
+            {selected&&<div style={{display:"flex",alignItems:"center",gap:10,background:member.color+"0D",borderRadius:"0 0 10px 10px",padding:"10px 14px",marginTop:-4}}>
+              <input type="number" min={0} step={isDecimal(a.unit)?0.1:1}
+                value={en.value} onChange={e=>updVal(a.id,parseFloat(e.target.value)||0)}
+                style={{flex:1,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,fontSize:20,fontWeight:700,outline:"none",background:"#fff"}}/>
+              <span style={{fontSize:13,color:C.muted,fontWeight:600,minWidth:28}}>{a.unit}</span>
+            </div>}
+          </div>;
+        })}
+
+        {/* Rest day option */}
+        <div onClick={()=>{setIsRest(r=>!r);if(!isRest)setEntries(p=>p.map(e=>({...e,selected:false})));}} style={{
+          display:"flex",alignItems:"center",gap:12,padding:"12px 14px",
+          borderRadius:10,border:`2px solid ${isRest?C.missed:C.border}`,
+          background:isRest?C.missed+"0F":"transparent",cursor:"pointer",transition:"all 0.15s",
+        }}>
+          <div style={{width:22,height:22,borderRadius:"50%",flexShrink:0,background:isRest?C.missed:C.border,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            {isRest&&<span style={{color:"#fff",fontSize:13,fontWeight:700}}>✓</span>}
+          </div>
+          <div>
+            <div style={{fontWeight:600,fontSize:14,color:C.text}}>Rest day</div>
+            <div style={{fontSize:11,color:C.muted}}>Skip today — streak will break</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
+        <button onClick={handleSave} disabled={!anySelected&&!isRest} style={{
+          flex:2,padding:"10px 0",borderRadius:8,border:"none",
+          background:(!anySelected&&!isRest)?C.border:member.color,
+          color:"#fff",cursor:(!anySelected&&!isRest)?"not-allowed":"pointer",fontWeight:700,fontSize:14,
+        }}>Save</button>
+      </div>
+
+      {/* Shield option */}
+      {shieldsLeft>0&&<div style={{marginTop:10,padding:"10px 14px",background:"#E3F2FD",border:"1.5px solid #90CAF9",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+        <div>
+          <div style={{fontWeight:700,fontSize:13,color:"#1565C0"}}>🛡️ Use a shield</div>
+          <div style={{fontSize:11,color:"#1976D2"}}>{shieldsLeft} of 4 remaining · Protects your streak</div>
+        </div>
+        <button onClick={()=>onSaveAll(acts.map(a=>({actId:a.id,value:0,status:"shielded",target:a.target})))} style={{background:"#1976D2",color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12,whiteSpace:"nowrap"}}>Use shield</button>
+      </div>}
+    </div>
+  </div>;
+}
+
 // ── Calendar Cell ─────────────────────────────────────────────────────────────
 function CalCell({dateStr,member,logs,isToday,onClick}){
   const future=isFuture(dateStr);
@@ -815,8 +960,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
   const[modal,setModal]=useState(null);
 
   const acts=member.activities||[];
-  const pcts=acts.map(a=>consPct(getActivityLogs(logs,member.id,a.id),year,month));
-  const avgPct=pcts.length?Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length):0;
+  const avgPct=memberConsPct(member,logs,year,month);
   const streaks=acts.map(a=>streakCount(getActivityLogs(logs,member.id,a.id)));
   const bestStreak=streaks.length?Math.max(...streaks):0;
 
@@ -958,7 +1102,8 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
     {showBadges&&<BadgeDrawer member={member} allEarned={allEarned} acts={acts} logs={logs} onClose={()=>setShowBadges(false)}/>}
     {showStats&&<AllTimeStats member={member} logs={logs} onClose={()=>setShowStats(false)}/>}
 
-    {modal&&<LogModal dateStr={modal} member={member} logs={logs} shieldsLeft={4-shieldsUsed(logs,member.id,acts)}
+    {modal&&(member.alternating&&acts.length>1
+      ?<AlternatingLogModal dateStr={modal} member={member} logs={logs} shieldsLeft={4-shieldsUsed(logs,member.id,acts)}
       onSaveAll={entries=>{
         // Stamp current target onto each entry so history is preserved
         const stampedEntries=entries.map(e=>{
@@ -977,7 +1122,20 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
         },50);
         setModal(null);
       }}
-      onClose={()=>setModal(null)}/>}
+      onClose={()=>setModal(null)}/>
+      :<LogModal dateStr={modal} member={member} logs={logs} shieldsLeft={4-shieldsUsed(logs,member.id,acts)}
+        onSaveAll={entries=>{
+          const stampedEntries=entries.map(e=>{const act=acts.find(a=>a.id===e.actId);return act?{...e,target:act.target}:e;});
+          const prev=new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,member.id,a.id),a.target,a.unit)));
+          onLogAll(member.id,modal,stampedEntries);
+          setTimeout(()=>{
+            const next=acts.flatMap(a=>{const en=stampedEntries.find(e=>e.actId===a.id);if(!en)return[];const nl={...getActivityLogs(logs,member.id,a.id),[modal]:{value:en.value,status:en.status,target:en.target}};return earnedBadges(nl,a.target,a.unit);});
+            next.filter(id=>!prev.has(id)).forEach(id=>{const b=BADGES.find(x=>x.id===id);if(b)onNewBadge(b);});
+          },50);
+          setModal(null);
+        }}
+        onClose={()=>setModal(null)}/>
+    )}
   </div>;
 }
 
@@ -987,6 +1145,7 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
   const[emoji,setEmoji]=useState(member?.emoji??"🏃");
   const[color,setColor]=useState(member?.color??"#5B8FD4");
   const[acts,setActs]=useState(member?.activities??[{id:Date.now().toString(),name:"",unit:"min",target:30}]);
+  const[alternating,setAlternating]=useState(member?.alternating??false);
   const eOpts=["🧗","🚶","🏃","🚴","🏋️","🤸","🧘","🏊","⚽","🏓","🎯","💪","🧒","👩","👨"];
   const cOpts=["#5B8FD4","#D47B9E","#3D9E6E","#E8A838","#9B6FD4","#E05C5C","#5BC4C4","#E8873A"];
   const addAct=()=>setActs(a=>[...a,{id:Date.now().toString(),name:"",unit:"reps",target:10}]);
@@ -1013,6 +1172,19 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
           <label style={{...lStyle,marginBottom:0}}>Activities</label>
           <button onClick={addAct} style={{background:color,color:"#fff",border:"none",borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add</button>
         </div>
+        {acts.length>1&&<div onClick={()=>setAlternating(a=>!a)} style={{
+          display:"flex",alignItems:"center",gap:10,padding:"10px 12px",marginBottom:10,
+          background:alternating?"#E8F5E9":"#F7F5F0",border:`1.5px solid ${alternating?C.done:C.border}`,
+          borderRadius:10,cursor:"pointer",userSelect:"none",
+        }}>
+          <div style={{width:36,height:20,borderRadius:99,background:alternating?C.done:C.border,position:"relative",transition:"background 0.2s",flexShrink:0}}>
+            <div style={{position:"absolute",top:2,left:alternating?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+          </div>
+          <div>
+            <div style={{fontSize:13,fontWeight:600,color:alternating?C.done:C.text}}>Alternating activities</div>
+            <div style={{fontSize:11,color:C.muted}}>Do at least one per day — not all required</div>
+          </div>
+        </div>}
         {acts.map((a,i)=><div key={a.id} style={{background:C.bg,borderRadius:10,padding:12,marginBottom:8,border:`1px solid ${C.border}`}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
             <span style={{fontSize:12,fontWeight:700,color:C.muted}}>Activity {i+1}</span>
@@ -1033,7 +1205,7 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
       <div style={{display:"flex",gap:8}}>
         {!isNew&&<button onClick={()=>{if(window.confirm("Remove?"))onDelete(member.id);}} style={{padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",cursor:"pointer",color:C.missed,fontWeight:600}}>Delete</button>}
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
+        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
       </div>
     </div>
   </div>;
