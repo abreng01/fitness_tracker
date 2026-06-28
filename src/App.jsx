@@ -94,29 +94,30 @@ function allTimeBest(al){
 }
 
 // ── Consistency ───────────────────────────────────────────────────────────────
-function consPct(al,y,m){
+function consPct(al,y,m,startDate){
   const today=todayStr();
   let done=0,app=0;
   for(let d=1;d<=daysInMonth(y,m);d++){
     const k=`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
     if(k>today) continue;
+    if(startDate&&k<startDate) continue; // before tracking start
     app++;
     const l=al[k];
-    // shielded days count toward consistency (streak + % protected), but not badges
     if(l&&(l.status!=="skipped")) done++;
   }
   return app===0?0:Math.round((done/app)*100);
 }
 
 // ── Month summary stats ──────────────────────────────────────────────────────
-function monthSummary(al,y,m){
+function monthSummary(al,y,m,startDate){
   const today=todayStr();
   let done=0,missed=0,remaining=0;
   for(let d=1;d<=daysInMonth(y,m);d++){
     const k=`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
-    if(k>today){remaining++;continue;} // future days
+    if(startDate&&k<startDate) continue; // before tracking start
+    if(k>today){remaining++;continue;}
     const l=al[k];
-    if(!l){if(k===today){remaining++;}else{missed++;}continue;} // no log: today=remaining, past=missed
+    if(!l){if(k===today){remaining++;}else{missed++;}continue;}
     if(l.status==="shielded") continue;
     if(l.status!=="skipped") done++;
     else missed++;
@@ -126,10 +127,10 @@ function monthSummary(al,y,m){
 
 // ── Member-level consistency (handles alternating) ───────────────────────────
 function memberConsPct(member, logs, y, m){
+  const sd=member.startDate||null;
   if(!member.alternating) {
-    // Average across all activities
     const acts=member.activities||[];
-    const pcts=acts.map(a=>consPct(getActivityLogs(logs,member.id,a.id),y,m));
+    const pcts=acts.map(a=>consPct(getActivityLogs(logs,member.id,a.id),y,m,sd));
     return pcts.length?Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length):0;
   }
   // Alternating: day is done if ANY activity was done
@@ -139,6 +140,7 @@ function memberConsPct(member, logs, y, m){
   const dim_=daysInMonth(y,m);
   for(let d=1;d<=dim_;d++){
     const k=`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    if(sd&&k<sd) continue; // before start date
     if(k>today) continue;
     app++;
     const anyDone=acts.some(a=>{
@@ -698,7 +700,7 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}
 
 // ── Calendar Cell ─────────────────────────────────────────────────────────────
 function CalCell({dateStr,member,logs,isToday,onClick}){
-  const future=isFuture(dateStr);
+  const future=isFuture(dateStr)||(member.startDate&&dateStr<member.startDate);
   const status=future?"future":dayStatus(member,logs,dateStr);
   const bg={future:"transparent",empty:C.empty,skipped:C.missed,done:C.done,shielded:"#BBDEFB"}[status]||C.empty;
 
@@ -1010,7 +1012,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
 
     {/* Month summary */}
     {(()=>{
-      const summaries=acts.map(a=>monthSummary(getActivityLogs(logs,member.id,a.id),year,month));
+      const summaries=acts.map(a=>monthSummary(getActivityLogs(logs,member.id,a.id),year,month,member.startDate));
       const done=Math.max(...summaries.map(s=>s.done));
       const missed=Math.max(...summaries.map(s=>s.missed));
       const remaining=summaries[0]?.remaining||0;
@@ -1146,6 +1148,7 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
   const[color,setColor]=useState(member?.color??"#5B8FD4");
   const[acts,setActs]=useState(member?.activities??[{id:Date.now().toString(),name:"",unit:"min",target:30}]);
   const[alternating,setAlternating]=useState(member?.alternating??false);
+  const[startDate,setStartDate]=useState(member?.startDate??todayStr());
   const eOpts=["🧗","🚶","🏃","🚴","🏋️","🤸","🧘","🏊","⚽","🏓","🎯","💪","🧒","👩","👨"];
   const cOpts=["#5B8FD4","#D47B9E","#3D9E6E","#E8A838","#9B6FD4","#E05C5C","#5BC4C4","#E8873A"];
   const addAct=()=>setActs(a=>[...a,{id:Date.now().toString(),name:"",unit:"reps",target:10}]);
@@ -1155,6 +1158,11 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
     <div style={{background:C.surface,borderRadius:16,padding:28,width:380,boxShadow:"0 8px 40px rgba(0,0,0,0.2)",maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
       <div style={{fontWeight:700,fontSize:17,marginBottom:20}}>{isNew?"Add member":`Edit ${member?.name}`}</div>
       <div style={{marginBottom:14}}><label style={lStyle}>Name</label><input value={name} onChange={e=>setName(e.target.value)} style={iStyle} placeholder="e.g. Abilash"/></div>
+      <div style={{marginBottom:14}}>
+        <label style={lStyle}>Tracking start date</label>
+        <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} style={iStyle} max={todayStr()}/>
+        <div style={{fontSize:10,color:C.muted,marginTop:3}}>Days before this date are ignored in all calculations</div>
+      </div>
       <div style={{marginBottom:14}}>
         <label style={lStyle}>Icon</label>
         <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
@@ -1205,7 +1213,7 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
       <div style={{display:"flex",gap:8}}>
         {!isNew&&<button onClick={()=>{if(window.confirm("Remove?"))onDelete(member.id);}} style={{padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",cursor:"pointer",color:C.missed,fontWeight:600}}>Delete</button>}
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
+        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
       </div>
     </div>
   </div>;
