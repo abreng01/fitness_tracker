@@ -1023,7 +1023,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
         <span style={{fontSize:12,color:C.missed,fontWeight:600}}>✗ {missed} missed</span>
         {used>0&&<span style={{fontSize:12,color:"#1565C0",fontWeight:600}}>🛡️ {used} used</span>}
         {used>0&&<span style={{fontSize:12,color:"#1976D2",fontWeight:600}}>🛡️ {left} left</span>}
-        {remaining>0&&<span style={{fontSize:12,color:C.muted}}>{remaining} days remaining</span>}
+        {remaining>0&&<span style={{fontSize:12,color:C.muted}}>{remaining} {remaining===1?'day':'days'} remaining</span>}
       </div>;
     })()}
 
