@@ -512,6 +512,91 @@ function ConsistencyBar({pct}){
   </div>;
 }
 
+// ── Milestone Celebration Screen ─────────────────────────────────────────────
+const MAJOR_MILESTONE_IDS = new Set([
+  "streak_30","streak_60","streak_90",
+  "days_100","days_200","days_365",
+  "perfect_30","cons_100",
+  "month_3","month_6","month_12",
+  "hang_36000","walk_500",
+  "mon_30","fam_trio"
+]);
+
+function CelebrationScreen({badge, memberName, onClose}){
+  const tc=TC[badge.tier];
+  useEffect(()=>{
+    const t=setTimeout(onClose,3800);
+    return()=>clearTimeout(t);
+  },[]);
+
+  // Generate confetti pieces
+  const confetti = Array.from({length:40},(_,i)=>({
+    id:i,
+    left:Math.random()*100,
+    delay:Math.random()*0.6,
+    duration:2+Math.random()*1.5,
+    size:6+Math.random()*8,
+    color:[tc.bd,"#FFD700","#3D9E6E","#5B8FD4","#D47B9E"][Math.floor(Math.random()*5)],
+    rotate:Math.random()*360,
+  }));
+
+  return <div onClick={onClose} style={{
+    position:"fixed",inset:0,zIndex:500,
+    background:"rgba(0,0,0,0.55)",backdropFilter:"blur(2px)",
+    display:"flex",alignItems:"center",justifyContent:"center",
+    cursor:"pointer",animation:"fadeInOverlay 0.3s ease",
+  }}>
+    <style>{`
+      @keyframes fadeInOverlay{from{opacity:0}to{opacity:1}}
+      @keyframes confettiFall{
+        0%{transform:translateY(-20px) rotate(0deg);opacity:1}
+        100%{transform:translateY(100vh) rotate(720deg);opacity:0.3}
+      }
+      @keyframes celebPopIn{
+        0%{transform:scale(0.3) translateY(30px);opacity:0}
+        60%{transform:scale(1.08) translateY(-6px);opacity:1}
+        100%{transform:scale(1) translateY(0);opacity:1}
+      }
+      @keyframes crownBounce{
+        0%,100%{transform:translateY(0)}
+        50%{transform:translateY(-8px)}
+      }
+    `}</style>
+
+    {/* Confetti */}
+    {confetti.map(c=>(
+      <div key={c.id} style={{
+        position:"fixed",top:0,left:`${c.left}%`,
+        width:c.size,height:c.size*0.6,
+        background:c.color,borderRadius:2,
+        animation:`confettiFall ${c.duration}s ${c.delay}s ease-in forwards`,
+        transform:`rotate(${c.rotate}deg)`,
+      }}/>
+    ))}
+
+    {/* Main card */}
+    <div onClick={e=>e.stopPropagation()} style={{
+      background:`linear-gradient(160deg, ${tc.bg}, #fff)`,
+      border:`3px solid ${tc.bd}`,borderRadius:24,
+      padding:"40px 36px",maxWidth:340,width:"90%",textAlign:"center",
+      boxShadow:`0 20px 60px ${tc.gl}, 0 8px 24px rgba(0,0,0,0.15)`,
+      animation:"celebPopIn 0.5s cubic-bezier(0.34,1.56,0.64,1)",
+    }}>
+      <div style={{fontSize:64,marginBottom:8,animation:"crownBounce 1.2s ease-in-out infinite"}}>{badge.e}</div>
+      <div style={{fontSize:12,fontWeight:800,color:tc.tx,letterSpacing:2,textTransform:"uppercase",opacity:0.7,marginBottom:6}}>
+        {badge.tier} milestone!
+      </div>
+      <div style={{fontSize:24,fontWeight:900,color:tc.tx,marginBottom:6,lineHeight:1.2}}>
+        {badge.label}
+      </div>
+      <div style={{fontSize:14,color:tc.tx,opacity:0.75,marginBottom:18,lineHeight:1.4}}>
+        {memberName} just unlocked this!<br/>{badge.desc}
+      </div>
+      <div style={{fontSize:11,color:tc.tx,opacity:0.5}}>Tap anywhere to continue</div>
+    </div>
+  </div>;
+}
+
 // ── Badge Toast ───────────────────────────────────────────────────────────────
 function Toast({badge,onDismiss}){
   const tc=TC[badge.tier];
@@ -1120,7 +1205,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
             const nl={...getActivityLogs(logs,member.id,a.id),[modal]:{value:en.value,status:en.status,target:en.target}};
             return earnedBadges(nl,a.target,a.unit);
           });
-          next.filter(id=>!prev.has(id)).forEach(id=>{const b=BADGES.find(x=>x.id===id);if(b)onNewBadge(b);});
+          next.filter(id=>!prev.has(id)).forEach(id=>{const b=BADGES.find(x=>x.id===id);if(b)onNewBadge(b,member.name);});
         },50);
         setModal(null);
       }}
@@ -1132,7 +1217,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
           onLogAll(member.id,modal,stampedEntries);
           setTimeout(()=>{
             const next=acts.flatMap(a=>{const en=stampedEntries.find(e=>e.actId===a.id);if(!en)return[];const nl={...getActivityLogs(logs,member.id,a.id),[modal]:{value:en.value,status:en.status,target:en.target}};return earnedBadges(nl,a.target,a.unit);});
-            next.filter(id=>!prev.has(id)).forEach(id=>{const b=BADGES.find(x=>x.id===id);if(b)onNewBadge(b);});
+            next.filter(id=>!prev.has(id)).forEach(id=>{const b=BADGES.find(x=>x.id===id);if(b)onNewBadge(b,member.name);});
           },50);
           setModal(null);
         }}
@@ -1754,6 +1839,51 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
   </div>;
 }
 
+// ── Smart Daily Greeting ──────────────────────────────────────────────────────
+function getSmartGreeting(members, logs){
+  const today = todayStr();
+  const now = new Date();
+  const hour = now.getHours();
+
+  if(members.length===0) return "Keep showing up, together.";
+
+  const activeMembers = members.filter(m=>!m.startDate||m.startDate<=today);
+  if(activeMembers.length===0) return "Keep showing up, together.";
+
+  const loggedStatus = activeMembers.map(m=>{
+    const acts=m.activities||[];
+    const anyLogged = acts.some(a=>{
+      const l=getActivityLogs(logs,m.id,a.id)[today];
+      return l && (l.status==="done"||l.status==="shielded");
+    });
+    return anyLogged;
+  });
+
+  const loggedCount = loggedStatus.filter(Boolean).length;
+  const total = activeMembers.length;
+
+  // Everyone logged
+  if(loggedCount===total){
+    const msgs=["Perfect day, family! 🎉","Everyone's in! Great job today 🌟","Full house today — well done! 💪"];
+    return msgs[now.getDate()%msgs.length];
+  }
+
+  // Nobody logged yet
+  if(loggedCount===0){
+    if(hour<11) return "Good morning! Who's up first today? ☀️";
+    if(hour<17) return "Afternoon check-in — anyone logged yet?";
+    return "Evening's here — don't forget to log today 🌙";
+  }
+
+  // Partial — some logged, some not
+  const remaining = total - loggedCount;
+  if(remaining===1){
+    const pending = activeMembers.find((m,i)=>!loggedStatus[i]);
+    return `Almost there — just ${pending?.name||"one more"} to go!`;
+  }
+  return `${loggedCount}/${total} logged so far — ${remaining} more to go`;
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function App(){
   const[members,setMembers]=useState(DEF_MEMBERS);
@@ -1804,7 +1934,14 @@ export default function App(){
     setEditM(null);
   },[]);
   const handleDel=useCallback((id)=>{setMembers(p=>p.filter(m=>m.id!==id));setEditM(null);},[]);
-  const handleBadge=useCallback((b)=>{setToasts(q=>[...q,{...b,key:Date.now()+Math.random()}]);},[]);
+  const[celebration,setCelebration]=useState(null);
+  const handleBadge=useCallback((b,memberName)=>{
+    if(MAJOR_MILESTONE_IDS.has(b.id)){
+      setCelebration({...b,memberName});
+    } else {
+      setToasts(q=>[...q,{...b,key:Date.now()+Math.random()}]);
+    }
+  },[]);
 
   const prevMo=()=>{if(mo===0){setYr(y=>y-1);setMo(11);}else setMo(m=>m-1);};
   const nextMo=()=>{if(mo===11){setYr(y=>y+1);setMo(0);}else setMo(m=>m+1);};
@@ -1816,7 +1953,7 @@ export default function App(){
     <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"16px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
       <div>
         <div style={{fontWeight:800,fontSize:20,letterSpacing:-0.5}}>🌿 Family Fitness</div>
-        <div style={{fontSize:12,color:C.muted}}>Keep showing up, together.</div>
+        <div style={{fontSize:12,color:C.muted}}>{getSmartGreeting(members,logs)}</div>
       </div>
       <div style={{display:"flex",alignItems:"center",gap:10}}>
         <button onClick={prevMo} style={navBtn}>‹</button>
@@ -1862,6 +1999,7 @@ export default function App(){
       {activeTab===null&&members.length>0&&<FamilyDashboard members={members} logs={logs} yr={yr} mo={mo} MONTHS={MONTHS}/>}
     </div>
 
+    {celebration&&<CelebrationScreen badge={celebration} memberName={celebration.memberName} onClose={()=>setCelebration(null)}/>}
     {toasts.length>0&&<Toast badge={toasts[0]} onDismiss={()=>setToasts(q=>q.slice(1))}/>}
     {editM&&<EditModal member={editM==="new"?null:editM} isNew={editM==="new"} onSave={handleSave} onDelete={handleDel} onClose={()=>setEditM(null)}/>}
   </div>;
