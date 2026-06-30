@@ -1444,6 +1444,122 @@ function HeatmapView({member,logs}){
   </div>;
 }
 
+// ── Consistency Trend Line ───────────────────────────────────────────────────
+function ConsistencyTrend({members, logs}){
+  const today = new Date(todayStr());
+
+  // Build last 8 weeks of data
+  const weeks = [];
+  for(let w=7; w>=0; w--){
+    const weekEnd = new Date(today);
+    weekEnd.setDate(today.getDate() - w*7);
+    const weekStart = new Date(weekEnd);
+    weekStart.setDate(weekEnd.getDate() - 6);
+
+    const label = weekEnd.toLocaleDateString("en-IN",{day:"numeric",month:"short"});
+
+    const memberPcts = members.map(m=>{
+      const acts = m.activities||[];
+      const sd = m.startDate||null;
+      let done=0, app=0;
+      for(let d=0; d<7; d++){
+        const dt = new Date(weekStart);
+        dt.setDate(weekStart.getDate()+d);
+        const k = dt.toISOString().slice(0,10);
+        if(k > todayStr()) continue;
+        if(sd && k < sd) continue;
+        app++;
+        if(m.alternating){
+          const anyDone = acts.some(a=>{
+            const l=getActivityLogs(logs,m.id,a.id)[k];
+            return l&&l.status!=="skipped"&&l.status!=="shielded"&&l.value>0;
+          });
+          const anyShielded = acts.some(a=>{
+            const l=getActivityLogs(logs,m.id,a.id)[k];
+            return l&&l.status==="shielded";
+          });
+          if(anyDone||anyShielded) done++;
+        } else {
+          const anyDone = acts.some(a=>{
+            const l=getActivityLogs(logs,m.id,a.id)[k];
+            return l&&l.status!=="skipped"&&l.value>0;
+          });
+          if(anyDone) done++;
+        }
+      }
+      return app===0 ? null : Math.round((done/app)*100);
+    });
+    weeks.push({label, memberPcts});
+  }
+
+  // SVG dimensions
+  const W=560, H=180, padL=32, padR=16, padT=16, padB=32;
+  const chartW=W-padL-padR;
+  const chartH=H-padT-padB;
+  const xStep = chartW/(weeks.length-1);
+
+  // Y gridlines at 0, 25, 50, 75, 100
+  const gridLines=[0,25,50,75,100];
+
+  function xPos(i){ return padL + i*xStep; }
+  function yPos(pct){ return padT + chartH - (pct/100)*chartH; }
+
+  // Build path for each member
+  function buildPath(memberIdx){
+    const points = weeks.map((w,i)=>{
+      const pct = w.memberPcts[memberIdx];
+      if(pct===null) return null;
+      return {x:xPos(i), y:yPos(pct), pct};
+    });
+    let d="";
+    points.forEach((p,i)=>{
+      if(!p) return;
+      if(d===""||points.slice(0,i).every(x=>x===null)) d+=`M${p.x},${p.y}`;
+      else d+=`L${p.x},${p.y}`;
+    });
+    return {d, points};
+  }
+
+  return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
+    <div style={{fontWeight:700,fontSize:14,color:C.muted,letterSpacing:0.5,marginBottom:4}}>📈 CONSISTENCY TREND · LAST 8 WEEKS</div>
+    <div style={{display:"flex",gap:16,marginBottom:16,flexWrap:"wrap"}}>
+      {members.map(m=><div key={m.id} style={{display:"flex",alignItems:"center",gap:6}}>
+        <div style={{width:20,height:3,borderRadius:99,background:m.color}}/>
+        <span style={{fontSize:12,color:C.muted}}>{m.name}</span>
+      </div>)}
+    </div>
+    <div style={{overflowX:"auto"}}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",minWidth:320,height:"auto"}}>
+        {/* Grid lines */}
+        {gridLines.map(g=><g key={g}>
+          <line x1={padL} y1={yPos(g)} x2={W-padR} y2={yPos(g)} stroke={C.border} strokeWidth={1} strokeDasharray={g===0?"":"4,4"}/>
+          <text x={padL-4} y={yPos(g)+4} textAnchor="end" fontSize={9} fill={C.muted}>{g}%</text>
+        </g>)}
+
+        {/* Member lines */}
+        {members.map((m,mi)=>{
+          const {d,points} = buildPath(mi);
+          return <g key={m.id}>
+            {/* Line */}
+            {d&&<path d={d} fill="none" stroke={m.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"/>}
+            {/* Dots */}
+            {points.map((p,i)=>p&&<g key={i}>
+              <circle cx={p.x} cy={p.y} r={4} fill={m.color} stroke="#fff" strokeWidth={2}/>
+              {/* Value label on hover via title */}
+              <title>{m.name}: {p.pct}%</title>
+            </g>)}
+          </g>;
+        })}
+
+        {/* X axis labels */}
+        {weeks.map((w,i)=><text key={i} x={xPos(i)} y={H-6} textAnchor="middle" fontSize={9} fill={C.muted}>
+          {i===weeks.length-1?"Now":w.label}
+        </text>)}
+      </svg>
+    </div>
+  </div>;
+}
+
 // ── Family Dashboard (Family Tab) ────────────────────────────────────────────
 function FamilyDashboard({members, logs, yr, mo, MONTHS}){
   const today = todayStr();
@@ -1552,6 +1668,9 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
       {/* Podium base */}
       <div style={{height:8,background:`linear-gradient(90deg, ${C.border}, ${C.muted}44, ${C.border})`,borderRadius:4,margin:"0 20px"}}/>
     </div>
+
+    {/* Trend line */}
+    <ConsistencyTrend members={members} logs={logs}/>
 
     {/* Stats scorecard */}
     <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
