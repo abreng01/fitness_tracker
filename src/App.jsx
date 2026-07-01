@@ -1727,7 +1727,7 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
   const podiumColors = ["#C0C0C0", "#FFD700", "#CD7F32"];
   const podiumLabels = ["🥈 2nd", "🥇 1st", "🥉 3rd"];
 
-  return <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(340px,1fr))",gap:16,alignItems:"start"}}>
+  return <div style={{display:"flex",flexDirection:"column",gap:16}}>
 
     {/* Podium */}
     <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
@@ -1761,11 +1761,11 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
       <div style={{height:8,background:`linear-gradient(90deg, ${C.border}, ${C.muted}44, ${C.border})`,borderRadius:4,margin:"0 20px"}}/>
     </div>
 
-    {/* Trend line - full width */}
-    <div style={{gridColumn:"1 / -1"}}><ConsistencyTrend members={members} logs={logs}/></div>
+    {/* Trend line */}
+    <ConsistencyTrend members={members} logs={logs}/>
 
-    {/* Stats scorecard - full width */}
-    <div style={{gridColumn:"1 / -1",background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
+    {/* Stats scorecard */}
+    <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
         <div style={{fontWeight:700,fontSize:14,color:C.muted,letterSpacing:0.5}}>📊 {MONTHS[scoreMo].toUpperCase()} {scoreYr}</div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -1805,8 +1805,9 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
       </div>
     </div>
 
-    {/* Volume / All-time stats */}
-    <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
+    {/* Volume + Family badges side by side */}
+    <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"start"}}>
+    <div style={{flex:"1 1 300px",background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
       <div style={{fontWeight:700,fontSize:14,color:C.muted,letterSpacing:0.5,marginBottom:16}}>📦 ALL-TIME VOLUME</div>
       <div style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:320}}>
@@ -1831,12 +1832,11 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
       </div>
     </div>
 
-    {/* Family badges */}
     {(()=>{
       const fb = earnedFamBadges(members, logs);
       const famBadgeDefs = BADGES.filter(b=>FAM_IDS.has(b.id));
       const fbIds = new Set(fb.map(b=>b.id));
-      return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
+      return <div style={{flex:"1 1 260px",background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
         <div style={{fontWeight:700,fontSize:14,color:C.muted,letterSpacing:0.5,marginBottom:12}}>👨‍👩‍👦 FAMILY BADGES · {fb.length}/{famBadgeDefs.length} earned</div>
         <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
           {famBadgeDefs.map(b=>{
@@ -1849,6 +1849,7 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
         </div>
       </div>;
     })()}
+    </div>
   </div>;
 }
 
