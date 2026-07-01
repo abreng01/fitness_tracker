@@ -1822,6 +1822,37 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
   </div>;
 }
 
+// ── Smart Daily Greeting ──────────────────────────────────────────────────────
+function getSmartGreeting(members, logs){
+  const today = todayStr();
+  const now = new Date();
+  const hour = now.getHours();
+  if(members.length===0) return "Keep showing up, together.";
+  const activeMembers = members.filter(m=>!m.startDate||m.startDate<=today);
+  if(activeMembers.length===0) return "Keep showing up, together.";
+  const loggedStatus = activeMembers.map(m=>{
+    const acts=m.activities||[];
+    return acts.some(a=>{const l=getActivityLogs(logs,m.id,a.id)[today];return l&&(l.status==="done"||l.status==="shielded");});
+  });
+  const loggedCount = loggedStatus.filter(Boolean).length;
+  const total = activeMembers.length;
+  if(loggedCount===total){
+    const msgs=["Perfect day, family! 🎉","Everyone's in! Great job today 🌟","Full house today — well done! 💪"];
+    return msgs[now.getDate()%msgs.length];
+  }
+  if(loggedCount===0){
+    if(hour<11) return "Good morning! Who's up first today? ☀️";
+    if(hour<17) return "Afternoon check-in — anyone logged yet?";
+    return "Evening's here — don't forget to log today 🌙";
+  }
+  const remaining = total - loggedCount;
+  if(remaining===1){
+    const pending = activeMembers.find((m,i)=>!loggedStatus[i]);
+    return `Almost there — just ${pending?.name||"one more"} to go!`;
+  }
+  return `${loggedCount}/${total} logged so far — ${remaining} more to go`;
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function App(){
   const[members,setMembers]=useState(DEF_MEMBERS);
