@@ -1647,16 +1647,23 @@ function ConsistencyTrend({members, logs}){
 
 // ── Family Dashboard (Family Tab) ────────────────────────────────────────────
 function FamilyDashboard({members, logs, yr, mo, MONTHS}){
+  const now = new Date();
+  const[scoreYr, setScoreYr] = useState(yr);
+  const[scoreMo, setScoreMo] = useState(mo);
+
+  const prevScoreMo=()=>{ if(scoreMo===0){setScoreYr(y=>y-1);setScoreMo(11);}else setScoreMo(m=>m-1); };
+  const nextScoreMo=()=>{ if(scoreMo===11){setScoreYr(y=>y+1);setScoreMo(0);}else setScoreMo(m=>m+1); };
+  const isCurrentScoreMo = scoreYr===now.getFullYear()&&scoreMo===now.getMonth();
   const today = todayStr();
 
   // Compute per-member stats
   const memberStats = members.map(m => {
     const acts = m.activities || [];
-    const pcts = acts.map(a => consPct(getActivityLogs(logs, m.id, a.id), yr, mo));
+    const pcts = acts.map(a => consPct(getActivityLogs(logs, m.id, a.id), scoreYr, scoreMo));
     const avgPct = pcts.length ? Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length) : 0;
 
     // Done/missed this month
-    const summaries = acts.map(a => monthSummary(getActivityLogs(logs, m.id, a.id), yr, mo));
+    const summaries = acts.map(a => monthSummary(getActivityLogs(logs, m.id, a.id), scoreYr, scoreMo));
     const done = summaries.length ? Math.max(...summaries.map(s=>s.done)) : 0;
     const missed = summaries.length ? Math.max(...summaries.map(s=>s.missed)) : 0;
 
@@ -1720,7 +1727,7 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
   const podiumColors = ["#C0C0C0", "#FFD700", "#CD7F32"];
   const podiumLabels = ["🥈 2nd", "🥇 1st", "🥉 3rd"];
 
-  return <div style={{display:"flex",flexDirection:"column",gap:16}}>
+  return <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(340px,1fr))",gap:16,alignItems:"start"}}>
 
     {/* Podium */}
     <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
@@ -1754,12 +1761,18 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
       <div style={{height:8,background:`linear-gradient(90deg, ${C.border}, ${C.muted}44, ${C.border})`,borderRadius:4,margin:"0 20px"}}/>
     </div>
 
-    {/* Trend line */}
-    <ConsistencyTrend members={members} logs={logs}/>
+    {/* Trend line - full width */}
+    <div style={{gridColumn:"1 / -1"}}><ConsistencyTrend members={members} logs={logs}/></div>
 
-    {/* Stats scorecard */}
-    <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
-      <div style={{fontWeight:700,fontSize:14,color:C.muted,letterSpacing:0.5,marginBottom:16}}>📊 THIS MONTH · {MONTHS[mo].toUpperCase()}</div>
+    {/* Stats scorecard - full width */}
+    <div style={{gridColumn:"1 / -1",background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+        <div style={{fontWeight:700,fontSize:14,color:C.muted,letterSpacing:0.5}}>📊 {MONTHS[scoreMo].toUpperCase()} {scoreYr}</div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <button onClick={prevScoreMo} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,padding:"3px 10px",cursor:"pointer",fontSize:14,color:C.text}}>‹</button>
+          <button onClick={nextScoreMo} disabled={isCurrentScoreMo} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,padding:"3px 10px",cursor:"pointer",fontSize:14,color:C.text,opacity:isCurrentScoreMo?0.3:1}}>›</button>
+        </div>
+      </div>
       <div style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:320}}>
           <thead>
