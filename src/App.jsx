@@ -1233,7 +1233,7 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
   const[color,setColor]=useState(member?.color??"#5B8FD4");
   const[acts,setActs]=useState(member?.activities??[{id:Date.now().toString(),name:"",unit:"min",target:30}]);
   const[alternating,setAlternating]=useState(member?.alternating??false);
-  const[startDate,setStartDate]=useState(member?.startDate??todayStr());
+  const[startDate,setStartDate]=useState(member?.startDate??"");
   const eOpts=["🧗","🚶","🏃","🚴","🏋️","🤸","🧘","🏊","⚽","🏓","🎯","💪","🧒","👩","👨"];
   const cOpts=["#5B8FD4","#D47B9E","#3D9E6E","#E8A838","#9B6FD4","#E05C5C","#5BC4C4","#E8873A"];
   const addAct=()=>setActs(a=>[...a,{id:Date.now().toString(),name:"",unit:"reps",target:10}]);
