@@ -1098,9 +1098,25 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
     {/* Month summary */}
     {(()=>{
       const summaries=acts.map(a=>monthSummary(getActivityLogs(logs,member.id,a.id),year,month,member.startDate));
-      const done=Math.max(...summaries.map(s=>s.done));
-      const missed=Math.max(...summaries.map(s=>s.missed));
       const remaining=summaries[0]?.remaining||0;
+      let done=0,missed=0;
+      if(member.alternating&&acts.length>1){
+        // For alternating: day is done if ANY activity was logged, missed if NONE were
+        const today2=todayStr();
+        const sd=member.startDate||null;
+        for(let d=1;d<=daysInMonth(year,month);d++){
+          const k=`${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+          if(k>=today2) continue;
+          if(sd&&k<sd) continue;
+          const anyDone=acts.some(a=>{const l=getActivityLogs(logs,member.id,a.id)[k];return l&&l.status!=="skipped"&&l.status!=="shielded"&&l.value>0;});
+          const anyShielded=acts.some(a=>{const l=getActivityLogs(logs,member.id,a.id)[k];return l&&l.status==="shielded";});
+          if(anyShielded){done++;continue;}
+          if(anyDone) done++; else missed++;
+        }
+      } else {
+        done=Math.max(...summaries.map(s=>s.done));
+        missed=Math.max(...summaries.map(s=>s.missed));
+      }
       const used=shieldsUsed(logs,member.id,acts);
       const left=4-used;
       return <div style={{display:"flex",gap:12,marginBottom:12,marginTop:-6,flexWrap:"wrap"}}>
