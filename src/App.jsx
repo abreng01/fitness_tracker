@@ -1106,12 +1106,21 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
         const sd=member.startDate||null;
         for(let d=1;d<=daysInMonth(year,month);d++){
           const k=`${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
-          if(k>=today2) continue;
+          if(k>today2) continue; // future
+          if(k===today2) continue; // today counts as remaining
           if(sd&&k<sd) continue;
           const anyDone=acts.some(a=>{const l=getActivityLogs(logs,member.id,a.id)[k];return l&&l.status!=="skipped"&&l.status!=="shielded"&&l.value>0;});
           const anyShielded=acts.some(a=>{const l=getActivityLogs(logs,member.id,a.id)[k];return l&&l.status==="shielded";});
           if(anyShielded){done++;continue;}
           if(anyDone) done++; else missed++;
+        }
+        // Also check today if already logged
+        const todayKey=today2;
+        if(todayKey.slice(0,7)===`${year}-${String(month+1).padStart(2,"0")}`){
+          const anyDoneToday=acts.some(a=>{const l=getActivityLogs(logs,member.id,a.id)[todayKey];return l&&l.status!=="skipped"&&l.status!=="shielded"&&l.value>0;});
+          const anyShieldedToday=acts.some(a=>{const l=getActivityLogs(logs,member.id,a.id)[todayKey];return l&&l.status==="shielded";});
+          if(anyShieldedToday) done++;
+          else if(anyDoneToday) done++;
         }
       } else {
         done=Math.max(...summaries.map(s=>s.done));
