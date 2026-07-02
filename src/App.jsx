@@ -233,6 +233,194 @@ function formatVol(val, unit){
   return `${val} ${unit}`;
 }
 
+// ── Power Points System ──────────────────────────────────────────────────────
+const PP_LEVELS = [
+  {level:1,  pp:0,      title:"Rookie",     icon:"🌱"},
+  {level:2,  pp:200,    title:"Trainee",    icon:"🔰"},
+  {level:3,  pp:500,    title:"Cadet",      icon:"🥉"},
+  {level:4,  pp:900,    title:"Scout",      icon:"🎯"},
+  {level:5,  pp:1500,   title:"Fighter",    icon:"⚔️"},
+  {level:6,  pp:2500,   title:"Brawler",    icon:"🥊"},
+  {level:7,  pp:4000,   title:"Warrior",    icon:"🛡️"},
+  {level:8,  pp:6000,   title:"Gladiator",  icon:"🏟️"},
+  {level:9,  pp:8500,   title:"Spartan",    icon:"⚡"},
+  {level:10, pp:12000,  title:"Champion",   icon:"🏆"},
+  {level:11, pp:16000,  title:"Conqueror",  icon:"🗡️"},
+  {level:12, pp:21000,  title:"Hero",       icon:"🦸"},
+  {level:13, pp:27000,  title:"Guardian",   icon:"🛡️"},
+  {level:14, pp:34000,  title:"Legend",     icon:"🌟"},
+  {level:15, pp:43000,  title:"Mythic",     icon:"🔱"},
+  {level:16, pp:54000,  title:"Master",     icon:"💎"},
+  {level:17, pp:67000,  title:"Elite",      icon:"👑"},
+  {level:18, pp:82000,  title:"Titan",      icon:"🌋"},
+  {level:19, pp:100000, title:"Warlord",    icon:"🔥"},
+  {level:20, pp:125000, title:"Immortal",   icon:"🌌"},
+];
+
+function getLevel(pp){
+  let current = PP_LEVELS[0];
+  for(const l of PP_LEVELS){ if(pp >= l.pp) current = l; else break; }
+  return current;
+}
+function getNextLevel(pp){
+  for(const l of PP_LEVELS){ if(pp < l.pp) return l; }
+  return null; // already at max
+}
+function getStreakMultiplier(streak){
+  if(streak >= 30) return 5;
+  if(streak >= 14) return 3;
+  if(streak >= 7)  return 2;
+  if(streak >= 3)  return 1.5;
+  return 1;
+}
+
+function computePowerPoints(member, logs){
+  const today = todayStr();
+  const acts = member.activities || [];
+  const sd = member.startDate || null;
+
+  // Collect all days across all activities
+  const allDates = new Set();
+  for(const a of acts){
+    const al = getActivityLogs(logs, member.id, a.id);
+    for(const d of Object.keys(al)) if(d <= today && (!sd || d >= sd)) allDates.add(d);
+  }
+  const sortedDates = [...allDates].sort();
+
+  let totalPP = 100; // base starting points
+  let breakdown = {atTarget:0, aboveTarget:0, belowTarget:0, pb:0, shielded:0, skipped:0, streakBonus:0, streakBreak:0};
+  let prevStreak = 0;
+
+  // Track all-time best per activity for PB detection
+  const actBests = {};
+  for(const a of acts) actBests[a.id] = 0;
+
+  for(const dateStr of sortedDates){
+    // Compute streak up to this day
+    let streakOnDay = 0;
+    const d = new Date(dateStr + "T00:00:00");
+    const checkD = new Date(d);
+    while(true){
+      const k = checkD.toISOString().slice(0,10);
+      if(k > dateStr) { checkD.setDate(checkD.getDate()-1); continue; }
+      let anyLogged = false;
+      if(member.alternating && acts.length > 1){
+        anyLogged = acts.some(a => {
+          const l = getActivityLogs(logs, member.id, a.id)[k];
+          return l && l.status !== "skipped" && l.value > 0;
+        });
+      } else {
+        anyLogged = acts.some(a => {
+          const l = getActivityLogs(logs, member.id, a.id)[k];
+          return l && l.status !== "skipped" && l.value > 0;
+        });
+      }
+      if(!anyLogged) break;
+      streakOnDay++;
+      checkD.setDate(checkD.getDate()-1);
+      if(streakOnDay > 200) break; // safety
+    }
+
+    const multiplier = getStreakMultiplier(streakOnDay);
+
+    // Streak break penalty
+    if(prevStreak >= 7){
+      const allSkipped = acts.every(a => {
+        const l = getActivityLogs(logs, member.id, a.id)[dateStr];
+        return !l || l.status === "skipped";
+      });
+      if(allSkipped && streakOnDay === 0){
+        totalPP = Math.max(0, totalPP - 100);
+        breakdown.streakBreak -= 100;
+      }
+    }
+    prevStreak = streakOnDay;
+
+    // For alternating members — day is one unit
+    if(member.alternating && acts.length > 1){
+      const anyShielded = acts.some(a => {
+        const l = getActivityLogs(logs, member.id, a.id)[dateStr];
+        return l && l.status === "shielded";
+      });
+      const anySkipped = acts.every(a => {
+        const l = getActivityLogs(logs, member.id, a.id)[dateStr];
+        return !l || l.status === "skipped";
+      });
+      const doneActs = acts.filter(a => {
+        const l = getActivityLogs(logs, member.id, a.id)[dateStr];
+        return l && l.status !== "skipped" && l.status !== "shielded" && l.value > 0;
+      });
+
+      if(anyShielded){ totalPP += 25; breakdown.shielded += 25; }
+      else if(anySkipped){ totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; }
+      else if(doneActs.length > 0){
+        // Use best activity for scoring
+        let bestPts = 0;
+        for(const a of doneActs){
+          const l = getActivityLogs(logs, member.id, a.id)[dateStr];
+          const effectiveTarget = l.target || a.target;
+          const isPB = l.value > actBests[a.id] && l.value > effectiveTarget;
+          if(isPB) actBests[a.id] = l.value;
+          const basePts = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
+          if(basePts > bestPts) bestPts = basePts;
+        }
+        const bonus = Math.round(bestPts * multiplier) - bestPts;
+        totalPP += Math.round(bestPts * multiplier);
+        if(bestPts === 250) breakdown.pb += Math.round(250 * multiplier);
+        else if(bestPts === 200) breakdown.aboveTarget += Math.round(200 * multiplier);
+        else if(bestPts === 100) breakdown.atTarget += Math.round(100 * multiplier);
+        else breakdown.belowTarget += Math.round(bestPts * multiplier);
+        breakdown.streakBonus += bonus;
+      }
+    } else {
+      // Non-alternating: score each activity
+      for(const a of acts){
+        const al = getActivityLogs(logs, member.id, a.id);
+        const l = al[dateStr];
+        if(!l) continue;
+        const effectiveTarget = l.target || a.target;
+        if(l.status === "shielded"){ totalPP += 25; breakdown.shielded += 25; }
+        else if(l.status === "skipped"){ totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; }
+        else if(l.value > 0){
+          const isPB = l.value > actBests[a.id] && l.value > effectiveTarget;
+          if(isPB) actBests[a.id] = l.value;
+          const basePts = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
+          const earned = Math.round(basePts * multiplier);
+          const bonus = earned - basePts;
+          totalPP += earned;
+          if(basePts === 250) breakdown.pb += earned;
+          else if(basePts === 200) breakdown.aboveTarget += earned;
+          else if(basePts === 100) breakdown.atTarget += earned;
+          else breakdown.belowTarget += earned;
+          breakdown.streakBonus += bonus;
+        }
+      }
+    }
+    totalPP = Math.max(0, totalPP);
+  }
+
+  // This week's PP
+  const weekStart = new Date(today);
+  weekStart.setDate(weekStart.getDate() - 6);
+  const weekStartStr = weekStart.toISOString().slice(0,10);
+  let weekPP = 0;
+  for(const dateStr of sortedDates){
+    if(dateStr < weekStartStr) continue;
+    for(const a of acts){
+      const l = getActivityLogs(logs, member.id, a.id)[dateStr];
+      if(!l || l.status === "skipped") continue;
+      if(l.status === "shielded"){ weekPP += 25; continue; }
+      if(l.value > 0){
+        const effectiveTarget = l.target || a.target;
+        const basePts = l.value > (actBests[a.id]||0) && l.value > effectiveTarget ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
+        weekPP += basePts;
+      }
+    }
+  }
+
+  return { total: Math.round(totalPP), breakdown, weekPP };
+}
+
 // ── Badge Engine ──────────────────────────────────────────────────────────────
 const BADGES=[
   {id:"streak_3",  e:"🌱",label:"Seedling",         desc:"3-day streak",                    tier:"bronze",check:s=>s.bestStreak>=3},
@@ -519,7 +707,10 @@ const MAJOR_MILESTONE_IDS = new Set([
   "perfect_30","cons_100",
   "month_3","month_6","month_12",
   "hang_36000","walk_500",
-  "mon_30","fam_trio"
+  "mon_30","fam_trio",
+  // PP level ups (levels 5+ get celebration)
+  "pp_level_5","pp_level_7","pp_level_9","pp_level_10",
+  "pp_level_12","pp_level_14","pp_level_16","pp_level_18","pp_level_20"
 ]);
 
 function CelebrationScreen({badge, memberName, onClose}){
@@ -1037,6 +1228,194 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
   </>;
 }
 
+// ── Power Points Drawer ──────────────────────────────────────────────────────
+function PowerPointsDrawer({member, logs, onClose, onLevelUp}){
+  const {total, breakdown, weekPP} = computePowerPoints(member, logs);
+  const level = getLevel(total);
+  const nextLevel = getNextLevel(total);
+  const pct = nextLevel ? Math.round(((total - level.pp) / (nextLevel.pp - level.pp)) * 100) : 100;
+  const [showPointsLegend, setShowPointsLegend] = useState(false);
+  const [showLevelsLegend, setShowLevelsLegend] = useState(false);
+
+  const earnedLevels = PP_LEVELS.filter(l => total >= l.pp);
+  const lockedLevels = PP_LEVELS.filter(l => total < l.pp);
+
+  return <>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
+    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(480px,92vw)",
+      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
+      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+
+      {/* Header */}
+      <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:28}}>{member.emoji}</span>
+            <div>
+              <div style={{fontWeight:800,fontSize:18}}>{member.name}</div>
+              <div style={{fontSize:12,color:C.muted}}>⚡ Power Points</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,
+            padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+        </div>
+
+        {/* Big PP number + level */}
+        <div style={{background:"linear-gradient(135deg,#1a1a2e,#16213e)",borderRadius:14,padding:"20px 20px 16px",marginBottom:0}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+            <div>
+              <div style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.5)",letterSpacing:1,marginBottom:4}}>TOTAL POWER POINTS</div>
+              <div style={{fontSize:40,fontWeight:900,color:"#FFD700",lineHeight:1}}>{total.toLocaleString()} <span style={{fontSize:18}}>⚡</span></div>
+              {weekPP>0&&<div style={{fontSize:12,color:"rgba(255,255,255,0.5)",marginTop:4}}>+{weekPP.toLocaleString()} this week</div>}
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:32}}>{level.icon}</div>
+              <div style={{fontWeight:800,fontSize:14,color:"#FFD700"}}>{level.title}</div>
+              <div style={{fontSize:11,color:"rgba(255,255,255,0.5)"}}>Level {level.level}</div>
+            </div>
+          </div>
+          {/* Progress bar */}
+          {nextLevel ? <>
+            <div style={{background:"rgba(255,255,255,0.1)",borderRadius:99,height:8,overflow:"hidden",marginBottom:6}}>
+              <div style={{height:"100%",width:`${pct}%`,background:"linear-gradient(90deg,#FFD700,#FFA500)",borderRadius:99,transition:"width 0.6s"}}/>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"rgba(255,255,255,0.5)"}}>
+              <span>{level.icon} {level.title}</span>
+              <span>{(nextLevel.pp - total).toLocaleString()} PP to {nextLevel.icon} {nextLevel.title}</span>
+            </div>
+          </> : <div style={{fontSize:12,color:"#FFD700",fontWeight:700,textAlign:"center"}}>🌌 Maximum Level Reached!</div>}
+        </div>
+      </div>
+
+      {/* Scrollable content */}
+      <div style={{flex:1,overflowY:"auto",padding:"16px 24px 24px"}}>
+
+        {/* Breakdown */}
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>HOW YOU EARNED IT</div>
+          <div style={{background:C.bg,borderRadius:12,overflow:"hidden"}}>
+            {[
+              {label:"Personal best days",val:breakdown.pb,color:"#FFD700",show:breakdown.pb>0},
+              {label:"Above target days",val:breakdown.aboveTarget,color:C.done,show:breakdown.aboveTarget>0},
+              {label:"At target days",val:breakdown.atTarget,color:C.done,show:breakdown.atTarget>0},
+              {label:"Below target days",val:breakdown.belowTarget,color:C.partial,show:breakdown.belowTarget>0},
+              {label:"Shielded days",val:breakdown.shielded,color:"#5B8FD4",show:breakdown.shielded>0},
+              {label:"Streak multiplier bonus",val:breakdown.streakBonus,color:"#E8A838",show:breakdown.streakBonus>0},
+              {label:"Starting bonus",val:100,color:C.muted,show:true},
+              {label:"Skipped days",val:breakdown.skipped,color:C.missed,show:breakdown.skipped<0},
+              {label:"Streak break penalties",val:breakdown.streakBreak,color:C.missed,show:breakdown.streakBreak<0},
+            ].filter(r=>r.show).map((row,i,arr)=>(
+              <div key={row.label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                padding:"10px 14px",borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>
+                <span style={{fontSize:13,color:C.text}}>{row.label}</span>
+                <span style={{fontSize:13,fontWeight:700,color:row.color}}>{row.val>0?"+":""}{row.val.toLocaleString()} ⚡</span>
+              </div>
+            ))}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+              padding:"12px 14px",background:"#1a1a2e",borderTop:`2px solid ${C.border}`}}>
+              <span style={{fontSize:14,fontWeight:700,color:"#fff"}}>Total</span>
+              <span style={{fontSize:16,fontWeight:900,color:"#FFD700"}}>{total.toLocaleString()} ⚡</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Levels earned */}
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>
+            LEVELS UNLOCKED ({earnedLevels.length}/{PP_LEVELS.length})
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {[...earnedLevels].reverse().map(l=>(
+              <div key={l.level} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",
+                background:l.level===level.level?"#1a1a2e":C.bg,borderRadius:10,
+                border:`1.5px solid ${l.level===level.level?"#FFD700":C.border}`}}>
+                <span style={{fontSize:20}}>{l.icon}</span>
+                <div style={{flex:1}}>
+                  <span style={{fontWeight:700,fontSize:13,color:l.level===level.level?"#FFD700":C.text}}>{l.title}</span>
+                  {l.level===level.level&&<span style={{fontSize:10,color:"#FFD700",marginLeft:8}}>← YOU ARE HERE</span>}
+                </div>
+                <span style={{fontSize:11,color:C.muted}}>Lv.{l.level} · {l.pp.toLocaleString()} PP</span>
+              </div>
+            ))}
+            {lockedLevels.slice(0,3).map(l=>(
+              <div key={l.level} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",
+                background:C.bg,borderRadius:10,border:`1px solid ${C.border}`,opacity:0.4,filter:"grayscale(1)"}}>
+                <span style={{fontSize:20}}>{l.icon}</span>
+                <div style={{flex:1}}><span style={{fontWeight:600,fontSize:13,color:C.muted}}>{l.title}</span></div>
+                <span style={{fontSize:11,color:C.muted}}>Lv.{l.level} · {l.pp.toLocaleString()} PP</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Points legend (collapsible) */}
+        <div style={{marginBottom:12}}>
+          <button onClick={()=>setShowPointsLegend(s=>!s)} style={{background:"none",border:`1px solid ${C.border}`,
+            borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600,color:C.muted,width:"100%",textAlign:"left"}}>
+            {showPointsLegend?"▾":"▸"} How points are calculated
+          </button>
+          {showPointsLegend&&<div style={{background:C.bg,borderRadius:"0 0 10px 10px",padding:14,border:`1px solid ${C.border}`,borderTop:"none"}}>
+            <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8,letterSpacing:0.5}}>DAILY POINTS</div>
+            {[
+              {icon:"🌟",label:"Personal best day",val:"+250 ⚡"},
+              {icon:"💪",label:"Above target",val:"+200 ⚡"},
+              {icon:"✅",label:"At target",val:"+100 ⚡"},
+              {icon:"📉",label:"Below target",val:"+50 ⚡"},
+              {icon:"🛡️",label:"Shielded day",val:"+25 ⚡"},
+              {icon:"❌",label:"Skipped day",val:"-25 ⚡"},
+              {icon:"💔",label:"Breaking 7+ streak",val:"-100 ⚡"},
+            ].map(r=><div key={r.label} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.border}`}}>
+              <span style={{fontSize:12}}>{r.icon} {r.label}</span>
+              <span style={{fontSize:12,fontWeight:700,color:r.val.startsWith("-")?C.missed:C.done}}>{r.val}</span>
+            </div>)}
+            <div style={{fontSize:11,fontWeight:700,color:C.muted,margin:"12px 0 8px",letterSpacing:0.5}}>STREAK MULTIPLIERS</div>
+            {[
+              {streak:"30+ days",mult:"5x"},
+              {streak:"14–29 days",mult:"3x"},
+              {streak:"7–13 days",mult:"2x"},
+              {streak:"3–6 days",mult:"1.5x"},
+              {streak:"1–2 days",mult:"1x"},
+            ].map(r=><div key={r.streak} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.border}`}}>
+              <span style={{fontSize:12}}>🔥 {r.streak}</span>
+              <span style={{fontSize:12,fontWeight:700,color:"#E8A838"}}>{r.mult}</span>
+            </div>)}
+            <div style={{fontSize:11,color:C.muted,marginTop:8}}>Multipliers apply to positive points only, not penalties.</div>
+          </div>}
+        </div>
+
+        {/* All levels legend (collapsible) */}
+        <div>
+          <button onClick={()=>setShowLevelsLegend(s=>!s)} style={{background:"none",border:`1px solid ${C.border}`,
+            borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600,color:C.muted,width:"100%",textAlign:"left"}}>
+            {showLevelsLegend?"▾":"▸"} View all 20 levels
+          </button>
+          {showLevelsLegend&&<div style={{background:C.bg,borderRadius:"0 0 10px 10px",border:`1px solid ${C.border}`,borderTop:"none",overflow:"hidden"}}>
+            {PP_LEVELS.map((l,i)=>{
+              const isCurrentLevel = l.level === level.level;
+              const isEarned = total >= l.pp;
+              return <div key={l.level} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 14px",
+                background:isCurrentLevel?"#1a1a2e":"transparent",
+                borderBottom:i<PP_LEVELS.length-1?`1px solid ${C.border}`:"none",
+                opacity:isEarned?1:0.4}}>
+                <span style={{fontSize:16,minWidth:24}}>{l.icon}</span>
+                <div style={{flex:1}}>
+                  <span style={{fontSize:12,fontWeight:isCurrentLevel?700:500,
+                    color:isCurrentLevel?"#FFD700":isEarned?C.text:C.muted}}>{l.title}</span>
+                  {isCurrentLevel&&<span style={{fontSize:10,color:"#FFD700",marginLeft:6}}>← YOU</span>}
+                </div>
+                <span style={{fontSize:11,color:isCurrentLevel?"rgba(255,255,255,0.5)":C.muted}}>Lv.{l.level}</span>
+                <span style={{fontSize:11,color:isCurrentLevel?"rgba(255,255,255,0.5)":C.muted,minWidth:70,textAlign:"right"}}>{l.pp.toLocaleString()} PP</span>
+              </div>;
+            })}
+          </div>}
+        </div>
+
+      </div>
+    </div>
+  </>;
+}
+
 // ── Member Card ───────────────────────────────────────────────────────────────
 function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,month}){
   const today=todayStr();
@@ -1044,7 +1423,11 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
   const[showBadges,setShowBadges]=useState(false);
   const[showStats,setShowStats]=useState(false);
   const[showHeatmap,setShowHeatmap]=useState(false);
+  const[showPP,setShowPP]=useState(false);
   const[modal,setModal]=useState(null);
+  const ppData = computePowerPoints(member, logs);
+  const ppLevel = getLevel(ppData.total);
+  const ppNext = getNextLevel(ppData.total);
 
   const acts=member.activities||[];
   const avgPct=memberConsPct(member,logs,year,month);
@@ -1084,6 +1467,30 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
         </div>;})()}
         <button onClick={()=>onEdit(member)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"4px 10px",cursor:"pointer",fontSize:12,color:C.muted}}>✏️ Edit</button>
       </div>
+    </div>
+
+    {/* Power Points Banner */}
+    <div onClick={()=>setShowPP(true)} style={{
+      background:"linear-gradient(135deg,#1a1a2e,#16213e)",
+      borderRadius:12,padding:"12px 16px",marginBottom:12,cursor:"pointer",
+      display:"flex",alignItems:"center",justifyContent:"space-between",
+      transition:"opacity 0.15s",position:"relative",overflow:"hidden",
+    }}
+    onMouseEnter={e=>e.currentTarget.style.opacity="0.9"}
+    onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+      <div>
+        <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.4)",letterSpacing:1,marginBottom:2}}>⚡ POWER POINTS</div>
+        <div style={{fontSize:24,fontWeight:900,color:"#FFD700",lineHeight:1}}>{ppData.total.toLocaleString()}</div>
+        {ppData.weekPP>0&&<div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginTop:2}}>+{ppData.weekPP.toLocaleString()} this week</div>}
+      </div>
+      <div style={{textAlign:"right"}}>
+        <div style={{fontSize:22}}>{ppLevel.icon}</div>
+        <div style={{fontSize:12,fontWeight:700,color:"#FFD700"}}>{ppLevel.title}</div>
+        <div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>Level {ppLevel.level}</div>
+      </div>
+      {ppNext&&<div style={{position:"absolute",bottom:0,left:0,right:0,height:3,background:"rgba(255,255,255,0.1)",borderRadius:"0 0 12px 12px",overflow:"hidden"}}>
+        <div style={{height:"100%",width:`${Math.round(((ppData.total-ppLevel.pp)/(ppNext.pp-ppLevel.pp))*100)}%`,background:"linear-gradient(90deg,#FFD700,#FFA500)",transition:"width 0.5s"}}/>
+      </div>}
     </div>
 
     {/* Consistency */}
@@ -1213,6 +1620,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
     </div>
     {showBadges&&<BadgeDrawer member={member} allEarned={allEarned} acts={acts} logs={logs} onClose={()=>setShowBadges(false)}/>}
     {showStats&&<AllTimeStats member={member} logs={logs} onClose={()=>setShowStats(false)}/>}
+    {showPP&&<PowerPointsDrawer member={member} logs={logs} onClose={()=>setShowPP(false)}/>}
 
     {modal&&(member.alternating&&acts.length>1
       ?<AlternatingLogModal dateStr={modal} member={member} logs={logs} shieldsLeft={4-shieldsUsed(logs,member.id,acts)}
@@ -1231,6 +1639,17 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
             return earnedBadges(nl,a.target,a.unit);
           });
           next.filter(id=>!prev.has(id)).forEach(id=>{const b=BADGES.find(x=>x.id===id);if(b)onNewBadge(b,member.name);});
+          // PP level-up check
+          const prevLevel=getLevel(computePowerPoints(member,logs).total);
+          setTimeout(()=>{
+            const newLevel=getLevel(computePowerPoints(member,logs).total);
+            if(newLevel.level>prevLevel.level){
+              onNewBadge({id:`pp_level_${newLevel.level}`,e:newLevel.icon,
+                label:`Level ${newLevel.level}: ${newLevel.title}!`,
+                desc:`You reached ${newLevel.title}! Keep going!`,
+                tier:newLevel.level>=17?'gold':newLevel.level>=10?'silver':'bronze'},member.name);
+            }
+          },200);
         },50);
         setModal(null);
       }}
@@ -1735,8 +2154,9 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
           <button onClick={nextScoreMo} disabled={isCurrentScoreMo} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,padding:"3px 10px",cursor:"pointer",fontSize:14,color:C.text,opacity:isCurrentScoreMo?0.3:1}}>›</button>
         </div>
       </div>
-      {/* Rank chips */}
-      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+      {/* Rank chips — Consistency */}
+      <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>📊 CONSISTENCY</div>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
         {ranked.map((s,i)=>(
           <div key={s.m.id} style={{
             flex:1,minWidth:140,padding:"12px 16px",borderRadius:12,
@@ -1761,6 +2181,34 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
           </div>
         ))}
       </div>
+
+      {/* PP Leaderboard */}
+      {(()=>{
+        const ppRanked=[...members].map(m=>({m,pp:computePowerPoints(m,logs)})).sort((a,b)=>b.pp.total-a.pp.total);
+        return <>
+          <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>⚡ POWER POINTS</div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            {ppRanked.map((s,i)=>{
+              const lv=getLevel(s.pp.total);
+              return <div key={s.m.id} style={{
+                flex:1,minWidth:140,padding:"12px 16px",borderRadius:12,
+                background:i===0?"linear-gradient(135deg,#1a1a2e,#16213e)":C.bg,
+                border:`2px solid ${i===0?"#FFD700":C.border}`,
+              }}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{fontSize:16}}>{rankLabels[i]}</span>
+                    <span style={{fontWeight:700,fontSize:14,color:i===0?"#FFD700":C.text}}>{s.m.name}</span>
+                  </div>
+                  <span style={{fontSize:20}}>{lv.icon}</span>
+                </div>
+                <div style={{fontWeight:900,fontSize:20,color:i===0?"#FFD700":C.text}}>{s.pp.total.toLocaleString()} <span style={{fontSize:12}}>⚡</span></div>
+                <div style={{fontSize:11,color:i===0?"rgba(255,255,255,0.5)":C.muted}}>{lv.title} · Level {lv.level}</div>
+              </div>;
+            })}
+          </div>
+        </>;
+      })()}
     </div>
 
     {/* ── Trend chart ── */}
