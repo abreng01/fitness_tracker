@@ -309,12 +309,14 @@ function computePowerPoints(member, logs){
   let prevStreak = 0;
   let levelHistory = []; // [{level, title, icon, date}]
   let lastLevelSeen = 1;
+  let dailyEarned = {}; // dateStr -> net PP change that day (for accurate weekPP/pace)
 
   // Track all-time best per activity for PB detection
   const actBests = {};
   for(const a of acts) actBests[a.id] = 0;
 
   for(const dateStr of sortedDates){
+    const ppBeforeDay = totalPP;
     // Compute streak up to this day
     let streakOnDay = 0;
     const d = new Date(dateStr + "T00:00:00");
@@ -419,6 +421,7 @@ function computePowerPoints(member, logs){
       }
     }
     totalPP = Math.max(0, totalPP);
+    dailyEarned[dateStr] = totalPP - ppBeforeDay; // net change this day, multiplier already applied
 
     // Track level-up moments
     const dayLevel = getLevel(totalPP);
@@ -428,23 +431,14 @@ function computePowerPoints(member, logs){
     }
   }
 
-  // This week's PP
+  // This week's PP — sum of actual net daily earnings (multiplier + mystery bonus already applied)
   const weekStart = new Date(today);
   weekStart.setDate(weekStart.getDate() - 6);
   const weekStartStr = weekStart.toISOString().slice(0,10);
   let weekPP = 0;
   for(const dateStr of sortedDates){
     if(dateStr < weekStartStr) continue;
-    for(const a of acts){
-      const l = getActivityLogs(logs, member.id, a.id)[dateStr];
-      if(!l || l.status === "skipped") continue;
-      if(l.status === "shielded"){ weekPP += 25; continue; }
-      if(l.value > 0){
-        const effectiveTarget = l.target || a.target;
-        const basePts = l.value > (actBests[a.id]||0) && l.value > effectiveTarget ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
-        weekPP += basePts;
-      }
-    }
+    weekPP += Math.max(0, dailyEarned[dateStr] || 0); // only count positive earnings for pace, not penalties
   }
 
   return { total: Math.round(totalPP), breakdown, weekPP, levelHistory };
@@ -455,11 +449,13 @@ function projectNextLevel(member, logs){
   const {total, weekPP} = computePowerPoints(member, logs);
   const nextLevel = getNextLevel(total);
   if(!nextLevel) return null; // maxed out
-  if(weekPP <= 0) return { nextLevel, weeksAway: null }; // no recent pace to project from
+  if(weekPP <= 0) return { nextLevel, daysAway: null, weeksAway: null };
 
   const ppNeeded = nextLevel.pp - total;
-  const weeksAway = Math.ceil(ppNeeded / weekPP);
-  return { nextLevel, weeksAway, ppNeeded, weekPP };
+  const dailyRate = weekPP / 7;
+  const daysAway = Math.max(1, Math.ceil(ppNeeded / dailyRate));
+  const weeksAway = Math.ceil(daysAway / 7);
+  return { nextLevel, daysAway, weeksAway, ppNeeded, weekPP };
 }
 
 // ── Badge Engine ──────────────────────────────────────────────────────────────
@@ -1330,14 +1326,14 @@ function PowerPointsDrawer({member, logs, onClose, onLevelUp}){
         </div>
 
         {/* Pace projection */}
-        {projection&&projection.weeksAway!==null&&<div style={{
+        {projection&&projection.daysAway!==null&&<div style={{
           marginTop:10,background:"#FFFDE7",border:"1.5px solid #F9A825",borderRadius:10,
           padding:"9px 14px",display:"flex",alignItems:"center",gap:8,
         }}>
           <span style={{fontSize:16}}>🔮</span>
           <span style={{fontSize:12,color:"#7A6200"}}>
             At your current pace, you'll reach <strong>{projection.nextLevel.icon} {projection.nextLevel.title}</strong> in
-            {" "}<strong>{projection.weeksAway===1?"about a week":`about ${projection.weeksAway} weeks`}</strong>
+            {" "}<strong>{projection.daysAway===1?"about a day":projection.daysAway<7?`about ${projection.daysAway} days`:projection.weeksAway===1?"about a week":`about ${projection.weeksAway} weeks`}</strong>
           </span>
         </div>}
       </div>
@@ -2331,9 +2327,10 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
                 <div style={{fontSize:11,color:i===0?"rgba(255,255,255,0.5)":C.muted}}>{lv.title} · Level {lv.level}</div>
                 {(()=>{
                   const proj=projectNextLevel(s.m,logs);
-                  if(!proj||proj.weeksAway===null) return null;
+                  if(!proj||proj.daysAway===null) return null;
+                  const label = proj.daysAway===1?"~1d":proj.daysAway<7?`~${proj.daysAway}d`:proj.weeksAway===1?"~1wk":`~${proj.weeksAway}wks`;
                   return <div style={{fontSize:10,color:i===0?"rgba(255,255,255,0.35)":C.muted,marginTop:4}}>
-                    🔮 {proj.nextLevel.title} in {proj.weeksAway===1?"~1wk":`~${proj.weeksAway}wks`}
+                    🔮 {proj.nextLevel.title} in {label}
                   </div>;
                 })()}
               </div>;
