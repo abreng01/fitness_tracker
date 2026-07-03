@@ -157,6 +157,44 @@ function memberConsPct(member, logs, y, m){
   return app===0?0:Math.round((done/app)*100);
 }
 
+// ── Member-level month summary (handles alternating) ──────────────────────────
+function memberMonthSummary(member, logs, y, m){
+  const sd = member.startDate || null;
+  const acts = member.activities || [];
+  const today = todayStr();
+
+  if(!member.alternating || acts.length <= 1){
+    const summaries = acts.map(a=>monthSummary(getActivityLogs(logs,member.id,a.id),y,m,sd));
+    const done = summaries.length?Math.max(...summaries.map(s=>s.done)):0;
+    const missed = summaries.length?Math.max(...summaries.map(s=>s.missed)):0;
+    const remaining = summaries[0]?.remaining||0;
+    return{done,missed,remaining};
+  }
+
+  // Alternating: day is done if ANY activity was logged, missed only if NONE were
+  let done=0,missed=0,remaining=0;
+  const dim_ = daysInMonth(y,m);
+  for(let d=1;d<=dim_;d++){
+    const k=`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    if(sd&&k<sd) continue;
+    if(k>today){remaining++;continue;}
+    const anyDone=acts.some(a=>{
+      const l=getActivityLogs(logs,member.id,a.id)[k];
+      return l&&l.status!=="skipped"&&l.status!=="shielded"&&l.value>0;
+    });
+    const anyShielded=acts.some(a=>{
+      const l=getActivityLogs(logs,member.id,a.id)[k];
+      return l&&l.status==="shielded";
+    });
+    const anyLogged=acts.some(a=>getActivityLogs(logs,member.id,a.id)[k]);
+    if(anyShielded){done++;continue;}
+    if(anyDone){done++;continue;}
+    if(k===today&&!anyLogged){remaining++;continue;}
+    missed++;
+  }
+  return{done,missed,remaining};
+}
+
 // ── Day status for calendar cell ──────────────────────────────────────────────
 function dayStatus(member,logs,ds){
   const acts=member.activities||[];
@@ -1613,35 +1651,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
 
     {/* Month summary */}
     {(()=>{
-      const summaries=acts.map(a=>monthSummary(getActivityLogs(logs,member.id,a.id),year,month,member.startDate));
-      const remaining=summaries[0]?.remaining||0;
-      let done=0,missed=0;
-      if(member.alternating&&acts.length>1){
-        // For alternating: day is done if ANY activity was logged, missed if NONE were
-        const today2=todayStr();
-        const sd=member.startDate||null;
-        for(let d=1;d<=daysInMonth(year,month);d++){
-          const k=`${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
-          if(k>today2) continue; // future
-          if(k===today2) continue; // today counts as remaining
-          if(sd&&k<sd) continue;
-          const anyDone=acts.some(a=>{const l=getActivityLogs(logs,member.id,a.id)[k];return l&&l.status!=="skipped"&&l.status!=="shielded"&&l.value>0;});
-          const anyShielded=acts.some(a=>{const l=getActivityLogs(logs,member.id,a.id)[k];return l&&l.status==="shielded";});
-          if(anyShielded){done++;continue;}
-          if(anyDone) done++; else missed++;
-        }
-        // Also check today if already logged
-        const todayKey=today2;
-        if(todayKey.slice(0,7)===`${year}-${String(month+1).padStart(2,"0")}`){
-          const anyDoneToday=acts.some(a=>{const l=getActivityLogs(logs,member.id,a.id)[todayKey];return l&&l.status!=="skipped"&&l.status!=="shielded"&&l.value>0;});
-          const anyShieldedToday=acts.some(a=>{const l=getActivityLogs(logs,member.id,a.id)[todayKey];return l&&l.status==="shielded";});
-          if(anyShieldedToday) done++;
-          else if(anyDoneToday) done++;
-        }
-      } else {
-        done=Math.max(...summaries.map(s=>s.done));
-        missed=Math.max(...summaries.map(s=>s.missed));
-      }
+      const {done, missed, remaining} = memberMonthSummary(member, logs, year, month);
       const used=shieldsUsed(logs,member.id,acts);
       const left=4-used;
       return <div style={{display:"flex",gap:12,marginBottom:12,marginTop:-6,flexWrap:"wrap"}}>
@@ -2225,9 +2235,7 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
     const acts = m.activities||[];
     const sd = m.startDate||null;
     const avgPct = memberConsPct(m, logs, scoreYr, scoreMo);
-    const summaries = acts.map(a=>monthSummary(getActivityLogs(logs,m.id,a.id),scoreYr,scoreMo,sd));
-    const done = summaries.length?Math.max(...summaries.map(s=>s.done)):0;
-    const missed = summaries.length?Math.max(...summaries.map(s=>s.missed)):0;
+    const {done, missed} = memberMonthSummary(m, logs, scoreYr, scoreMo);
     const streaks = acts.map(a=>streakCount(getActivityLogs(logs,m.id,a.id)));
     const curStreak = streaks.length?Math.max(...streaks):0;
     let bestEver=0;
