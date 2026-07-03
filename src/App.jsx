@@ -307,6 +307,8 @@ function computePowerPoints(member, logs){
   let totalPP = 100; // base starting points
   let breakdown = {atTarget:0, aboveTarget:0, belowTarget:0, pb:0, shielded:0, skipped:0, streakBonus:0, streakBreak:0, mysteryDays:0};
   let prevStreak = 0;
+  let levelHistory = []; // [{level, title, icon, date}]
+  let lastLevelSeen = 1;
 
   // Track all-time best per activity for PB detection
   const actBests = {};
@@ -417,6 +419,13 @@ function computePowerPoints(member, logs){
       }
     }
     totalPP = Math.max(0, totalPP);
+
+    // Track level-up moments
+    const dayLevel = getLevel(totalPP);
+    if(dayLevel.level > lastLevelSeen){
+      levelHistory.push({level:dayLevel.level, title:dayLevel.title, icon:dayLevel.icon, date:dateStr});
+      lastLevelSeen = dayLevel.level;
+    }
   }
 
   // This week's PP
@@ -438,7 +447,19 @@ function computePowerPoints(member, logs){
     }
   }
 
-  return { total: Math.round(totalPP), breakdown, weekPP };
+  return { total: Math.round(totalPP), breakdown, weekPP, levelHistory };
+}
+
+// ── PP Pace Projection ────────────────────────────────────────────────────────
+function projectNextLevel(member, logs){
+  const {total, weekPP} = computePowerPoints(member, logs);
+  const nextLevel = getNextLevel(total);
+  if(!nextLevel) return null; // maxed out
+  if(weekPP <= 0) return { nextLevel, weeksAway: null }; // no recent pace to project from
+
+  const ppNeeded = nextLevel.pp - total;
+  const weeksAway = Math.ceil(ppNeeded / weekPP);
+  return { nextLevel, weeksAway, ppNeeded, weekPP };
 }
 
 // ── Badge Engine ──────────────────────────────────────────────────────────────
@@ -1250,7 +1271,8 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
 
 // ── Power Points Drawer ──────────────────────────────────────────────────────
 function PowerPointsDrawer({member, logs, onClose, onLevelUp}){
-  const {total, breakdown, weekPP} = computePowerPoints(member, logs);
+  const {total, breakdown, weekPP, levelHistory} = computePowerPoints(member, logs);
+  const projection = projectNextLevel(member, logs);
   const level = getLevel(total);
   const nextLevel = getNextLevel(total);
   const pct = nextLevel ? Math.round(((total - level.pp) / (nextLevel.pp - level.pp)) * 100) : 100;
@@ -1306,6 +1328,18 @@ function PowerPointsDrawer({member, logs, onClose, onLevelUp}){
             </div>
           </> : <div style={{fontSize:12,color:"#FFD700",fontWeight:700,textAlign:"center"}}>🌌 Maximum Level Reached!</div>}
         </div>
+
+        {/* Pace projection */}
+        {projection&&projection.weeksAway!==null&&<div style={{
+          marginTop:10,background:"#FFFDE7",border:"1.5px solid #F9A825",borderRadius:10,
+          padding:"9px 14px",display:"flex",alignItems:"center",gap:8,
+        }}>
+          <span style={{fontSize:16}}>🔮</span>
+          <span style={{fontSize:12,color:"#7A6200"}}>
+            At your current pace, you'll reach <strong>{projection.nextLevel.icon} {projection.nextLevel.title}</strong> in
+            {" "}<strong>{projection.weeksAway===1?"about a week":`about ${projection.weeksAway} weeks`}</strong>
+          </span>
+        </div>}
       </div>
 
       {/* Scrollable content */}
@@ -1347,18 +1381,23 @@ function PowerPointsDrawer({member, logs, onClose, onLevelUp}){
             LEVELS UNLOCKED ({earnedLevels.length}/{PP_LEVELS.length})
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:6}}>
-            {[...earnedLevels].reverse().map(l=>(
-              <div key={l.level} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",
+            {[...earnedLevels].reverse().map(l=>{
+              const histEntry = levelHistory.find(h=>h.level===l.level);
+              const dateLabel = histEntry ? new Date(histEntry.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}) : (l.level===1?"Day 1":null);
+              return <div key={l.level} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",
                 background:l.level===level.level?"#1a1a2e":C.bg,borderRadius:10,
                 border:`1.5px solid ${l.level===level.level?"#FFD700":C.border}`}}>
                 <span style={{fontSize:20}}>{l.icon}</span>
                 <div style={{flex:1}}>
-                  <span style={{fontWeight:700,fontSize:13,color:l.level===level.level?"#FFD700":C.text}}>{l.title}</span>
-                  {l.level===level.level&&<span style={{fontSize:10,color:"#FFD700",marginLeft:8}}>← YOU ARE HERE</span>}
+                  <div>
+                    <span style={{fontWeight:700,fontSize:13,color:l.level===level.level?"#FFD700":C.text}}>{l.title}</span>
+                    {l.level===level.level&&<span style={{fontSize:10,color:"#FFD700",marginLeft:8}}>← YOU ARE HERE</span>}
+                  </div>
+                  {dateLabel&&<div style={{fontSize:10,color:l.level===level.level?"rgba(255,255,255,0.4)":C.muted,marginTop:1}}>Reached {dateLabel}</div>}
                 </div>
-                <span style={{fontSize:11,color:C.muted}}>Lv.{l.level} · {l.pp.toLocaleString()} PP</span>
-              </div>
-            ))}
+                <span style={{fontSize:11,color:l.level===level.level?"rgba(255,255,255,0.4)":C.muted}}>Lv.{l.level} · {l.pp.toLocaleString()} PP</span>
+              </div>;
+            })}
             {lockedLevels.slice(0,3).map(l=>(
               <div key={l.level} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",
                 background:C.bg,borderRadius:10,border:`1px solid ${C.border}`,opacity:0.4,filter:"grayscale(1)"}}>
@@ -1560,6 +1599,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
         <div style={{fontSize:22}}>{ppLevel.icon}</div>
         <div style={{fontSize:12,fontWeight:700,color:"#FFD700"}}>{ppLevel.title}</div>
         <div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>Level {ppLevel.level}</div>
+        {ppNext&&<div style={{fontSize:9,color:"rgba(255,255,255,0.35)",marginTop:2}}>{(ppNext.pp-ppData.total).toLocaleString()} to {ppNext.icon} {ppNext.title}</div>}
       </div>
       {ppNext&&<div style={{position:"absolute",bottom:0,left:0,right:0,height:3,background:"rgba(255,255,255,0.1)",borderRadius:"0 0 12px 12px",overflow:"hidden"}}>
         <div style={{height:"100%",width:`${Math.round(((ppData.total-ppLevel.pp)/(ppNext.pp-ppLevel.pp))*100)}%`,background:"linear-gradient(90deg,#FFD700,#FFA500)",transition:"width 0.5s"}}/>
@@ -2289,6 +2329,13 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
                 </div>
                 <div style={{fontWeight:900,fontSize:20,color:i===0?"#FFD700":C.text}}>{s.pp.total.toLocaleString()} <span style={{fontSize:12}}>⚡</span></div>
                 <div style={{fontSize:11,color:i===0?"rgba(255,255,255,0.5)":C.muted}}>{lv.title} · Level {lv.level}</div>
+                {(()=>{
+                  const proj=projectNextLevel(s.m,logs);
+                  if(!proj||proj.weeksAway===null) return null;
+                  return <div style={{fontSize:10,color:i===0?"rgba(255,255,255,0.35)":C.muted,marginTop:4}}>
+                    🔮 {proj.nextLevel.title} in {proj.weeksAway===1?"~1wk":`~${proj.weeksAway}wks`}
+                  </div>;
+                })()}
               </div>;
             })}
           </div>
