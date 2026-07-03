@@ -281,18 +281,23 @@ const PP_LEVELS = [
   {level:6,  pp:2500,   title:"Brawler",    icon:"🥊"},
   {level:7,  pp:4000,   title:"Warrior",    icon:"🛡️"},
   {level:8,  pp:6000,   title:"Gladiator",  icon:"🏟️"},
-  {level:9,  pp:8500,   title:"Spartan",    icon:"⚡"},
-  {level:10, pp:12000,  title:"Champion",   icon:"🏆"},
-  {level:11, pp:16000,  title:"Conqueror",  icon:"🗡️"},
-  {level:12, pp:21000,  title:"Hero",       icon:"🦸"},
-  {level:13, pp:27000,  title:"Guardian",   icon:"🛡️"},
-  {level:14, pp:34000,  title:"Legend",     icon:"🌟"},
-  {level:15, pp:43000,  title:"Mythic",     icon:"🔱"},
-  {level:16, pp:54000,  title:"Master",     icon:"💎"},
-  {level:17, pp:67000,  title:"Elite",      icon:"👑"},
-  {level:18, pp:82000,  title:"Titan",      icon:"🌋"},
-  {level:19, pp:100000, title:"Warlord",    icon:"🔥"},
-  {level:20, pp:125000, title:"Immortal",   icon:"🌌"},
+  {level:9,  pp:7200,   title:"Spartan",    icon:"⚡"},
+  {level:10, pp:8600,   title:"Centurion",  icon:"🎖️"},
+  {level:11, pp:10300,  title:"Champion",   icon:"🏆"},
+  {level:12, pp:12300,  title:"Conqueror",  icon:"🗡️"},
+  {level:13, pp:14700,  title:"Vanguard",   icon:"🚩"},
+  {level:14, pp:17600,  title:"Hero",       icon:"🦸"},
+  {level:15, pp:21000,  title:"Guardian",   icon:"🏰"},
+  {level:16, pp:25100,  title:"Sentinel",   icon:"🗿"},
+  {level:17, pp:30000,  title:"Legend",     icon:"🌟"},
+  {level:18, pp:36000,  title:"Mythic",     icon:"🔱"},
+  {level:19, pp:43000,  title:"Paragon",    icon:"💠"},
+  {level:20, pp:51500,  title:"Master",     icon:"💎"},
+  {level:21, pp:61500,  title:"Elite",      icon:"👑"},
+  {level:22, pp:73500,  title:"Ascendant",  icon:"✨"},
+  {level:23, pp:88000,  title:"Titan",      icon:"🌋"},
+  {level:24, pp:105000, title:"Warlord",    icon:"🔥"},
+  {level:25, pp:125000, title:"Immortal",   icon:"🌌"},
 ];
 
 function getLevel(pp){
@@ -783,9 +788,9 @@ const MAJOR_MILESTONE_IDS = new Set([
   "month_3","month_6","month_12",
   "hang_36000","walk_500",
   "mon_30","fam_trio",
-  // PP level ups (levels 5+ get celebration)
-  "pp_level_5","pp_level_7","pp_level_9","pp_level_10",
-  "pp_level_12","pp_level_14","pp_level_16","pp_level_18","pp_level_20"
+  // PP level ups (levels 5+ get celebration, spread across all 25 levels)
+  "pp_level_5","pp_level_7","pp_level_9","pp_level_11","pp_level_13",
+  "pp_level_15","pp_level_17","pp_level_19","pp_level_21","pp_level_23","pp_level_25"
 ]);
 
 function CelebrationScreen({badge, memberName, onClose}){
@@ -1482,7 +1487,7 @@ function PowerPointsDrawer({member, logs, onClose, onLevelUp}){
         <div>
           <button onClick={()=>setShowLevelsLegend(s=>!s)} style={{background:"none",border:`1px solid ${C.border}`,
             borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600,color:C.muted,width:"100%",textAlign:"left"}}>
-            {showLevelsLegend?"▾":"▸"} View all 20 levels
+            {showLevelsLegend?"▾":"▸"} View all {PP_LEVELS.length} levels
           </button>
           {showLevelsLegend&&<div style={{background:C.bg,borderRadius:"0 0 10px 10px",border:`1px solid ${C.border}`,borderTop:"none",overflow:"hidden"}}>
             {PP_LEVELS.map((l,i)=>{
@@ -1778,7 +1783,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
               onNewBadge({id:`pp_level_${newLevel.level}`,e:newLevel.icon,
                 label:`Level ${newLevel.level}: ${newLevel.title}!`,
                 desc:`You reached ${newLevel.title}! Keep going!`,
-                tier:newLevel.level>=17?'gold':newLevel.level>=10?'silver':'bronze'},member.name);
+                tier:newLevel.level>=21?'gold':newLevel.level>=12?'silver':'bronze'},member.name);
             }
           },200);
         },50);
