@@ -193,6 +193,40 @@ function memberMonthSummary(member, logs, y, m){
     missed++;
   }
   return{done,missed,remaining};
+
+// ── Member-level streak (handles alternating — any activity keeps streak alive) ──
+function memberStreakCount(member, logs){
+  const acts = member.activities || [];
+  if(!acts.length) return 0;
+
+  if(!member.alternating || acts.length <= 1){
+    const streaks = acts.map(a=>streakCount(getActivityLogs(logs,member.id,a.id)));
+    return streaks.length?Math.max(...streaks):0;
+  }
+
+  // Alternating: streak continues as long as ANY activity was logged that day
+  const today = todayStr();
+  const anyToday = acts.some(a=>{
+    const l = getActivityLogs(logs,member.id,a.id)[today];
+    return l && l.status!=="skipped";
+  });
+  let d = new Date(today+"T00:00:00");
+  if(!anyToday) d.setDate(d.getDate()-1);
+
+  let count = 0;
+  while(true){
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    const anyLogged = acts.some(a=>{
+      const l = getActivityLogs(logs,member.id,a.id)[key];
+      return l && l.status!=="skipped";
+    });
+    if(!anyLogged) break;
+    count++;
+    d.setDate(d.getDate()-1);
+    if(count>2000) break;
+  }
+  return count;
+}
 }
 
 // ── Day status for calendar cell ──────────────────────────────────────────────
@@ -1582,8 +1616,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
 
   const acts=member.activities||[];
   const avgPct=memberConsPct(member,logs,year,month);
-  const streaks=acts.map(a=>streakCount(getActivityLogs(logs,member.id,a.id)));
-  const bestStreak=streaks.length?Math.max(...streaks):0;
+  const bestStreak=memberStreakCount(member,logs);
 
   const todayStats=acts.map(a=>{const l=getActivityLogs(logs,member.id,a.id)[today];return{act:a,log:l};});
   const doneToday=todayStats.filter(x=>x.log&&x.log.status!=="skipped");
@@ -1971,7 +2004,7 @@ function AllTimeStats({member,logs,onClose}){
     return{a,totalDays:done.length,totalVol,volStr,best,bestDay,bestStreak:bestStrk(),bestMon};
   });
 
-  const overallStreak=Math.max(0,...acts.map(a=>streakCount(getActivityLogs(logs,member.id,a.id))));
+  const overallStreak=memberStreakCount(member,logs);
   const trackStart=acts.flatMap(a=>Object.keys(getActivityLogs(logs,member.id,a.id))).sort()[0];
   const trackDays=trackStart?Math.round((new Date(today)-new Date(trackStart))/86400000)+1:0;
 
@@ -2241,8 +2274,7 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
     const sd = m.startDate||null;
     const avgPct = memberConsPct(m, logs, scoreYr, scoreMo);
     const {done, missed} = memberMonthSummary(m, logs, scoreYr, scoreMo);
-    const streaks = acts.map(a=>streakCount(getActivityLogs(logs,m.id,a.id)));
-    const curStreak = streaks.length?Math.max(...streaks):0;
+    const curStreak = memberStreakCount(m, logs);
     let bestEver=0;
     for(const a of acts){
       const al=getActivityLogs(logs,m.id,a.id);
