@@ -274,6 +274,23 @@ function getStreakMultiplier(streak){
   return 1;
 }
 
+function getWeekNumber(dateStr){
+  const d = new Date(dateStr + "T00:00:00");
+  const startOfYear = new Date(d.getFullYear(), 0, 1);
+  return Math.ceil(((d - startOfYear) / 86400000 + startOfYear.getDay() + 1) / 7);
+}
+
+function isMysteryBonusDay(memberId, dateStr){
+  // Seed = memberId + year + week number → deterministic random day of week
+  const d = new Date(dateStr + "T00:00:00");
+  const year = d.getFullYear();
+  const week = getWeekNumber(dateStr);
+  // Simple hash of memberId + year + week
+  const seed = [...(memberId + year + week).toString()].reduce((acc,c)=>acc*31+c.charCodeAt(0),0);
+  const bonusDow = Math.abs(seed) % 7; // 0=Sun, 1=Mon ... 6=Sat
+  return d.getDay() === bonusDow;
+}
+
 function computePowerPoints(member, logs){
   const today = todayStr();
   const acts = member.activities || [];
@@ -288,7 +305,7 @@ function computePowerPoints(member, logs){
   const sortedDates = [...allDates].sort();
 
   let totalPP = 100; // base starting points
-  let breakdown = {atTarget:0, aboveTarget:0, belowTarget:0, pb:0, shielded:0, skipped:0, streakBonus:0, streakBreak:0};
+  let breakdown = {atTarget:0, aboveTarget:0, belowTarget:0, pb:0, shielded:0, skipped:0, streakBonus:0, streakBreak:0, mysteryDays:0};
   let prevStreak = 0;
 
   // Track all-time best per activity for PB detection
@@ -364,12 +381,14 @@ function computePowerPoints(member, logs){
           const basePts = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
           if(basePts > bestPts) bestPts = basePts;
         }
-        const bonus = Math.round(bestPts * multiplier) - bestPts;
-        totalPP += Math.round(bestPts * multiplier);
-        if(bestPts === 250) breakdown.pb += Math.round(250 * multiplier);
-        else if(bestPts === 200) breakdown.aboveTarget += Math.round(200 * multiplier);
-        else if(bestPts === 100) breakdown.atTarget += Math.round(100 * multiplier);
-        else breakdown.belowTarget += Math.round(bestPts * multiplier);
+        const mysteryMult = isMysteryBonusDay(member.id, dateStr) ? 2 : 1;
+        const earned = Math.round(bestPts * multiplier * mysteryMult);
+        const bonus = earned - bestPts;
+        totalPP += earned;
+        if(bestPts === 250) breakdown.pb += earned;
+        else if(bestPts === 200) breakdown.aboveTarget += earned;
+        else if(bestPts === 100) breakdown.atTarget += earned;
+        else breakdown.belowTarget += earned;
         breakdown.streakBonus += bonus;
       }
     } else {
@@ -385,7 +404,8 @@ function computePowerPoints(member, logs){
           const isPB = l.value > actBests[a.id] && l.value > effectiveTarget;
           if(isPB) actBests[a.id] = l.value;
           const basePts = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
-          const earned = Math.round(basePts * multiplier);
+          const mysteryMult = isMysteryBonusDay(member.id, dateStr) ? 2 : 1;
+          const earned = Math.round(basePts * multiplier * mysteryMult);
           const bonus = earned - basePts;
           totalPP += earned;
           if(basePts === 250) breakdown.pb += earned;
@@ -1303,6 +1323,7 @@ function PowerPointsDrawer({member, logs, onClose, onLevelUp}){
               {label:"Shielded days",val:breakdown.shielded,color:"#5B8FD4",show:breakdown.shielded>0},
               {label:"Streak multiplier bonus",val:breakdown.streakBonus,color:"#E8A838",show:breakdown.streakBonus>0},
               {label:"Starting bonus",val:100,color:C.muted,show:true},
+              {label:"🎁 Mystery bonus days",val:breakdown.mysteryDays,color:"#FFD700",show:breakdown.mysteryDays>0},
               {label:"Skipped days",val:breakdown.skipped,color:C.missed,show:breakdown.skipped<0},
               {label:"Streak break penalties",val:breakdown.streakBreak,color:C.missed,show:breakdown.streakBreak<0},
             ].filter(r=>r.show).map((row,i,arr)=>(
@@ -1416,6 +1437,57 @@ function PowerPointsDrawer({member, logs, onClose, onLevelUp}){
   </>;
 }
 
+// ── Mystery Bonus Reveal ─────────────────────────────────────────────────────
+function MysteryBonusReveal({normalPP, bonusPP, onClose}){
+  useEffect(()=>{const t=setTimeout(onClose,5000);return()=>clearTimeout(t);},[]);
+  return <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:500,
+    display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(3px)",
+    animation:"fadeInOverlay 0.3s ease"}}>
+    <style>{`
+      @keyframes fadeInOverlay{from{opacity:0}to{opacity:1}}
+      @keyframes mysteryPop{0%{transform:scale(0.3) rotate(-5deg);opacity:0}60%{transform:scale(1.1) rotate(2deg);opacity:1}100%{transform:scale(1) rotate(0deg);opacity:1}}
+      @keyframes giftBounce{0%,100%{transform:translateY(0) rotate(0deg)}25%{transform:translateY(-12px) rotate(-10deg)}75%{transform:translateY(-8px) rotate(10deg)}}
+      @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+    `}</style>
+    <div onClick={e=>e.stopPropagation()} style={{
+      background:"linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)",
+      border:"3px solid #FFD700",borderRadius:24,padding:"36px 32px",
+      maxWidth:320,width:"90%",textAlign:"center",
+      boxShadow:"0 0 60px rgba(255,215,0,0.4), 0 20px 60px rgba(0,0,0,0.5)",
+      animation:"mysteryPop 0.5s cubic-bezier(0.34,1.56,0.64,1)",
+    }}>
+      <div style={{fontSize:60,marginBottom:8,animation:"giftBounce 1.5s ease-in-out infinite"}}>🎁</div>
+      <div style={{fontSize:13,fontWeight:800,color:"#FFD700",letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>
+        Mystery Bonus Day!
+      </div>
+      <div style={{fontSize:14,color:"rgba(255,255,255,0.7)",marginBottom:20,lineHeight:1.5}}>
+        Today was secretly a<br/><strong style={{color:"#FFD700"}}>Double PP Day!</strong>
+      </div>
+      <div style={{background:"rgba(255,255,255,0.05)",borderRadius:14,padding:"16px 20px",marginBottom:20}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:8,paddingBottom:8,borderBottom:"1px solid rgba(255,255,255,0.1)"}}>
+          <span style={{fontSize:13,color:"rgba(255,255,255,0.5)"}}>Normal</span>
+          <span style={{fontSize:13,color:"rgba(255,255,255,0.5)"}}>+{normalPP} ⚡</span>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:8,paddingBottom:8,borderBottom:"1px solid rgba(255,255,255,0.1)"}}>
+          <span style={{fontSize:13,color:"#FFD700"}}>🎁 Bonus</span>
+          <span style={{fontSize:13,color:"#FFD700"}}>+{normalPP} ⚡</span>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between"}}>
+          <span style={{fontSize:15,fontWeight:800,color:"#fff"}}>Total earned</span>
+          <span style={{fontSize:15,fontWeight:900,color:"#FFD700"}}>+{bonusPP} ⚡ 🔥</span>
+        </div>
+      </div>
+      <button onClick={onClose} style={{
+        background:"linear-gradient(135deg,#FFD700,#FFA500)",
+        border:"none",borderRadius:12,padding:"12px 32px",
+        fontSize:15,fontWeight:800,color:"#1a1a2e",cursor:"pointer",
+        boxShadow:"0 4px 20px rgba(255,215,0,0.4)",
+      }}>Awesome! 🎉</button>
+      <div style={{fontSize:11,color:"rgba(255,255,255,0.3)",marginTop:12}}>Tap anywhere to continue</div>
+    </div>
+  </div>;
+}
+
 // ── Member Card ───────────────────────────────────────────────────────────────
 function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,month}){
   const today=todayStr();
@@ -1424,6 +1496,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
   const[showStats,setShowStats]=useState(false);
   const[showHeatmap,setShowHeatmap]=useState(false);
   const[showPP,setShowPP]=useState(false);
+  const[mysteryReveal,setMysteryReveal]=useState(null); // {normalPP, bonusPP}
   const[modal,setModal]=useState(null);
   const ppData = computePowerPoints(member, logs);
   const ppLevel = getLevel(ppData.total);
@@ -1621,6 +1694,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
     {showBadges&&<BadgeDrawer member={member} allEarned={allEarned} acts={acts} logs={logs} onClose={()=>setShowBadges(false)}/>}
     {showStats&&<AllTimeStats member={member} logs={logs} onClose={()=>setShowStats(false)}/>}
     {showPP&&<PowerPointsDrawer member={member} logs={logs} onClose={()=>setShowPP(false)}/>}
+    {mysteryReveal&&<MysteryBonusReveal normalPP={mysteryReveal.normalPP} bonusPP={mysteryReveal.bonusPP} onClose={()=>setMysteryReveal(null)}/>}
 
     {modal&&(member.alternating&&acts.length>1
       ?<AlternatingLogModal dateStr={modal} member={member} logs={logs} shieldsLeft={4-shieldsUsed(logs,member.id,acts)}
@@ -1639,6 +1713,17 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
             return earnedBadges(nl,a.target,a.unit);
           });
           next.filter(id=>!prev.has(id)).forEach(id=>{const b=BADGES.find(x=>x.id===id);if(b)onNewBadge(b,member.name);});
+          // Mystery bonus day check
+          if(isMysteryBonusDay(member.id, modal)){
+            // Calculate what normal PP would have been (without mystery multiplier)
+            const entryForDay = stampedEntries[0];
+            if(entryForDay && entryForDay.status !== "skipped" && entryForDay.status !== "shielded" && entryForDay.value > 0){
+              const act = acts.find(a=>a.actId===entryForDay.actId||a.id===entryForDay.actId);
+              const effectiveTarget = entryForDay.target || act?.target || 0;
+              const normalPP = entryForDay.value > effectiveTarget*1.5 ? 250 : entryForDay.value > effectiveTarget ? 200 : entryForDay.value >= effectiveTarget ? 100 : 50;
+              setTimeout(()=>setMysteryReveal({normalPP, bonusPP: normalPP*2}), 300);
+            }
+          }
           // PP level-up check
           const prevLevel=getLevel(computePowerPoints(member,logs).total);
           setTimeout(()=>{
