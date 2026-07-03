@@ -193,6 +193,7 @@ function memberMonthSummary(member, logs, y, m){
     missed++;
   }
   return{done,missed,remaining};
+}
 
 // ── Member-level streak (handles alternating — any activity keeps streak alive) ──
 function memberStreakCount(member, logs){
@@ -226,7 +227,6 @@ function memberStreakCount(member, logs){
     if(count>2000) break;
   }
   return count;
-}
 }
 
 // ── Day status for calendar cell ──────────────────────────────────────────────
