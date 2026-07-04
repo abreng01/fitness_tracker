@@ -48,6 +48,15 @@ function getActivityLogs(logs, memberId, activityId){
   return mLogs[activityId] || {};
 }
 
+// ── Egg-O-Meter helpers (isolated from activity/badge/streak system) ─────────
+function getEggLogs(logs, memberId){
+  return (logs[memberId] && logs[memberId].eggs) || {};
+}
+function totalEggCount(logs, memberId){
+  const eggs = getEggLogs(logs, memberId);
+  return Object.values(eggs).reduce((sum,c)=>sum+(c||0), 0);
+}
+
 // ── Streak ────────────────────────────────────────────────────────────────────
 function streakCount(al){
   let count=0;
@@ -382,7 +391,7 @@ function computePowerPoints(member, logs){
   const sortedDates = [...allDates].sort();
 
   let totalPP = 100; // base starting points
-  let breakdown = {atTarget:0, aboveTarget:0, belowTarget:0, pb:0, shielded:0, skipped:0, streakBonus:0, streakBreak:0, mysteryDays:0};
+  let breakdown = {atTarget:0, aboveTarget:0, belowTarget:0, pb:0, shielded:0, skipped:0, streakBonus:0, streakBreak:0, mysteryDays:0, eggBonus:0};
   let prevStreak = 0;
   let levelHistory = []; // [{level, title, icon, date}]
   let lastLevelSeen = 1;
@@ -508,6 +517,15 @@ function computePowerPoints(member, logs){
     }
   }
 
+  // Egg-O-Meter bonus — flat +1000 PP per egg, added directly into the same PP pool
+  const eggLogs = getEggLogs(logs, member.id);
+  let eggBonusTotal = 0;
+  for(const [d, count] of Object.entries(eggLogs)){
+    if(d <= today && (!sd || d >= sd)) eggBonusTotal += (count||0) * 1000;
+  }
+  totalPP += eggBonusTotal;
+  breakdown.eggBonus = eggBonusTotal;
+
   // This week's PP — sum of actual net daily earnings (multiplier + mystery bonus already applied)
   const weekStart = new Date(today);
   weekStart.setDate(weekStart.getDate() - 6);
@@ -516,6 +534,10 @@ function computePowerPoints(member, logs){
   for(const dateStr of sortedDates){
     if(dateStr < weekStartStr) continue;
     weekPP += Math.max(0, dailyEarned[dateStr] || 0); // only count positive earnings for pace, not penalties
+  }
+  // Include recent egg bonuses in the week's pace too
+  for(const [d, count] of Object.entries(eggLogs)){
+    if(d >= weekStartStr && d <= today) weekPP += (count||0) * 1000;
   }
 
   return { total: Math.round(totalPP), breakdown, weekPP, levelHistory };
@@ -1478,6 +1500,7 @@ function PowerPointsDrawer({member, logs, onClose, onLevelUp}){
               {label:"Below target days",val:breakdown.belowTarget,color:C.partial,show:breakdown.belowTarget>0},
               {label:"Shielded days",val:breakdown.shielded,color:"#5B8FD4",show:breakdown.shielded>0},
               {label:"Streak multiplier bonus",val:breakdown.streakBonus,color:"#E8A838",show:breakdown.streakBonus>0},
+              {label:"🥚 Egg bonus",val:breakdown.eggBonus,color:"#F9A825",show:breakdown.eggBonus>0},
               {label:"Starting bonus",val:100,color:C.muted,show:true},
               {label:"🎁 Mystery bonus days",val:breakdown.mysteryDays,color:"#FFD700",show:breakdown.mysteryDays>0},
               {label:"Skipped days",val:breakdown.skipped,color:C.missed,show:breakdown.skipped<0},
@@ -1665,8 +1688,60 @@ function MysteryBonusReveal({normalPP, bonusPP, onClose}){
   </div>;
 }
 
+// ── Egg-O-Meter (isolated bonus PP feature) ───────────────────────────────────
+function EggMeter({member, logs, onEggChange, onNewBadge}){
+  const today = todayStr();
+  const eggLogs = getEggLogs(logs, member.id);
+  const todayCount = eggLogs[today] || 0;
+  const totalCount = totalEggCount(logs, member.id);
+
+  function handleTap(delta){
+    const prevLevel = getLevel(computePowerPoints(member, logs).total);
+    onEggChange(member.id, today, delta);
+    setTimeout(()=>{
+      const nextLogs = {...logs, [member.id]: {...(logs[member.id]||{})}};
+      const eggs = {...(nextLogs[member.id].eggs||{})};
+      const newCount = Math.max(0, (eggs[today]||0)+delta);
+      if(newCount===0) delete eggs[today]; else eggs[today]=newCount;
+      nextLogs[member.id].eggs = eggs;
+      const newLevel = getLevel(computePowerPoints(member, nextLogs).total);
+      if(newLevel.level > prevLevel.level && onNewBadge){
+        onNewBadge({id:`pp_level_${newLevel.level}`,e:newLevel.icon,
+          label:`Level ${newLevel.level}: ${newLevel.title}!`,
+          desc:`You reached ${newLevel.title}! Keep going!`,
+          tier:newLevel.level>=21?'gold':newLevel.level>=12?'silver':'bronze'}, member.name);
+      }
+    },100);
+  }
+
+  return <div style={{
+    background:"linear-gradient(135deg,#FFFDE7,#FFF9C4)",border:"1.5px solid #F9A825",
+    borderRadius:12,padding:"12px 16px",marginBottom:12,
+    display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,
+  }}>
+    <div>
+      <div style={{fontSize:11,fontWeight:700,color:"#F57F17",letterSpacing:0.5,marginBottom:2}}>🥚 EGG-O-METER</div>
+      <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+        <span style={{fontSize:20,fontWeight:900,color:"#E65100"}}>{totalCount}</span>
+        <span style={{fontSize:11,color:"#795548"}}>eggs · +{(totalCount*1000).toLocaleString()} ⚡ total</span>
+      </div>
+      {todayCount>0&&<div style={{fontSize:11,color:"#795548",marginTop:2}}>{todayCount} today</div>}
+    </div>
+    <div style={{display:"flex",alignItems:"center",gap:8}}>
+      {todayCount>0&&<button onClick={()=>handleTap(-1)} style={{
+        background:"none",border:"1.5px solid #F9A825",borderRadius:8,
+        width:32,height:32,cursor:"pointer",fontSize:16,color:"#F57F17",fontWeight:700,
+      }}>−</button>}
+      <button onClick={()=>handleTap(1)} style={{
+        background:"#F9A825",color:"#fff",border:"none",borderRadius:8,
+        padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13,whiteSpace:"nowrap",
+      }}>🥚 +1 Egg</button>
+    </div>
+  </div>;
+}
+
 // ── Member Card ───────────────────────────────────────────────────────────────
-function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,month}){
+function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month}){
   const today=todayStr();
   const[showCal,setShowCal]=useState(true);
   const[showBadges,setShowBadges]=useState(false);
@@ -1743,6 +1818,9 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
         <div style={{height:"100%",width:`${Math.round(((ppData.total-ppLevel.pp)/(ppNext.pp-ppLevel.pp))*100)}%`,background:"linear-gradient(90deg,#FFD700,#FFA500)",transition:"width 0.5s"}}/>
       </div>}
     </div>
+
+    {/* Egg-O-Meter */}
+    {member.eggMeter&&<EggMeter member={member} logs={logs} onEggChange={onEggChange} onNewBadge={onNewBadge}/>}
 
     {/* Consistency */}
     <div style={{marginBottom:12}}>
@@ -1915,6 +1993,7 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
   const[color,setColor]=useState(member?.color??"#5B8FD4");
   const[acts,setActs]=useState(member?.activities??[{id:Date.now().toString(),name:"",unit:"min",target:30}]);
   const[alternating,setAlternating]=useState(member?.alternating??false);
+  const[eggMeter,setEggMeter]=useState(member?.eggMeter??false);
   const[startDate,setStartDate]=useState(member?.startDate??"");
   const eOpts=["🧗","🚶","🏃","🚴","🏋️","🤸","🧘","🏊","⚽","🏓","🎯","💪","🧒","👩","👨"];
   const cOpts=["#5B8FD4","#D47B9E","#3D9E6E","#E8A838","#9B6FD4","#E05C5C","#5BC4C4","#E8873A"];
@@ -1940,6 +2019,21 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
         <label style={lStyle}>Colour</label>
         <div style={{display:"flex",gap:7}}>
           {cOpts.map(c=><div key={c} onClick={()=>setColor(c)} style={{width:26,height:26,borderRadius:"50%",background:c,cursor:"pointer",border:color===c?`3px solid ${C.text}`:"3px solid transparent",boxSizing:"border-box"}}/>)}
+        </div>
+      </div>
+      <div style={{marginBottom:18}}>
+        <div onClick={()=>setEggMeter(e=>!e)} style={{
+          display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+          background:eggMeter?"#FFFDE7":"#F7F5F0",border:`1.5px solid ${eggMeter?"#F9A825":C.border}`,
+          borderRadius:10,cursor:"pointer",userSelect:"none",
+        }}>
+          <div style={{width:36,height:20,borderRadius:99,background:eggMeter?"#F9A825":C.border,position:"relative",transition:"background 0.2s",flexShrink:0}}>
+            <div style={{position:"absolute",top:2,left:eggMeter?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+          </div>
+          <div>
+            <div style={{fontSize:13,fontWeight:600,color:eggMeter?"#F57F17":C.text}}>🥚 Egg-O-Meter</div>
+            <div style={{fontSize:11,color:C.muted}}>Each egg logged adds +1000 Power Points</div>
+          </div>
         </div>
       </div>
       <div style={{marginBottom:18}}>
@@ -1980,7 +2074,7 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
       <div style={{display:"flex",gap:8}}>
         {!isNew&&<button onClick={()=>{if(window.confirm("Remove?"))onDelete(member.id);}} style={{padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",cursor:"pointer",color:C.missed,fontWeight:600}}>Delete</button>}
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
+        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
       </div>
     </div>
   </div>;
@@ -2647,6 +2741,17 @@ export default function App(){
     });
   },[]);
 
+  const handleEggChange=useCallback((mid,dateStr,delta)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const eggs={...(next[mid].eggs||{})};
+      const newCount=Math.max(0,(eggs[dateStr]||0)+delta);
+      if(newCount===0) delete eggs[dateStr]; else eggs[dateStr]=newCount;
+      next[mid].eggs=eggs;
+      return next;
+    });
+  },[]);
+
   const handleSave=useCallback((m)=>{
     setMembers(p=>{const ex=p.find(x=>x.id===m.id);return ex?p.map(x=>x.id===m.id?m:x):[...p,m];});
     setEditM(null);
@@ -2710,7 +2815,7 @@ export default function App(){
       {/* Individual member tab */}
       {activeTab&&members.filter(m=>m.id===activeTab).map(m=>(
         <MemberCard key={m.id} member={m} logs={logs} allMembers={members}
-          onLogAll={handleLogAll} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo}/>
+          onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo}/>
       ))}
 
       {/* Family tab */}
