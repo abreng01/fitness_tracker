@@ -718,6 +718,51 @@ function computeStats(al,target){
     totalVol,unit:"",bestMonthDays,famDays:0,famWeeks:0,famActive:false};
 }
 
+// ── Member-level stats for badges (handles alternating — any activity logged counts) ──
+function computeMemberLevelStats(member, logs){
+  const acts = member.activities || [];
+  const today = todayStr();
+  const sd = member.startDate || null;
+
+  // Build a virtual combined log: one entry per day, reflecting whether
+  // ANY activity was done/shielded/skipped that day — not per-activity.
+  const allDatesSet = new Set();
+  for(const a of acts){
+    const al = getActivityLogs(logs, member.id, a.id);
+    for(const d of Object.keys(al)) if(d <= today && (!sd || d >= sd)) allDatesSet.add(d);
+  }
+  const virtualAl = {};
+  for(const d of allDatesSet){
+    let anyDone=false, anyShielded=false, anySkipped=false;
+    for(const a of acts){
+      const l = getActivityLogs(logs, member.id, a.id)[d];
+      if(!l) continue;
+      if(l.status === "shielded") anyShielded = true;
+      else if(l.status === "skipped") anySkipped = true;
+      else if(l.value > 0) anyDone = true;
+    }
+    if(anyShielded) virtualAl[d] = {value:0, status:"shielded"};
+    else if(anyDone) virtualAl[d] = {value:1, status:"done"}; // dummy value; target=1 makes it always "at target"
+    else if(anySkipped) virtualAl[d] = {value:0, status:"skipped"};
+  }
+
+  const stats = computeStats(virtualAl, 1); // target=1 with dummy value=1 → presence/status is all that matters
+  return {
+    totalDone: stats.totalDone,
+    bestStreak: stats.bestStreak,
+    bestMonPct: stats.bestMonPct,
+    highMons: stats.highMons,
+    trackDays: stats.trackDays,
+    bestWeek: stats.bestWeek,
+    consec5w: stats.consec5w,
+    comeback: stats.comeback,
+    perfMon: stats.perfMon,
+    perfSun: stats.perfSun,
+    perfWknd: stats.perfWknd,
+    bestMonthDays: stats.bestMonthDays,
+  };
+}
+
 function computeFamStats(members,logs){
   if(!members||members.length<2) return{famDays:0,famWeeks:0,famActive:false};
   const today=todayStr();
@@ -1643,7 +1688,8 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
   const loggedCount=doneToday.length;
 
   const fs=computeFamStats(allMembers,logs);
-  const allEarned=new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,member.id,a.id),a.target,a.unit,fs)));
+  const memberOverride = (member.alternating && acts.length>1) ? computeMemberLevelStats(member,logs) : {};
+  const allEarned=new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,member.id,a.id),a.target,a.unit,{...fs,...memberOverride})));
   const personalBadges=BADGES.filter(b=>!FAM_IDS.has(b.id));
 
   const dCount=daysInMonth(year,month);
@@ -1808,13 +1854,16 @@ function MemberCard({member,logs,allMembers,onLogAll,onEdit,onNewBadge,year,mont
           const act=acts.find(a=>a.id===e.actId);
           return act?{...e,target:act.target}:e;
         });
-        const prev=new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,member.id,a.id),a.target,a.unit)));
+        const prev=new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,member.id,a.id),a.target,a.unit,computeMemberLevelStats(member,logs))));
         onLogAll(member.id,modal,stampedEntries);
         setTimeout(()=>{
+          const nextLogs={...logs,[member.id]:{...logs[member.id]}};
+          for(const en of stampedEntries) nextLogs[member.id][en.actId]={...nextLogs[member.id]?.[en.actId],[modal]:{value:en.value,status:en.status,target:en.target}};
+          const memberOverride=computeMemberLevelStats(member,nextLogs);
           const next=acts.flatMap(a=>{
             const en=stampedEntries.find(e=>e.actId===a.id);if(!en)return[];
             const nl={...getActivityLogs(logs,member.id,a.id),[modal]:{value:en.value,status:en.status,target:en.target}};
-            return earnedBadges(nl,a.target,a.unit);
+            return earnedBadges(nl,a.target,a.unit,memberOverride);
           });
           next.filter(id=>!prev.has(id)).forEach(id=>{const b=BADGES.find(x=>x.id===id);if(b)onNewBadge(b,member.name);});
           // Mystery bonus day check
@@ -2303,7 +2352,8 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
       for(const[,l]of entries){if(l.status!=="skipped"&&l.status!=="shielded"&&l.value>0){run++;if(run>bestEver)bestEver=run;}else run=0;}
     }
     const shields = shieldsUsed(logs,m.id,acts);
-    const allEarned = new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,m.id,a.id),a.target,a.unit)));
+    const familyOverride = (m.alternating && acts.length>1) ? computeMemberLevelStats(m,logs) : {};
+    const allEarned = new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,m.id,a.id),a.target,a.unit,familyOverride)));
     const personalBadges = BADGES.filter(b=>!FAM_IDS.has(b.id));
     const volumes = acts.map(a=>{
       const al=getActivityLogs(logs,m.id,a.id);
