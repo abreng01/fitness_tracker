@@ -1372,8 +1372,12 @@ function PowerPointsDrawer({member, logs, onClose, onLevelUp}){
               <div style={{fontSize:12,color:C.muted}}>⚡ Power Points</div>
             </div>
           </div>
-          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,
-            padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <button onClick={()=>setShowLevelsLegend(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,
+              padding:"6px 10px",cursor:"pointer",fontSize:12,fontWeight:600,color:C.muted,whiteSpace:"nowrap"}}>📖 All levels</button>
+            <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,
+              padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+          </div>
         </div>
 
         {/* Big PP number + level */}
@@ -1517,33 +1521,49 @@ function PowerPointsDrawer({member, logs, onClose, onLevelUp}){
           </div>}
         </div>
 
-        {/* All levels legend (collapsible) */}
-        <div>
-          <button onClick={()=>setShowLevelsLegend(s=>!s)} style={{background:"none",border:`1px solid ${C.border}`,
-            borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600,color:C.muted,width:"100%",textAlign:"left"}}>
-            {showLevelsLegend?"▾":"▸"} View all {PP_LEVELS.length} levels
-          </button>
-          {showLevelsLegend&&<div style={{background:C.bg,borderRadius:"0 0 10px 10px",border:`1px solid ${C.border}`,borderTop:"none",overflow:"hidden"}}>
-            {PP_LEVELS.map((l,i)=>{
-              const isCurrentLevel = l.level === level.level;
-              const isEarned = total >= l.pp;
-              return <div key={l.level} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 14px",
-                background:isCurrentLevel?"#1a1a2e":"transparent",
-                borderBottom:i<PP_LEVELS.length-1?`1px solid ${C.border}`:"none",
-                opacity:isEarned?1:0.4}}>
-                <span style={{fontSize:16,minWidth:24}}>{l.icon}</span>
-                <div style={{flex:1}}>
-                  <span style={{fontSize:12,fontWeight:isCurrentLevel?700:500,
-                    color:isCurrentLevel?"#FFD700":isEarned?C.text:C.muted}}>{l.title}</span>
-                  {isCurrentLevel&&<span style={{fontSize:10,color:"#FFD700",marginLeft:6}}>← YOU</span>}
-                </div>
-                <span style={{fontSize:11,color:isCurrentLevel?"rgba(255,255,255,0.5)":C.muted}}>Lv.{l.level}</span>
-                <span style={{fontSize:11,color:isCurrentLevel?"rgba(255,255,255,0.5)":C.muted,minWidth:70,textAlign:"right"}}>{l.pp.toLocaleString()} PP</span>
-              </div>;
-            })}
-          </div>}
-        </div>
 
+      </div>
+    </div>
+    {showLevelsLegend&&<LevelsLegendDrawer currentLevel={level.level} totalPP={total} onClose={()=>setShowLevelsLegend(false)}/>}
+  </>;
+}
+
+// ── Levels Legend Drawer (slides in from left) ────────────────────────────────
+function LevelsLegendDrawer({currentLevel, totalPP, onClose}){
+  return <>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:410}}/>
+    <div style={{position:"fixed",top:0,left:0,height:"100%",width:"min(400px,90vw)",
+      background:C.surface,zIndex:411,boxShadow:"8px 0 40px rgba(0,0,0,0.15)",
+      display:"flex",flexDirection:"column",animation:"slideInLeft 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInLeft{from{transform:translateX(-100%)}to{transform:translateX(0)}}`}</style>
+
+      <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0,
+        display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div>
+          <div style={{fontWeight:800,fontSize:16}}>📖 All Levels</div>
+          <div style={{fontSize:12,color:C.muted}}>{PP_LEVELS.length} levels total</div>
+        </div>
+        <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,
+          padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+      </div>
+
+      <div style={{flex:1,overflowY:"auto",padding:"12px 16px 24px"}}>
+        {PP_LEVELS.map((l,i)=>{
+          const isCurrentLevel = l.level === currentLevel;
+          const isEarned = totalPP >= l.pp;
+          return <div key={l.level} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+            background:isCurrentLevel?"#1a1a2e":"transparent",borderRadius:10,
+            marginBottom:4,opacity:isEarned?1:0.4}}>
+            <span style={{fontSize:18,minWidth:26}}>{l.icon}</span>
+            <div style={{flex:1}}>
+              <span style={{fontSize:13,fontWeight:isCurrentLevel?700:500,
+                color:isCurrentLevel?"#FFD700":isEarned?C.text:C.muted}}>{l.title}</span>
+              {isCurrentLevel&&<span style={{fontSize:10,color:"#FFD700",marginLeft:6}}>← YOU</span>}
+            </div>
+            <span style={{fontSize:11,color:isCurrentLevel?"rgba(255,255,255,0.5)":C.muted}}>Lv.{l.level}</span>
+            <span style={{fontSize:11,color:isCurrentLevel?"rgba(255,255,255,0.5)":C.muted,minWidth:70,textAlign:"right"}}>{l.pp.toLocaleString()} PP</span>
+          </div>;
+        })}
       </div>
     </div>
   </>;
