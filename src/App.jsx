@@ -1715,25 +1715,25 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
   }
 
   return <div style={{
-    background:"linear-gradient(135deg,#FFFDE7,#FFF9C4)",border:"1.5px solid #F9A825",
+    background:"linear-gradient(135deg,#EBF2FC,#DCE9F9)",border:"1.5px solid #5B8FD4",
     borderRadius:12,padding:"12px 16px",marginBottom:12,
     display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,
   }}>
     <div>
-      <div style={{fontSize:11,fontWeight:700,color:"#F57F17",letterSpacing:0.5,marginBottom:2}}>🥚 EGG-O-METER</div>
+      <div style={{fontSize:11,fontWeight:700,color:"#2C5FA8",letterSpacing:0.5,marginBottom:2}}>🥚 EGG-O-METER</div>
       <div style={{display:"flex",alignItems:"baseline",gap:8}}>
-        <span style={{fontSize:20,fontWeight:900,color:"#E65100"}}>{totalCount}</span>
-        <span style={{fontSize:11,color:"#795548"}}>eggs · +{(totalCount*1000).toLocaleString()} ⚡ total</span>
+        <span style={{fontSize:20,fontWeight:900,color:"#2C5FA8"}}>{totalCount}</span>
+        <span style={{fontSize:11,color:"#4A6B94"}}>eggs · +{(totalCount*1000).toLocaleString()} ⚡ total</span>
       </div>
-      {todayCount>0&&<div style={{fontSize:11,color:"#795548",marginTop:2}}>{todayCount} today</div>}
+      {todayCount>0&&<div style={{fontSize:11,color:"#4A6B94",marginTop:2}}>{todayCount} today</div>}
     </div>
     <div style={{display:"flex",alignItems:"center",gap:8}}>
       {todayCount>0&&<button onClick={()=>handleTap(-1)} style={{
-        background:"none",border:"1.5px solid #F9A825",borderRadius:8,
-        width:32,height:32,cursor:"pointer",fontSize:16,color:"#F57F17",fontWeight:700,
+        background:"none",border:"1.5px solid #5B8FD4",borderRadius:8,
+        width:32,height:32,cursor:"pointer",fontSize:16,color:"#2C5FA8",fontWeight:700,
       }}>−</button>}
       <button onClick={()=>handleTap(1)} style={{
-        background:"#F9A825",color:"#fff",border:"none",borderRadius:8,
+        background:"#5B8FD4",color:"#fff",border:"none",borderRadius:8,
         padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13,whiteSpace:"nowrap",
       }}>🥚 +1 Egg</button>
     </div>
