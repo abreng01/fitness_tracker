@@ -366,14 +366,26 @@ function getWeekNumber(dateStr){
   return Math.ceil(((d - startOfYear) / 86400000 + startOfYear.getDay() + 1) / 7);
 }
 
+function simpleStringHash(str){
+  let hash = 5381;
+  for(let i=0;i<str.length;i++){
+    hash = ((hash << 5) + hash + str.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
 function isMysteryBonusDay(memberId, dateStr){
-  // Seed = memberId + year + week number → deterministic random day of week
+  // Properly mixed hash so different members never collide on the same bonus day
   const d = new Date(dateStr + "T00:00:00");
   const year = d.getFullYear();
   const week = getWeekNumber(dateStr);
-  // Simple hash of memberId + year + week
-  const seed = [...(memberId + year + week).toString()].reduce((acc,c)=>acc*31+c.charCodeAt(0),0);
-  const bonusDow = Math.abs(seed) % 7; // 0=Sun, 1=Mon ... 6=Sat
+  const memberHash = simpleStringHash(memberId);
+  const weekKey = year*100 + week;
+  let mixed = (memberHash ^ Math.imul(weekKey, 2654435761)) >>> 0;
+  mixed = Math.imul(mixed ^ (mixed >>> 16), 2246822507) >>> 0;
+  mixed = Math.imul(mixed ^ (mixed >>> 13), 3266489909) >>> 0;
+  mixed = (mixed ^ (mixed >>> 16)) >>> 0;
+  const bonusDow = mixed % 7;
   return d.getDay() === bonusDow;
 }
 
