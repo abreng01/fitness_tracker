@@ -2212,12 +2212,39 @@ function HeatmapView({member,logs}){
 }
 
 // ── Consistency Trend Line ───────────────────────────────────────────────────
+// ── Infer a member's real tracking start (explicit startDate, or first-ever log) ──
+function getEffectiveStart(member, logs){
+  if(member.startDate) return member.startDate;
+  let earliest = null;
+  for(const a of (member.activities||[])){
+    const al = getActivityLogs(logs, member.id, a.id);
+    for(const d of Object.keys(al)) if(!earliest || d < earliest) earliest = d;
+  }
+  return earliest; // null if member has no data at all yet
+}
+
 function ConsistencyTrend({members, logs}){
   const today = new Date(todayStr());
 
-  // Build last 8 weeks of data
+  // Figure out each member's real start, and the earliest across the family
+  const effectiveStarts = {};
+  let globalStart = null;
+  for(const m of members){
+    const es = getEffectiveStart(m, logs);
+    effectiveStarts[m.id] = es;
+    if(es && (!globalStart || es < globalStart)) globalStart = es;
+  }
+
+  // Size the window dynamically: from the earliest activity to now, capped at 12 weeks
+  let weekCount = 8;
+  if(globalStart){
+    const daysSinceStart = Math.round((today - new Date(globalStart+"T00:00:00")) / 86400000);
+    weekCount = Math.min(12, Math.max(1, Math.ceil((daysSinceStart+1)/7)));
+  }
+
+  // Build weeks of data
   const weeks = [];
-  for(let w=7; w>=0; w--){
+  for(let w=weekCount-1; w>=0; w--){
     const weekEnd = new Date(today);
     weekEnd.setDate(today.getDate() - w*7);
     const weekStart = new Date(weekEnd);
@@ -2227,14 +2254,19 @@ function ConsistencyTrend({members, logs}){
 
     const memberPcts = members.map(m=>{
       const acts = m.activities||[];
-      const sd = m.startDate||null;
+      const sd = effectiveStarts[m.id];
+      if(!sd) return null; // member has no data at all — no line
+      // If this entire week ends before the member's start, no point for this week
+      const weekEndStr = weekEnd.toISOString().slice(0,10);
+      if(weekEndStr < sd) return null;
+
       let done=0, app=0;
       for(let d=0; d<7; d++){
         const dt = new Date(weekStart);
         dt.setDate(weekStart.getDate()+d);
         const k = dt.toISOString().slice(0,10);
         if(k > todayStr()) continue;
-        if(sd && k < sd) continue;
+        if(k < sd) continue; // before this member's real start
         app++;
         if(m.alternating){
           const anyDone = acts.some(a=>{
@@ -2288,7 +2320,7 @@ function ConsistencyTrend({members, logs}){
   }
 
   return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
-    <div style={{fontWeight:700,fontSize:14,color:C.muted,letterSpacing:0.5,marginBottom:4}}>📈 CONSISTENCY TREND · LAST 8 WEEKS</div>
+    <div style={{fontWeight:700,fontSize:14,color:C.muted,letterSpacing:0.5,marginBottom:4}}>📈 CONSISTENCY TREND · LAST {weekCount} {weekCount===1?"WEEK":"WEEKS"}</div>
     <div style={{display:"flex",gap:16,marginBottom:16,flexWrap:"wrap"}}>
       {members.map(m=><div key={m.id} style={{display:"flex",alignItems:"center",gap:6}}>
         <div style={{width:20,height:3,borderRadius:99,background:m.color}}/>
