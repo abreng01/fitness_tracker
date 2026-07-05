@@ -1447,11 +1447,31 @@ function PowerPointsDrawer({member, logs, onClose, onLevelUp}){
   const lockedLevels = PP_LEVELS.filter(l => total < l.pp);
 
   return <>
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
-    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(480px,92vw)",
-      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
-      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
-      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+    <div onClick={onClose} className="pp-drawer-overlay" style={{position:"fixed",inset:0,zIndex:400}}/>
+    <div className="pp-drawer-panel" style={{
+      position:"fixed",background:C.surface,zIndex:401,
+      display:"flex",flexDirection:"column",
+    }}>
+      <style>{`
+        @keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}
+        @keyframes floatInRight{from{transform:translateX(-16px);opacity:0}to{transform:translateX(0);opacity:1}}
+        .pp-drawer-overlay{ background:transparent; pointer-events:none; }
+        .pp-drawer-panel{
+          top:130px; left:calc(50% + 446px); width:min(400px,90vw);
+          max-height:calc(100vh - 160px); border-radius:16px;
+          box-shadow:0 12px 40px rgba(0,0,0,0.18);
+          animation:floatInRight 0.25s ease;
+        }
+        @media (max-width: 1280px){
+          .pp-drawer-overlay{ background:rgba(0,0,0,0.4); pointer-events:auto; }
+          .pp-drawer-panel{
+            top:0; left:auto; right:0; height:100%; max-height:none;
+            width:min(480px,92vw); border-radius:0;
+            box-shadow:-8px 0 40px rgba(0,0,0,0.15);
+            animation:slideInRight 0.28s cubic-bezier(0.4,0,0.2,1);
+          }
+        }
+      `}</style>
 
       {/* Header */}
       <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
@@ -1620,14 +1640,34 @@ function PowerPointsDrawer({member, logs, onClose, onLevelUp}){
   </>;
 }
 
-// ── Levels Legend Drawer (slides in from left) ────────────────────────────────
+// ── Levels Legend Drawer (floats left of card on desktop, slides from edge on mobile) ──
 function LevelsLegendDrawer({currentLevel, totalPP, onClose}){
   return <>
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:410}}/>
-    <div style={{position:"fixed",top:0,left:0,height:"100%",width:"min(400px,90vw)",
-      background:C.surface,zIndex:411,boxShadow:"8px 0 40px rgba(0,0,0,0.15)",
-      display:"flex",flexDirection:"column",animation:"slideInLeft 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
-      <style>{`@keyframes slideInLeft{from{transform:translateX(-100%)}to{transform:translateX(0)}}`}</style>
+    <div onClick={onClose} className="levels-drawer-overlay" style={{position:"fixed",inset:0,zIndex:410}}/>
+    <div className="levels-drawer-panel" style={{
+      position:"fixed",background:C.surface,zIndex:411,
+      display:"flex",flexDirection:"column",
+    }}>
+      <style>{`
+        @keyframes slideInLeft{from{transform:translateX(-100%)}to{transform:translateX(0)}}
+        @keyframes floatInLeft{from{transform:translateX(16px);opacity:0}to{transform:translateX(0);opacity:1}}
+        .levels-drawer-overlay{ background:transparent; pointer-events:none; }
+        .levels-drawer-panel{
+          top:130px; right:calc(50% + 446px); width:min(360px,90vw);
+          max-height:calc(100vh - 160px); border-radius:16px;
+          box-shadow:0 12px 40px rgba(0,0,0,0.18);
+          animation:floatInLeft 0.25s ease;
+        }
+        @media (max-width: 1280px){
+          .levels-drawer-overlay{ background:rgba(0,0,0,0.4); pointer-events:auto; }
+          .levels-drawer-panel{
+            top:0; right:auto; left:0; height:100%; max-height:none;
+            width:min(400px,90vw); border-radius:0;
+            box-shadow:8px 0 40px rgba(0,0,0,0.15);
+            animation:slideInLeft 0.28s cubic-bezier(0.4,0,0.2,1);
+          }
+        }
+      `}</style>
 
       <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0,
         display:"flex",alignItems:"center",justifyContent:"space-between"}}>
