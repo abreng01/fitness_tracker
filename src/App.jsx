@@ -2664,35 +2664,48 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
       {/* Per-member cards */}
       <div style={{flex:"2 1 340px",display:"flex",flexDirection:"column",gap:12}}>
         {memberStats.map(s=>(
-          <div key={s.m.id} style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:"14px 18px",boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span style={{fontSize:22}}>{s.m.emoji}</span>
+          <div key={s.m.id} style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,
+            padding:"14px 18px",paddingLeft:16,boxShadow:"0 2px 8px rgba(0,0,0,0.04)",
+            position:"relative",overflow:"hidden"}}>
+            {/* Member-colour left accent strip */}
+            <div style={{position:"absolute",top:0,left:0,bottom:0,width:4,background:s.m.color}}/>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,marginLeft:4}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{
+                  width:38,height:38,borderRadius:"50%",background:s.m.color+"22",
+                  border:`1.5px solid ${s.m.color}55`,display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:18,flexShrink:0,
+                }}>{s.m.emoji}</div>
                 <div>
                   <div style={{fontWeight:700,fontSize:14,color:C.text}}>{s.m.name}</div>
                   <div style={{fontSize:11,color:C.muted}}>{(s.m.activities||[]).map(a=>a.name).join(" · ")}</div>
                 </div>
               </div>
-              <div style={{fontWeight:800,fontSize:22,color:s.m.color}}>{s.avgPct}%</div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontWeight:800,fontSize:22,color:s.m.color,lineHeight:1}}>{s.avgPct}%</div>
+                <div style={{fontSize:9,color:C.muted,marginTop:2}}>this month</div>
+              </div>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginLeft:4}}>
               {[
                 {icon:"✅",label:"Done",val:s.done},
                 {icon:"❌",label:"Missed",val:s.missed},
-                {icon:"🔥",label:"Streak",val:s.curStreak?`${s.curStreak}d`:"—"},
+                {icon:"🔥",label:"Streak",val:s.curStreak?`${s.curStreak}d`:"—",sub:s.bestEver>0?`best ${s.bestEver}d`:null},
                 {icon:"🏆",label:"Badges",val:`${s.badgeCount}/${s.totalBadges}`},
               ].map(stat=>(
                 <div key={stat.label} style={{background:C.bg,borderRadius:8,padding:"8px 6px",textAlign:"center"}}>
                   <div style={{fontSize:14}}>{stat.icon}</div>
                   <div style={{fontWeight:700,fontSize:13,color:C.text,marginTop:2}}>{stat.val}</div>
                   <div style={{fontSize:10,color:C.muted}}>{stat.label}</div>
+                  {stat.sub&&<div style={{fontSize:8,color:C.muted,marginTop:1}}>{stat.sub}</div>}
+                  {stat.label==="Badges"&&<div style={{background:C.border,borderRadius:99,height:3,overflow:"hidden",marginTop:5}}>
+                    <div style={{height:"100%",width:`${Math.round((s.badgeCount/s.totalBadges)*100)}%`,background:s.m.color,borderRadius:99}}/>
+                  </div>}
                 </div>
               ))}
             </div>
-            {/* Best streak row */}
-            {s.bestEver>0&&<div style={{fontSize:11,color:C.muted,marginTop:8}}>
-              Best ever streak: <span style={{fontWeight:700,color:C.text}}>{s.bestEver} days</span>
-              {s.shields>0&&<span style={{marginLeft:10}}>🛡️ {s.shields} shields used</span>}
+            {s.shields>0&&<div style={{fontSize:11,color:C.muted,marginTop:8,marginLeft:4}}>
+              🛡️ {s.shields} shields used this month
             </div>}
           </div>
         ))}
@@ -2702,17 +2715,17 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
       <div style={{flex:"1 1 220px",background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:"14px 18px",boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}>
         <div style={{fontWeight:700,fontSize:13,color:C.muted,letterSpacing:0.5,marginBottom:12}}>📦 ALL-TIME VOLUME</div>
         {allActivities.map((act,ri)=>(
-          <div key={act.id} style={{marginBottom:ri<allActivities.length-1?12:0}}>
-            <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:6}}>{act.name}</div>
+          <div key={act.id} style={{marginBottom:ri<allActivities.length-1?14:0}}>
+            <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:6,paddingBottom:4,borderBottom:`1px solid ${C.border}`}}>{act.name}</div>
             {memberStats.map(s=>{
               const vol=s.volumes.find(v=>v.act.name===act.name);
               if(!vol) return null;
-              return <div key={s.m.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
-                <span style={{fontSize:11,color:s.m.color,fontWeight:600}}>{s.m.name}</span>
+              return <div key={s.m.id} style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
+                <span style={{width:6,height:6,borderRadius:"50%",background:s.m.color,flexShrink:0}}/>
+                <span style={{fontSize:11,color:C.muted,flex:1}}>{s.m.name}</span>
                 <span style={{fontSize:12,fontWeight:700,color:C.text}}>{vol.formatted}</span>
               </div>;
             })}
-            {ri<allActivities.length-1&&<div style={{height:1,background:C.border,marginTop:8}}/>}
           </div>
         ))}
         {allActivities.length===0&&<div style={{fontSize:12,color:C.muted}}>No activity logged yet</div>}
