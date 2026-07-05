@@ -6,6 +6,18 @@ const C = {
   text:"#1A1A1A", muted:"#8A8580",
   done:"#3D9E6E", partial:"#E8A838", missed:"#E05C5C", empty:"#D9D5CD",
 };
+// ── Theme accents — only affects neutral chrome (header, +Add button, Family tab, background tint) ──
+// Never touches semantic colors (done/missed/shielded) or member-specific colors
+const THEMES = [
+  {id:"forest",   name:"Forest",   accent:"#3D9E6E", light:"#D7ECDF"},
+  {id:"ocean",    name:"Ocean",    accent:"#2C7BB6", light:"#D6E8F5"},
+  {id:"sunset",   name:"Sunset",   accent:"#E07A3F", light:"#F8DFCC"},
+  {id:"lavender", name:"Lavender", accent:"#8B6FC9", light:"#E5DEF5"},
+  {id:"rose",     name:"Rose",     accent:"#D4527A", light:"#F5D9E2"},
+  {id:"slate",    name:"Slate",    accent:"#546A80", light:"#DCE3E9"},
+  {id:"amber",    name:"Amber",    accent:"#C99A2E", light:"#F3E7C9"},
+  {id:"teal",     name:"Teal",     accent:"#1F9C8F", light:"#CFEBE7"},
+];
 const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const UNIT_OPTIONS=[
@@ -2740,6 +2752,45 @@ function getSmartGreeting(members, logs){
   return `${loggedCount}/${total} logged so far — ${remaining} more to go`;
 }
 
+// ── Theme Picker ──────────────────────────────────────────────────────────────
+function ThemePicker({theme, setTheme}){
+  const[open,setOpen]=useState(false);
+  const current = THEMES.find(t=>t.id===theme) || THEMES[0];
+
+  return <div style={{position:"relative"}}>
+    <button onClick={()=>setOpen(o=>!o)} title="Change theme" style={{
+      background:"none",border:`1px solid ${C.border}`,borderRadius:8,
+      width:36,height:36,cursor:"pointer",fontSize:16,
+      display:"flex",alignItems:"center",justifyContent:"center",
+    }}>
+      <span style={{width:16,height:16,borderRadius:"50%",background:current.accent,display:"inline-block"}}/>
+    </button>
+    {open&&<>
+      <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:90}}/>
+      <div style={{position:"absolute",top:"110%",right:0,background:C.surface,
+        border:`1px solid ${C.border}`,borderRadius:12,padding:14,zIndex:91,
+        boxShadow:"0 8px 30px rgba(0,0,0,0.15)",width:220}}>
+        <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>🎨 CHOOSE A THEME</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
+          {THEMES.map(t=>(
+            <button key={t.id} onClick={()=>{setTheme(t.id);setOpen(false);}} title={t.name} style={{
+              background:"none",border:"none",cursor:"pointer",padding:4,
+              display:"flex",flexDirection:"column",alignItems:"center",gap:4,
+            }}>
+              <span style={{
+                width:32,height:32,borderRadius:"50%",background:t.accent,
+                display:"block",border:theme===t.id?`3px solid ${C.text}`:"3px solid transparent",
+                boxSizing:"border-box",
+              }}/>
+              <span style={{fontSize:9,color:theme===t.id?C.text:C.muted,fontWeight:theme===t.id?700:500}}>{t.name}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </>}
+  </div>;
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function App(){
   const[members,setMembers]=useState(DEF_MEMBERS);
@@ -2748,9 +2799,11 @@ export default function App(){
   const[editM,setEditM]=useState(null);
   const[toasts,setToasts]=useState([]);
   const[activeTab,setActiveTab]=useState(null); // null = show all (family summary)
+  const[theme,setTheme]=useState("forest");
   const mRef=useRef(members);const lRef=useRef(logs);
-  mRef.current=members;lRef.current=logs;
-  const mInit=useRef(false);const lInit=useRef(false);
+  const tRef=useRef(theme);
+  mRef.current=members;lRef.current=logs;tRef.current=theme;
+  const mInit=useRef(false);const lInit=useRef(false);const tInit=useRef(false);
   const now=new Date();
   const[yr,setYr]=useState(now.getFullYear());
   const[mo,setMo]=useState(now.getMonth());
@@ -2761,6 +2814,7 @@ export default function App(){
       if(d){
         if(d.members&&Array.isArray(d.members)&&d.members.length>0) setMembers(d.members);
         if(d.logs&&typeof d.logs==="object") setLogs(d.logs);
+        if(d.theme&&THEMES.some(t=>t.id===d.theme)) setTheme(d.theme);
       }
       setLoaded(true);
     })();
@@ -2773,8 +2827,9 @@ export default function App(){
     }
   },[loaded]);
 
-  useEffect(()=>{if(!loaded)return;if(!mInit.current){mInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current});},[members,loaded]);
-  useEffect(()=>{if(!loaded)return;if(!lInit.current){lInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current});},[logs,loaded]);
+  useEffect(()=>{if(!loaded)return;if(!mInit.current){mInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current,theme:tRef.current});},[members,loaded]);
+  useEffect(()=>{if(!loaded)return;if(!lInit.current){lInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current,theme:tRef.current});},[logs,loaded]);
+  useEffect(()=>{if(!loaded)return;if(!tInit.current){tInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current,theme:tRef.current});},[theme,loaded]);
 
   const handleLogAll=useCallback((mid,dateStr,entries)=>{
     setLogs(prev=>{
@@ -2816,7 +2871,22 @@ export default function App(){
 
   if(!loaded) return <div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{color:C.muted,fontSize:16}}>Loading…</div></div>;
 
-  return <div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter','Helvetica Neue',sans-serif",color:C.text}}>
+  const currentTheme = THEMES.find(t=>t.id===theme) || THEMES[0];
+  const topoPattern = `url("data:image/svg+xml,${encodeURIComponent(`
+    <svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'>
+      <g fill='none' stroke='${currentTheme.accent}' stroke-width='1' opacity='0.28'>
+        <path d='M-20,60 C60,20 140,100 220,50 C300,0 380,80 440,40'/>
+        <path d='M-20,110 C60,70 140,150 220,100 C300,50 380,130 440,90'/>
+        <path d='M-20,160 C60,120 140,200 220,150 C300,100 380,180 440,140'/>
+        <path d='M-20,210 C60,170 140,250 220,200 C300,150 380,230 440,190'/>
+        <path d='M-20,260 C60,220 140,300 220,250 C300,200 380,280 440,240'/>
+        <path d='M-20,310 C60,270 140,350 220,300 C300,250 380,330 440,290'/>
+        <path d='M-20,360 C60,320 140,400 220,350 C300,300 380,380 440,340'/>
+      </g>
+    </svg>
+  `)}")`;
+
+  return <div style={{background:`${topoPattern}, ${C.bg}`,backgroundRepeat:"repeat",minHeight:"100vh",fontFamily:"'Inter','Helvetica Neue',sans-serif",color:C.text}}>
     <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"16px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
       <div>
         <div style={{fontWeight:800,fontSize:20,letterSpacing:-0.5}}>🌿 Family Fitness</div>
@@ -2826,7 +2896,8 @@ export default function App(){
         <button onClick={prevMo} style={navBtn}>‹</button>
         <span style={{fontWeight:700,fontSize:14,minWidth:100,textAlign:"center"}}>{MONTHS[mo]} {yr}</span>
         <button onClick={nextMo} disabled={isCurMo} style={{...navBtn,opacity:isCurMo?0.3:1}}>›</button>
-        <button onClick={()=>setEditM("new")} style={{background:C.done,color:"#fff",border:"none",borderRadius:9,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>+ Add member</button>
+        <ThemePicker theme={theme} setTheme={setTheme}/>
+        <button onClick={()=>setEditM("new")} style={{background:currentTheme.accent,color:"#fff",border:"none",borderRadius:9,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>+ Add member</button>
       </div>
     </div>
 
@@ -2842,9 +2913,9 @@ export default function App(){
           }}>{m.name}</button>
         ))}
         <button onClick={()=>setActiveTab(null)} style={{
-          padding:"12px 20px",border:"none",borderBottom:`3px solid ${activeTab===null?C.done:"transparent"}`,
+          padding:"12px 20px",border:"none",borderBottom:`3px solid ${activeTab===null?currentTheme.accent:"transparent"}`,
           background:"none",cursor:"pointer",fontWeight:activeTab===null?700:500,
-          fontSize:14,color:activeTab===null?C.done:C.muted,
+          fontSize:14,color:activeTab===null?currentTheme.accent:C.muted,
           whiteSpace:"nowrap",transition:"all 0.15s",
         }}>Family</button>
       </div>
