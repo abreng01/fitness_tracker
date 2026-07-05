@@ -1462,7 +1462,7 @@ function PowerPointsDrawer({member, logs, onClose, onLevelUp}){
           box-shadow:0 12px 40px rgba(0,0,0,0.18);
           animation:floatInRight 0.25s ease;
         }
-        @media (max-width: 1700px){
+        @media (max-width: 1280px){
           .pp-drawer-overlay{ background:rgba(0,0,0,0.4); pointer-events:auto; }
           .pp-drawer-panel{
             top:0; left:auto; right:0; height:100%; max-height:none;
@@ -1658,7 +1658,7 @@ function LevelsLegendDrawer({currentLevel, totalPP, onClose}){
           box-shadow:0 12px 40px rgba(0,0,0,0.18);
           animation:floatInLeft 0.25s ease;
         }
-        @media (max-width: 1700px){
+        @media (max-width: 1280px){
           .levels-drawer-overlay{ background:rgba(0,0,0,0.4); pointer-events:auto; }
           .levels-drawer-panel{
             top:0; right:auto; left:0; height:100%; max-height:none;
