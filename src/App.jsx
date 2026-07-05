@@ -1797,7 +1797,7 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
 }
 
 // ── Member Card ───────────────────────────────────────────────────────────────
-function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month}){
+function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme}){
   const today=todayStr();
   const[showCal,setShowCal]=useState(true);
   const[showBadges,setShowBadges]=useState(false);
@@ -1829,11 +1829,29 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
   for(let i=0;i<firstDay;i++) calDays.push(null);
   for(let d=1;d<=dCount;d++) calDays.push(`${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`);
 
-  return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:20,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
+  const themeAccent = (THEMES.find(t=>t.id===theme)||THEMES[0]).accent;
+  const[hovered,setHovered]=useState(false);
+
+  return <div
+    onMouseEnter={()=>setHovered(true)}
+    onMouseLeave={()=>setHovered(false)}
+    style={{
+      background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,
+      padding:20,paddingTop:24,position:"relative",overflow:"hidden",
+      boxShadow:hovered?"0 8px 28px rgba(0,0,0,0.10)":"0 2px 12px rgba(0,0,0,0.05)",
+      transform:hovered?"translateY(-2px)":"translateY(0)",
+      transition:"box-shadow 0.2s ease, transform 0.2s ease",
+    }}>
+    {/* Themed top border strip */}
+    <div style={{position:"absolute",top:0,left:0,right:0,height:4,background:themeAccent}}/>
     {/* Header */}
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
       <div style={{display:"flex",alignItems:"center",gap:10}}>
-        <span style={{fontSize:28}}>{member.emoji}</span>
+        <div style={{
+          width:44,height:44,borderRadius:"50%",background:member.color+"22",
+          border:`1.5px solid ${member.color}55`,display:"flex",alignItems:"center",justifyContent:"center",
+          fontSize:22,flexShrink:0,
+        }}>{member.emoji}</div>
         <div>
           <div style={{fontWeight:700,fontSize:16}}>{member.name}</div>
           <div style={{fontSize:11,color:C.muted}}>{acts.map(a=>`${a.name} (${a.target}${a.unit})`).join(" · ")}</div>
@@ -2931,7 +2949,7 @@ export default function App(){
       {/* Individual member tab */}
       {activeTab&&members.filter(m=>m.id===activeTab).map(m=>(
         <MemberCard key={m.id} member={m} logs={logs} allMembers={members}
-          onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo}/>
+          onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}/>
       ))}
 
       {/* Family tab */}
