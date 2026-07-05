@@ -2874,7 +2874,7 @@ export default function App(){
   const currentTheme = THEMES.find(t=>t.id===theme) || THEMES[0];
   const topoPattern = `url("data:image/svg+xml,${encodeURIComponent(`
     <svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'>
-      <g fill='none' stroke='${currentTheme.accent}' stroke-width='1' opacity='0.28'>
+      <g fill='none' stroke='${currentTheme.accent}' stroke-width='1' opacity='0.4'>
         <path d='M-20,60 C60,20 140,100 220,50 C300,0 380,80 440,40'/>
         <path d='M-20,110 C60,70 140,150 220,100 C300,50 380,130 440,90'/>
         <path d='M-20,160 C60,120 140,200 220,150 C300,100 380,180 440,140'/>
@@ -2886,7 +2886,8 @@ export default function App(){
     </svg>
   `)}")`;
 
-  return <div style={{background:`${topoPattern}, ${C.bg}`,backgroundRepeat:"repeat",minHeight:"100vh",fontFamily:"'Inter','Helvetica Neue',sans-serif",color:C.text}}>
+  return <div style={{background:`${topoPattern}, ${currentTheme.light}`,backgroundRepeat:"repeat",minHeight:"100vh",fontFamily:"'Inter','Helvetica Neue',sans-serif",color:C.text,transition:"background 0.3s"}}>
+    <div style={{height:4,background:currentTheme.accent,transition:"background 0.3s"}}/>
     <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"16px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
       <div>
         <div style={{fontWeight:800,fontSize:20,letterSpacing:-0.5}}>🌿 Family Fitness</div>
