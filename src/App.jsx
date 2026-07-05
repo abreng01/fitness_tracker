@@ -1706,8 +1706,13 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
   const eggLogs = getEggLogs(logs, member.id);
   const todayCount = eggLogs[today] || 0;
   const totalCount = totalEggCount(logs, member.id);
+  const[celebrate,setCelebrate]=useState(false);
 
   function handleTap(delta){
+    if(delta>0){
+      setCelebrate(true);
+      setTimeout(()=>setCelebrate(false),1400);
+    }
     const prevLevel = getLevel(computePowerPoints(member, logs).total);
     onEggChange(member.id, today, delta);
     setTimeout(()=>{
@@ -1728,9 +1733,36 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
 
   return <div style={{
     background:"linear-gradient(135deg,#EBF2FC,#DCE9F9)",border:"1.5px solid #5B8FD4",
-    borderRadius:12,padding:"12px 16px",marginBottom:12,
+    borderRadius:12,padding:"12px 16px",marginBottom:12,position:"relative",overflow:"hidden",
     display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,
   }}>
+    <style>{`
+      @keyframes henBounce{
+        0%{transform:translateY(0) rotate(0deg)}
+        25%{transform:translateY(-6px) rotate(-4deg)}
+        50%{transform:translateY(2px) rotate(0deg)}
+        75%{transform:translateY(-3px) rotate(4deg)}
+        100%{transform:translateY(0) rotate(0deg)}
+      }
+      @keyframes eggDrop{
+        0%{transform:translateY(-8px) scale(0.3);opacity:0}
+        40%{opacity:1}
+        60%{transform:translateY(4px) scale(1.15)}
+        80%{transform:translateY(-2px) scale(0.95)}
+        100%{transform:translateY(0) scale(1);opacity:1}
+      }
+      @keyframes ppFloat{
+        0%{transform:translateY(0);opacity:0}
+        20%{opacity:1}
+        100%{transform:translateY(-32px);opacity:0}
+      }
+    `}</style>
+    {celebrate&&<div style={{position:"absolute",top:6,right:16,display:"flex",flexDirection:"column",alignItems:"center",pointerEvents:"none",zIndex:5}}>
+      <span style={{fontSize:24,display:"inline-block",animation:"henBounce 0.7s ease-in-out"}}>🐔</span>
+      <span style={{fontSize:16,display:"inline-block",animation:"eggDrop 0.9s 0.3s ease-out both",marginTop:-4}}>🥚</span>
+      <span style={{position:"absolute",top:0,right:-6,fontSize:12,fontWeight:800,color:"#F9A825",
+        whiteSpace:"nowrap",animation:"ppFloat 1.2s 0.2s ease-out both"}}>+1,000 ⚡</span>
+    </div>}
     <div>
       <div style={{fontSize:11,fontWeight:700,color:"#2C5FA8",letterSpacing:0.5,marginBottom:2}}>🥚 EGG-O-METER</div>
       <div style={{display:"flex",alignItems:"baseline",gap:8}}>
