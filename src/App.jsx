@@ -146,12 +146,25 @@ function monthSummary(al,y,m,startDate){
   return{done,missed,remaining};
 }
 
+// ── Infer the earliest date an activity actually has logs (for newly added activities) ──
+function getActivityEffectiveStart(logs, memberId, activityId, memberStartDate){
+  const al = getActivityLogs(logs, memberId, activityId);
+  const dates = Object.keys(al);
+  if(dates.length===0) return memberStartDate||null; // no logs yet — nothing to exclude anyway
+  const firstLog = dates.reduce((min,d)=>d<min?d:min, dates[0]);
+  if(memberStartDate && memberStartDate > firstLog) return memberStartDate;
+  return firstLog;
+}
+
 // ── Member-level consistency (handles alternating) ───────────────────────────
 function memberConsPct(member, logs, y, m){
   const sd=member.startDate||null;
   if(!member.alternating) {
     const acts=member.activities||[];
-    const pcts=acts.map(a=>consPct(getActivityLogs(logs,member.id,a.id),y,m,sd));
+    const pcts=acts.map(a=>{
+      const effectiveStart = getActivityEffectiveStart(logs, member.id, a.id, sd);
+      return consPct(getActivityLogs(logs,member.id,a.id),y,m,effectiveStart);
+    });
     return pcts.length?Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length):0;
   }
   // Alternating: day is done if ANY activity was done
@@ -185,7 +198,10 @@ function memberMonthSummary(member, logs, y, m){
   const today = todayStr();
 
   if(!member.alternating || acts.length <= 1){
-    const summaries = acts.map(a=>monthSummary(getActivityLogs(logs,member.id,a.id),y,m,sd));
+    const summaries = acts.map(a=>{
+      const effectiveStart = getActivityEffectiveStart(logs, member.id, a.id, sd);
+      return monthSummary(getActivityLogs(logs,member.id,a.id),y,m,effectiveStart);
+    });
     const done = summaries.length?Math.max(...summaries.map(s=>s.done)):0;
     const missed = summaries.length?Math.max(...summaries.map(s=>s.missed)):0;
     const remaining = summaries[0]?.remaining||0;
