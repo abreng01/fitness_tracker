@@ -420,6 +420,7 @@ function computePowerPoints(member, logs){
   let levelHistory = []; // [{level, title, icon, date}]
   let lastLevelSeen = 1;
   let dailyEarned = {}; // dateStr -> net PP change that day (for accurate weekPP/pace)
+  let dailyTags = {}; // dateStr -> array of tag strings (pb/above/at/below/shielded/skipped/mystery)
 
   // Track all-time best per activity for PB detection
   const actBests = {};
@@ -482,8 +483,8 @@ function computePowerPoints(member, logs){
         return l && l.status !== "skipped" && l.status !== "shielded" && l.value > 0;
       });
 
-      if(anyShielded){ totalPP += 25; breakdown.shielded += 25; }
-      else if(anySkipped){ totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; }
+      if(anyShielded){ totalPP += 25; breakdown.shielded += 25; dailyTags[dateStr]=["shielded"]; }
+      else if(anySkipped){ totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; dailyTags[dateStr]=["skipped"]; }
       else if(doneActs.length > 0){
         // Use best activity for scoring
         let bestPts = 0;
@@ -504,6 +505,13 @@ function computePowerPoints(member, logs){
         else if(bestPts === 100) breakdown.atTarget += earned;
         else breakdown.belowTarget += earned;
         breakdown.streakBonus += bonus;
+        const tags=[];
+        if(bestPts===250) tags.push("pb");
+        else if(bestPts===200) tags.push("above");
+        else if(bestPts===100) tags.push("at");
+        else tags.push("below");
+        if(mysteryMult===2) tags.push("mystery");
+        dailyTags[dateStr]=tags;
       }
     } else {
       // Non-alternating: score each activity
@@ -512,8 +520,8 @@ function computePowerPoints(member, logs){
         const l = al[dateStr];
         if(!l) continue;
         const effectiveTarget = l.target || a.target;
-        if(l.status === "shielded"){ totalPP += 25; breakdown.shielded += 25; }
-        else if(l.status === "skipped"){ totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; }
+        if(l.status === "shielded"){ totalPP += 25; breakdown.shielded += 25; dailyTags[dateStr]=["shielded"]; }
+        else if(l.status === "skipped"){ totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; dailyTags[dateStr]=["skipped"]; }
         else if(l.value > 0){
           const isPB = l.value > actBests[a.id] && l.value > effectiveTarget;
           if(isPB) actBests[a.id] = l.value;
@@ -527,6 +535,13 @@ function computePowerPoints(member, logs){
           else if(basePts === 100) breakdown.atTarget += earned;
           else breakdown.belowTarget += earned;
           breakdown.streakBonus += bonus;
+          const tags=[];
+          if(basePts===250) tags.push("pb");
+          else if(basePts===200) tags.push("above");
+          else if(basePts===100) tags.push("at");
+          else tags.push("below");
+          if(mysteryMult===2) tags.push("mystery");
+          dailyTags[dateStr]=tags;
         }
       }
     }
@@ -545,7 +560,13 @@ function computePowerPoints(member, logs){
   const eggLogs = getEggLogs(logs, member.id);
   let eggBonusTotal = 0;
   for(const [d, count] of Object.entries(eggLogs)){
-    if(d <= today && (!sd || d >= sd)) eggBonusTotal += (count||0) * 1000;
+    if(d <= today && (!sd || d >= sd)){
+      const amt = (count||0) * 1000;
+      eggBonusTotal += amt;
+      dailyEarned[d] = (dailyEarned[d]||0) + amt;
+      if(!dailyTags[d]) dailyTags[d]=[];
+      dailyTags[d].push("egg");
+    }
   }
   totalPP += eggBonusTotal;
   breakdown.eggBonus = eggBonusTotal;
@@ -564,7 +585,7 @@ function computePowerPoints(member, logs){
     if(d >= weekStartStr && d <= today) weekPP += (count||0) * 1000;
   }
 
-  return { total: Math.round(totalPP), breakdown, weekPP, levelHistory };
+  return { total: Math.round(totalPP), breakdown, weekPP, levelHistory, dailyEarned, dailyTags };
 }
 
 // ── PP Pace Projection ────────────────────────────────────────────────────────
@@ -1435,13 +1456,14 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
 
 // ── Power Points Drawer ──────────────────────────────────────────────────────
 function PowerPointsDrawer({member, logs, onClose, onLevelUp}){
-  const {total, breakdown, weekPP, levelHistory} = computePowerPoints(member, logs);
+  const {total, breakdown, weekPP, levelHistory, dailyEarned, dailyTags} = computePowerPoints(member, logs);
   const projection = projectNextLevel(member, logs);
   const level = getLevel(total);
   const nextLevel = getNextLevel(total);
   const pct = nextLevel ? Math.round(((total - level.pp) / (nextLevel.pp - level.pp)) * 100) : 100;
   const [showPointsLegend, setShowPointsLegend] = useState(false);
   const [showLevelsLegend, setShowLevelsLegend] = useState(false);
+  const [showDailyHistory, setShowDailyHistory] = useState(false);
 
   const earnedLevels = PP_LEVELS.filter(l => total >= l.pp);
   const lockedLevels = PP_LEVELS.filter(l => total < l.pp);
@@ -1578,7 +1600,41 @@ function PowerPointsDrawer({member, logs, onClose, onLevelUp}){
           </div>
         </div>
 
-        {/* Points legend (collapsible) */}
+        {/* Daily History (collapsible) */}
+        <div style={{marginBottom:12}}>
+          <button onClick={()=>setShowDailyHistory(s=>!s)} style={{background:"none",border:`1px solid ${C.border}`,
+            borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600,color:C.muted,width:"100%",textAlign:"left"}}>
+            {showDailyHistory?"▾":"▸"} 📅 Daily history
+          </button>
+          {showDailyHistory&&<div style={{background:C.bg,borderRadius:"0 0 10px 10px",border:`1px solid ${C.border}`,borderTop:"none",maxHeight:320,overflowY:"auto"}}>
+            {(()=>{
+              const dates = Object.keys(dailyEarned).filter(d=>dailyEarned[d]!==0 || (dailyTags[d]&&dailyTags[d].length>0)).sort((a,b)=>b.localeCompare(a));
+              if(dates.length===0) return <div style={{padding:14,fontSize:12,color:C.muted}}>No history yet.</div>;
+              const TAG_INFO = {
+                pb:{icon:"🌟",label:"PB"}, above:{icon:"💪",label:"Above"}, at:{icon:"✅",label:"At target"},
+                below:{icon:"📉",label:"Below"}, shielded:{icon:"🛡️",label:"Shielded"}, skipped:{icon:"❌",label:"Skipped"},
+                mystery:{icon:"🎁",label:"Mystery"}, egg:{icon:"🥚",label:"Egg"},
+              };
+              return dates.map((d,i)=>{
+                const pts = dailyEarned[d]||0;
+                const tags = dailyTags[d]||[];
+                const dateLabel = new Date(d+"T00:00:00").toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"});
+                return <div key={d} style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+                  padding:"9px 14px",borderBottom:i<dates.length-1?`1px solid ${C.border}`:"none"}}>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:600,color:C.text}}>{dateLabel}</div>
+                    <div style={{display:"flex",gap:5,marginTop:2,flexWrap:"wrap"}}>
+                      {tags.map(t=>TAG_INFO[t]&&<span key={t} style={{fontSize:10,color:C.muted}}>{TAG_INFO[t].icon} {TAG_INFO[t].label}</span>)}
+                    </div>
+                  </div>
+                  <span style={{fontSize:13,fontWeight:700,color:pts>=0?(pts>0?C.done:C.muted):C.missed}}>
+                    {pts>0?"+":""}{pts.toLocaleString()} ⚡
+                  </span>
+                </div>;
+              });
+            })()}
+          </div>}
+        </div>
         <div style={{marginBottom:12}}>
           <button onClick={()=>setShowPointsLegend(s=>!s)} style={{background:"none",border:`1px solid ${C.border}`,
             borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600,color:C.muted,width:"100%",textAlign:"left"}}>
