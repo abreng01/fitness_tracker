@@ -1471,267 +1471,183 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
 }
 
 // ── Power Points Drawer ──────────────────────────────────────────────────────
-function PowerPointsDrawer({member, logs, onClose, onLevelUp}){
+// ── Power Points Panel (in-flow, tabbed — sits beside the card via flexbox, never fixed/floating) ──
+function PowerPointsPanel({member, logs, onClose}){
   const {total, breakdown, weekPP, levelHistory, dailyEarned, dailyTags} = computePowerPoints(member, logs);
   const projection = projectNextLevel(member, logs);
   const level = getLevel(total);
   const nextLevel = getNextLevel(total);
   const pct = nextLevel ? Math.round(((total - level.pp) / (nextLevel.pp - level.pp)) * 100) : 100;
-  const [showPointsLegend, setShowPointsLegend] = useState(false);
-  const [showLevelsLegend, setShowLevelsLegend] = useState(false);
-  const [showDailyHistory, setShowDailyHistory] = useState(false);
+  const [tab, setTab] = useState("overview"); // overview | history | info
 
   const earnedLevels = PP_LEVELS.filter(l => total >= l.pp);
   const lockedLevels = PP_LEVELS.filter(l => total < l.pp);
 
-  return <>
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
-    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(480px,92vw)",
-      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
-      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
-      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+  const TAG_INFO = {
+    pb:{icon:"🌟",label:"PB"}, above:{icon:"💪",label:"Above"}, at:{icon:"✅",label:"At target"},
+    below:{icon:"📉",label:"Below"}, shielded:{icon:"🛡️",label:"Shielded"}, skipped:{icon:"❌",label:"Skipped"},
+    mystery:{icon:"🎁",label:"Mystery"}, egg:{icon:"🥚",label:"Egg"},
+  };
 
-      {/* Header */}
-      <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:28}}>{member.emoji}</span>
-            <div>
-              <div style={{fontWeight:800,fontSize:18}}>{member.name}</div>
-              <div style={{fontSize:12,color:C.muted}}>⚡ Power Points</div>
-            </div>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:6}}>
-            <button onClick={()=>setShowLevelsLegend(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,
-              padding:"6px 10px",cursor:"pointer",fontSize:12,fontWeight:600,color:C.muted,whiteSpace:"nowrap"}}>📖 All levels</button>
-            <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,
-              padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
-          </div>
+  return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,
+    boxShadow:"0 4px 20px rgba(0,0,0,0.08)",overflow:"hidden",display:"flex",flexDirection:"column",
+    maxHeight:"calc(100vh - 40px)",position:"sticky",top:20}}>
+
+    {/* Header */}
+    <div style={{padding:"16px 18px",background:"linear-gradient(135deg,#1a1a2e,#16213e)",flexShrink:0}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:20}}>{member.emoji}</span>
+          <span style={{fontWeight:700,fontSize:14,color:"#fff"}}>{member.name}</span>
         </div>
-
-        {/* Big PP number + level */}
-        <div style={{background:"linear-gradient(135deg,#1a1a2e,#16213e)",borderRadius:14,padding:"20px 20px 16px",marginBottom:0}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-            <div>
-              <div style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.5)",letterSpacing:1,marginBottom:4}}>TOTAL POWER POINTS</div>
-              <div style={{fontSize:40,fontWeight:900,color:"#FFD700",lineHeight:1}}>{total.toLocaleString()} <span style={{fontSize:18}}>⚡</span></div>
-              {weekPP>0&&<div style={{fontSize:12,color:"rgba(255,255,255,0.5)",marginTop:4}}>+{weekPP.toLocaleString()} this week</div>}
-            </div>
-            <div style={{textAlign:"right"}}>
-              <div style={{fontSize:32}}>{level.icon}</div>
-              <div style={{fontWeight:800,fontSize:14,color:"#FFD700"}}>{level.title}</div>
-              <div style={{fontSize:11,color:"rgba(255,255,255,0.5)"}}>Level {level.level}</div>
-            </div>
-          </div>
-          {/* Progress bar */}
-          {nextLevel ? <>
-            <div style={{background:"rgba(255,255,255,0.1)",borderRadius:99,height:8,overflow:"hidden",marginBottom:6}}>
-              <div style={{height:"100%",width:`${pct}%`,background:"linear-gradient(90deg,#FFD700,#FFA500)",borderRadius:99,transition:"width 0.6s"}}/>
-            </div>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"rgba(255,255,255,0.5)"}}>
-              <span>{level.icon} {level.title}</span>
-              <span>{(nextLevel.pp - total).toLocaleString()} PP to {nextLevel.icon} {nextLevel.title}</span>
-            </div>
-          </> : <div style={{fontSize:12,color:"#FFD700",fontWeight:700,textAlign:"center"}}>🌌 Maximum Level Reached!</div>}
-        </div>
-
-        {/* Pace projection */}
-        {projection&&projection.daysAway!==null&&<div style={{
-          marginTop:10,background:"#FFFDE7",border:"1.5px solid #F9A825",borderRadius:10,
-          padding:"9px 14px",display:"flex",alignItems:"center",gap:8,
-        }}>
-          <span style={{fontSize:16}}>🔮</span>
-          <span style={{fontSize:12,color:"#7A6200"}}>
-            At your current pace, you'll reach <strong>{projection.nextLevel.icon} {projection.nextLevel.title}</strong> in
-            {" "}<strong>{projection.daysAway===1?"about a day":projection.daysAway<7?`about ${projection.daysAway} days`:projection.weeksAway===1?"about a week":`about ${projection.weeksAway} weeks`}</strong>
-          </span>
-        </div>}
+        <button onClick={onClose} style={{background:"none",border:"1px solid rgba(255,255,255,0.2)",borderRadius:7,
+          padding:"4px 8px",cursor:"pointer",fontSize:15,color:"rgba(255,255,255,0.6)"}}>×</button>
       </div>
-
-      {/* Scrollable content */}
-      <div style={{flex:1,overflowY:"auto",padding:"16px 24px 24px"}}>
-
-        {/* Breakdown */}
-        <div style={{marginBottom:20}}>
-          <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>HOW YOU EARNED IT</div>
-          <div style={{background:C.bg,borderRadius:12,overflow:"hidden"}}>
-            {[
-              {label:"Personal best days",val:breakdown.pb,color:"#FFD700",show:breakdown.pb>0},
-              {label:"Above target days",val:breakdown.aboveTarget,color:C.done,show:breakdown.aboveTarget>0},
-              {label:"At target days",val:breakdown.atTarget,color:C.done,show:breakdown.atTarget>0},
-              {label:"Below target days",val:breakdown.belowTarget,color:C.partial,show:breakdown.belowTarget>0},
-              {label:"Shielded days",val:breakdown.shielded,color:"#5B8FD4",show:breakdown.shielded>0},
-              {label:"Streak multiplier bonus",val:breakdown.streakBonus,color:"#E8A838",show:breakdown.streakBonus>0},
-              {label:"🥚 Egg bonus",val:breakdown.eggBonus,color:"#F9A825",show:breakdown.eggBonus>0},
-              {label:"Starting bonus",val:100,color:C.muted,show:true},
-              {label:"🎁 Mystery bonus days",val:breakdown.mysteryDays,color:"#FFD700",show:breakdown.mysteryDays>0},
-              {label:"Skipped days",val:breakdown.skipped,color:C.missed,show:breakdown.skipped<0},
-              {label:"Streak break penalties",val:breakdown.streakBreak,color:C.missed,show:breakdown.streakBreak<0},
-            ].filter(r=>r.show).map((row,i,arr)=>(
-              <div key={row.label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
-                padding:"10px 14px",borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>
-                <span style={{fontSize:13,color:C.text}}>{row.label}</span>
-                <span style={{fontSize:13,fontWeight:700,color:row.color}}>{row.val>0?"+":""}{row.val.toLocaleString()} ⚡</span>
-              </div>
-            ))}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
-              padding:"12px 14px",background:"#1a1a2e",borderTop:`2px solid ${C.border}`}}>
-              <span style={{fontSize:14,fontWeight:700,color:"#fff"}}>Total</span>
-              <span style={{fontSize:16,fontWeight:900,color:"#FFD700"}}>{total.toLocaleString()} ⚡</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Levels earned */}
-        <div style={{marginBottom:20}}>
-          <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>
-            LEVELS UNLOCKED ({earnedLevels.length}/{PP_LEVELS.length})
-          </div>
-          <div style={{display:"flex",flexDirection:"column",gap:6}}>
-            {[...earnedLevels].reverse().map(l=>{
-              const histEntry = levelHistory.find(h=>h.level===l.level);
-              const dateLabel = histEntry ? new Date(histEntry.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}) : (l.level===1?"Day 1":null);
-              return <div key={l.level} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",
-                background:l.level===level.level?"#1a1a2e":C.bg,borderRadius:10,
-                border:`1.5px solid ${l.level===level.level?"#FFD700":C.border}`}}>
-                <span style={{fontSize:20}}>{l.icon}</span>
-                <div style={{flex:1}}>
-                  <div>
-                    <span style={{fontWeight:700,fontSize:13,color:l.level===level.level?"#FFD700":C.text}}>{l.title}</span>
-                    {l.level===level.level&&<span style={{fontSize:10,color:"#FFD700",marginLeft:8}}>← YOU ARE HERE</span>}
-                  </div>
-                  {dateLabel&&<div style={{fontSize:10,color:l.level===level.level?"rgba(255,255,255,0.4)":C.muted,marginTop:1}}>Reached {dateLabel}</div>}
-                </div>
-                <span style={{fontSize:11,color:l.level===level.level?"rgba(255,255,255,0.4)":C.muted}}>Lv.{l.level} · {l.pp.toLocaleString()} PP</span>
-              </div>;
-            })}
-            {lockedLevels.slice(0,3).map(l=>(
-              <div key={l.level} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",
-                background:C.bg,borderRadius:10,border:`1px solid ${C.border}`,opacity:0.4,filter:"grayscale(1)"}}>
-                <span style={{fontSize:20}}>{l.icon}</span>
-                <div style={{flex:1}}><span style={{fontWeight:600,fontSize:13,color:C.muted}}>{l.title}</span></div>
-                <span style={{fontSize:11,color:C.muted}}>Lv.{l.level} · {l.pp.toLocaleString()} PP</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Daily History (collapsible) */}
-        <div style={{marginBottom:12}}>
-          <button onClick={()=>setShowDailyHistory(s=>!s)} style={{background:"none",border:`1px solid ${C.border}`,
-            borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600,color:C.muted,width:"100%",textAlign:"left"}}>
-            {showDailyHistory?"▾":"▸"} 📅 Daily history
-          </button>
-          {showDailyHistory&&<div style={{background:C.bg,borderRadius:"0 0 10px 10px",border:`1px solid ${C.border}`,borderTop:"none",maxHeight:320,overflowY:"auto"}}>
-            {(()=>{
-              const dates = Object.keys(dailyEarned).filter(d=>dailyEarned[d]!==0 || (dailyTags[d]&&dailyTags[d].length>0)).sort((a,b)=>b.localeCompare(a));
-              if(dates.length===0) return <div style={{padding:14,fontSize:12,color:C.muted}}>No history yet.</div>;
-              const TAG_INFO = {
-                pb:{icon:"🌟",label:"PB"}, above:{icon:"💪",label:"Above"}, at:{icon:"✅",label:"At target"},
-                below:{icon:"📉",label:"Below"}, shielded:{icon:"🛡️",label:"Shielded"}, skipped:{icon:"❌",label:"Skipped"},
-                mystery:{icon:"🎁",label:"Mystery"}, egg:{icon:"🥚",label:"Egg"},
-              };
-              return dates.map((d,i)=>{
-                const pts = dailyEarned[d]||0;
-                const tags = dailyTags[d]||[];
-                const dateLabel = new Date(d+"T00:00:00").toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"});
-                return <div key={d} style={{display:"flex",alignItems:"center",justifyContent:"space-between",
-                  padding:"9px 14px",borderBottom:i<dates.length-1?`1px solid ${C.border}`:"none"}}>
-                  <div>
-                    <div style={{fontSize:12,fontWeight:600,color:C.text}}>{dateLabel}</div>
-                    <div style={{display:"flex",gap:5,marginTop:2,flexWrap:"wrap"}}>
-                      {tags.map(t=>TAG_INFO[t]&&<span key={t} style={{fontSize:10,color:C.muted}}>{TAG_INFO[t].icon} {TAG_INFO[t].label}</span>)}
-                    </div>
-                  </div>
-                  <span style={{fontSize:13,fontWeight:700,color:pts>=0?(pts>0?C.done:C.muted):C.missed}}>
-                    {pts>0?"+":""}{pts.toLocaleString()} ⚡
-                  </span>
-                </div>;
-              });
-            })()}
-          </div>}
-        </div>
-        <div style={{marginBottom:12}}>
-          <button onClick={()=>setShowPointsLegend(s=>!s)} style={{background:"none",border:`1px solid ${C.border}`,
-            borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600,color:C.muted,width:"100%",textAlign:"left"}}>
-            {showPointsLegend?"▾":"▸"} How points are calculated
-          </button>
-          {showPointsLegend&&<div style={{background:C.bg,borderRadius:"0 0 10px 10px",padding:14,border:`1px solid ${C.border}`,borderTop:"none"}}>
-            <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8,letterSpacing:0.5}}>DAILY POINTS</div>
-            {[
-              {icon:"🌟",label:"Personal best day",val:"+250 ⚡"},
-              {icon:"💪",label:"Above target",val:"+200 ⚡"},
-              {icon:"✅",label:"At target",val:"+100 ⚡"},
-              {icon:"📉",label:"Below target",val:"+50 ⚡"},
-              {icon:"🛡️",label:"Shielded day",val:"+25 ⚡"},
-              {icon:"❌",label:"Skipped day",val:"-25 ⚡"},
-              {icon:"💔",label:"Breaking 7+ streak",val:"-100 ⚡"},
-            ].map(r=><div key={r.label} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.border}`}}>
-              <span style={{fontSize:12}}>{r.icon} {r.label}</span>
-              <span style={{fontSize:12,fontWeight:700,color:r.val.startsWith("-")?C.missed:C.done}}>{r.val}</span>
-            </div>)}
-            <div style={{fontSize:11,fontWeight:700,color:C.muted,margin:"12px 0 8px",letterSpacing:0.5}}>STREAK MULTIPLIERS</div>
-            {[
-              {streak:"30+ days",mult:"5x"},
-              {streak:"14–29 days",mult:"3x"},
-              {streak:"7–13 days",mult:"2x"},
-              {streak:"3–6 days",mult:"1.5x"},
-              {streak:"1–2 days",mult:"1x"},
-            ].map(r=><div key={r.streak} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.border}`}}>
-              <span style={{fontSize:12}}>🔥 {r.streak}</span>
-              <span style={{fontSize:12,fontWeight:700,color:"#E8A838"}}>{r.mult}</span>
-            </div>)}
-            <div style={{fontSize:11,color:C.muted,marginTop:8}}>Multipliers apply to positive points only, not penalties.</div>
-          </div>}
-        </div>
-
-
-      </div>
-    </div>
-    {showLevelsLegend&&<LevelsLegendDrawer currentLevel={level.level} totalPP={total} onClose={()=>setShowLevelsLegend(false)}/>}
-  </>;
-}
-
-// ── Levels Legend Drawer (floats left of card on desktop, slides from edge on mobile) ──
-function LevelsLegendDrawer({currentLevel, totalPP, onClose}){
-  return <>
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:410}}/>
-    <div style={{position:"fixed",top:0,left:0,height:"100%",width:"min(400px,90vw)",
-      background:C.surface,zIndex:411,boxShadow:"8px 0 40px rgba(0,0,0,0.15)",
-      display:"flex",flexDirection:"column",animation:"slideInLeft 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
-      <style>{`@keyframes slideInLeft{from{transform:translateX(-100%)}to{transform:translateX(0)}}`}</style>
-
-      <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0,
-        display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
         <div>
-          <div style={{fontWeight:800,fontSize:16}}>📖 All Levels</div>
-          <div style={{fontSize:12,color:C.muted}}>{PP_LEVELS.length} levels total</div>
+          <div style={{fontSize:26,fontWeight:900,color:"#FFD700",lineHeight:1}}>{total.toLocaleString()}</div>
+          {weekPP>0&&<div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginTop:2}}>+{weekPP.toLocaleString()} this week</div>}
         </div>
-        <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,
-          padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:22}}>{level.icon}</div>
+          <div style={{fontSize:12,fontWeight:700,color:"#FFD700"}}>{level.title}</div>
+        </div>
       </div>
-
-      <div style={{flex:1,overflowY:"auto",padding:"12px 16px 24px"}}>
-        {PP_LEVELS.map((l,i)=>{
-          const isCurrentLevel = l.level === currentLevel;
-          const isEarned = totalPP >= l.pp;
-          return <div key={l.level} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
-            background:isCurrentLevel?"#1a1a2e":"transparent",borderRadius:10,
-            marginBottom:4,opacity:isEarned?1:0.4}}>
-            <span style={{fontSize:18,minWidth:26}}>{l.icon}</span>
-            <div style={{flex:1}}>
-              <span style={{fontSize:13,fontWeight:isCurrentLevel?700:500,
-                color:isCurrentLevel?"#FFD700":isEarned?C.text:C.muted}}>{l.title}</span>
-              {isCurrentLevel&&<span style={{fontSize:10,color:"#FFD700",marginLeft:6}}>← YOU</span>}
-            </div>
-            <span style={{fontSize:11,color:isCurrentLevel?"rgba(255,255,255,0.5)":C.muted}}>Lv.{l.level}</span>
-            <span style={{fontSize:11,color:isCurrentLevel?"rgba(255,255,255,0.5)":C.muted,minWidth:70,textAlign:"right"}}>{l.pp.toLocaleString()} PP</span>
-          </div>;
-        })}
-      </div>
+      {nextLevel && <>
+        <div style={{background:"rgba(255,255,255,0.1)",borderRadius:99,height:6,overflow:"hidden",marginBottom:4}}>
+          <div style={{height:"100%",width:`${pct}%`,background:"linear-gradient(90deg,#FFD700,#FFA500)",borderRadius:99}}/>
+        </div>
+        <div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>{(nextLevel.pp-total).toLocaleString()} PP to {nextLevel.icon} {nextLevel.title}</div>
+      </>}
     </div>
-  </>;
+
+    {/* Tabs */}
+    <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+      {[{id:"overview",label:"Overview"},{id:"history",label:"History"},{id:"info",label:"Info"}].map(t=>(
+        <button key={t.id} onClick={()=>setTab(t.id)} style={{
+          flex:1,padding:"10px 0",border:"none",borderBottom:`2px solid ${tab===t.id?"#FFD700":"transparent"}`,
+          background:"none",cursor:"pointer",fontWeight:tab===t.id?700:500,fontSize:12,
+          color:tab===t.id?C.text:C.muted,
+        }}>{t.label}</button>
+      ))}
+    </div>
+
+    {/* Content */}
+    <div style={{flex:1,overflowY:"auto",padding:16}}>
+
+      {tab==="overview"&&<>
+        {projection&&projection.daysAway!==null&&<div style={{
+          background:"#FFFDE7",border:"1px solid #F9A825",borderRadius:10,padding:"10px 12px",marginBottom:14,
+        }}>
+          <div style={{fontSize:11,color:"#7A6200"}}>
+            🔮 At this pace, <strong>{projection.nextLevel.icon} {projection.nextLevel.title}</strong> in{" "}
+            <strong>{projection.daysAway===1?"~1 day":projection.daysAway<7?`~${projection.daysAway} days`:projection.weeksAway===1?"~1 week":`~${projection.weeksAway} weeks`}</strong>
+          </div>
+        </div>}
+
+        <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>HOW YOU EARNED IT</div>
+        <div style={{background:C.bg,borderRadius:10,overflow:"hidden",marginBottom:16}}>
+          {[
+            {label:"PB days",val:breakdown.pb,show:breakdown.pb>0},
+            {label:"Above target",val:breakdown.aboveTarget,show:breakdown.aboveTarget>0},
+            {label:"At target",val:breakdown.atTarget,show:breakdown.atTarget>0},
+            {label:"Below target",val:breakdown.belowTarget,show:breakdown.belowTarget>0},
+            {label:"Shielded",val:breakdown.shielded,show:breakdown.shielded>0},
+            {label:"Streak bonus",val:breakdown.streakBonus,show:breakdown.streakBonus>0},
+            {label:"🥚 Eggs",val:breakdown.eggBonus,show:breakdown.eggBonus>0},
+            {label:"Starting bonus",val:100,show:true},
+            {label:"Skipped",val:breakdown.skipped,show:breakdown.skipped<0},
+            {label:"Streak breaks",val:breakdown.streakBreak,show:breakdown.streakBreak<0},
+          ].filter(r=>r.show).map((row,i,arr)=>(
+            <div key={row.label} style={{display:"flex",justifyContent:"space-between",padding:"7px 12px",
+              borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none",fontSize:11}}>
+              <span style={{color:C.text}}>{row.label}</span>
+              <span style={{fontWeight:700,color:row.val>=0?(row.val>0?C.done:C.muted):C.missed}}>{row.val>0?"+":""}{row.val.toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>LEVELS UNLOCKED ({earnedLevels.length}/{PP_LEVELS.length})</div>
+        <div style={{display:"flex",flexDirection:"column",gap:5}}>
+          {[...earnedLevels].reverse().slice(0,5).map(l=>{
+            const hist = levelHistory.find(h=>h.level===l.level);
+            const dateLabel = hist ? new Date(hist.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"}) : (l.level===1?"Day 1":null);
+            return <div key={l.level} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",
+              background:l.level===level.level?"#1a1a2e":C.bg,borderRadius:8,
+              border:`1px solid ${l.level===level.level?"#FFD700":C.border}`}}>
+              <span style={{fontSize:15}}>{l.icon}</span>
+              <div style={{flex:1,minWidth:0}}>
+                <span style={{fontWeight:700,fontSize:11,color:l.level===level.level?"#FFD700":C.text}}>{l.title}</span>
+                {dateLabel&&<span style={{fontSize:9,color:l.level===level.level?"rgba(255,255,255,0.4)":C.muted,marginLeft:6}}>{dateLabel}</span>}
+              </div>
+            </div>;
+          })}
+          {earnedLevels.length>5&&<div style={{fontSize:10,color:C.muted,textAlign:"center",marginTop:2}}>+{earnedLevels.length-5} more — see Info tab</div>}
+        </div>
+      </>}
+
+      {tab==="history"&&(()=>{
+        const dates = Object.keys(dailyEarned).filter(d=>dailyEarned[d]!==0 || (dailyTags[d]&&dailyTags[d].length>0)).sort((a,b)=>b.localeCompare(a));
+        if(dates.length===0) return <div style={{fontSize:12,color:C.muted,textAlign:"center",padding:20}}>No history yet.</div>;
+        return <div>
+          {dates.map((d,i)=>{
+            const pts = dailyEarned[d]||0;
+            const tags = dailyTags[d]||[];
+            const dateLabel = new Date(d+"T00:00:00").toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"});
+            return <div key={d} style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+              padding:"9px 4px",borderBottom:i<dates.length-1?`1px solid ${C.border}`:"none"}}>
+              <div>
+                <div style={{fontSize:12,fontWeight:600,color:C.text}}>{dateLabel}</div>
+                <div style={{display:"flex",gap:5,marginTop:2,flexWrap:"wrap"}}>
+                  {tags.map(t=>TAG_INFO[t]&&<span key={t} style={{fontSize:9,color:C.muted}}>{TAG_INFO[t].icon} {TAG_INFO[t].label}</span>)}
+                </div>
+              </div>
+              <span style={{fontSize:12,fontWeight:700,color:pts>=0?(pts>0?C.done:C.muted):C.missed}}>{pts>0?"+":""}{pts.toLocaleString()}</span>
+            </div>;
+          })}
+        </div>;
+      })()}
+
+      {tab==="info"&&<>
+        <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>DAILY POINTS</div>
+        <div style={{marginBottom:16}}>
+          {[
+            {icon:"🌟",label:"Personal best",val:"+250"},
+            {icon:"💪",label:"Above target",val:"+200"},
+            {icon:"✅",label:"At target",val:"+100"},
+            {icon:"📉",label:"Below target",val:"+50"},
+            {icon:"🛡️",label:"Shielded",val:"+25"},
+            {icon:"❌",label:"Skipped",val:"-25"},
+            {icon:"💔",label:"Breaking 7+ streak",val:"-100"},
+          ].map(r=><div key={r.label} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.border}`,fontSize:11}}>
+            <span>{r.icon} {r.label}</span>
+            <span style={{fontWeight:700,color:r.val.startsWith("-")?C.missed:C.done}}>{r.val}</span>
+          </div>)}
+        </div>
+        <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>STREAK MULTIPLIERS</div>
+        <div style={{marginBottom:16}}>
+          {[{s:"30+ days",m:"5x"},{s:"14–29 days",m:"3x"},{s:"7–13 days",m:"2x"},{s:"3–6 days",m:"1.5x"},{s:"1–2 days",m:"1x"}].map(r=>
+            <div key={r.s} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.border}`,fontSize:11}}>
+              <span>🔥 {r.s}</span><span style={{fontWeight:700,color:"#E8A838"}}>{r.m}</span>
+            </div>)}
+        </div>
+        <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>ALL {PP_LEVELS.length} LEVELS</div>
+        <div>
+          {PP_LEVELS.map((l,i)=>{
+            const isCur = l.level===level.level, isEarned = total>=l.pp;
+            return <div key={l.level} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",
+              background:isCur?"#1a1a2e":"transparent",borderRadius:6,opacity:isEarned?1:0.4}}>
+              <span style={{fontSize:13,minWidth:20}}>{l.icon}</span>
+              <span style={{flex:1,fontSize:11,fontWeight:isCur?700:500,color:isCur?"#FFD700":C.text}}>{l.title}</span>
+              <span style={{fontSize:10,color:isCur?"rgba(255,255,255,0.4)":C.muted}}>{l.pp.toLocaleString()}</span>
+            </div>;
+          })}
+        </div>
+      </>}
+    </div>
+  </div>;
 }
+
 
 // ── Mystery Bonus Reveal ─────────────────────────────────────────────────────
 function MysteryBonusReveal({normalPP, bonusPP, onClose}){
@@ -1869,13 +1785,12 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
 }
 
 // ── Member Card ───────────────────────────────────────────────────────────────
-function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme}){
+function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP}){
   const today=todayStr();
   const[showCal,setShowCal]=useState(true);
   const[showBadges,setShowBadges]=useState(false);
   const[showStats,setShowStats]=useState(false);
   const[showHeatmap,setShowHeatmap]=useState(false);
-  const[showPP,setShowPP]=useState(false);
   const[mysteryReveal,setMysteryReveal]=useState(null); // {normalPP, bonusPP}
   const[modal,setModal]=useState(null);
   const ppData = computePowerPoints(member, logs);
@@ -1941,7 +1856,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
     </div>
 
     {/* Power Points Banner */}
-    <div onClick={()=>setShowPP(true)} style={{
+    <div onClick={()=>onOpenPP&&onOpenPP(member.id)} style={{
       background:"linear-gradient(135deg,#1a1a2e,#16213e)",
       borderRadius:12,padding:"12px 16px",marginBottom:12,cursor:"pointer",
       display:"flex",alignItems:"center",justifyContent:"space-between",
@@ -2067,7 +1982,6 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
     </div>
     {showBadges&&<BadgeDrawer member={member} allEarned={allEarned} acts={acts} logs={logs} onClose={()=>setShowBadges(false)}/>}
     {showStats&&<AllTimeStats member={member} logs={logs} onClose={()=>setShowStats(false)}/>}
-    {showPP&&<PowerPointsDrawer member={member} logs={logs} onClose={()=>setShowPP(false)}/>}
     {mysteryReveal&&<MysteryBonusReveal normalPP={mysteryReveal.normalPP} bonusPP={mysteryReveal.bonusPP} onClose={()=>setMysteryReveal(null)}/>}
 
     {modal&&(member.alternating&&acts.length>1
@@ -2902,6 +2816,7 @@ export default function App(){
   const[editM,setEditM]=useState(null);
   const[toasts,setToasts]=useState([]);
   const[activeTab,setActiveTab]=useState(null); // null = show all (family summary)
+  const[ppPanelFor,setPpPanelFor]=useState(null); // memberId whose PP panel is open, or null
   const[theme,setTheme]=useState("forest");
   const mRef=useRef(members);const lRef=useRef(logs);
   const tRef=useRef(theme);
@@ -3009,14 +2924,14 @@ export default function App(){
     {members.length>0&&<div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,position:"sticky",top:65,zIndex:40}}>
       <div style={{maxWidth:860,margin:"0 auto",padding:"0 16px",display:"flex",gap:0,overflowX:"auto"}}>
         {members.map(m=>(
-          <button key={m.id} onClick={()=>setActiveTab(m.id)} style={{
+          <button key={m.id} onClick={()=>{setActiveTab(m.id);setPpPanelFor(null);}} style={{
             padding:"12px 20px",border:"none",borderBottom:`3px solid ${activeTab===m.id?m.color:"transparent"}`,
             background:"none",cursor:"pointer",fontWeight:activeTab===m.id?700:500,
             fontSize:14,color:activeTab===m.id?m.color:C.muted,
             whiteSpace:"nowrap",transition:"all 0.15s",
           }}>{m.name}</button>
         ))}
-        <button onClick={()=>setActiveTab(null)} style={{
+        <button onClick={()=>{setActiveTab(null);setPpPanelFor(null);}} style={{
           padding:"12px 20px",border:"none",borderBottom:`3px solid ${activeTab===null?currentTheme.accent:"transparent"}`,
           background:"none",cursor:"pointer",fontWeight:activeTab===null?700:500,
           fontSize:14,color:activeTab===null?currentTheme.accent:C.muted,
@@ -3025,7 +2940,7 @@ export default function App(){
       </div>
     </div>}
 
-    <div style={{maxWidth:860,margin:"0 auto",padding:"24px 16px",display:"flex",flexDirection:"column",gap:20}}>
+    <div style={{maxWidth:(activeTab&&ppPanelFor===activeTab)?1300:860,margin:"0 auto",padding:"24px 16px",display:"flex",flexDirection:"column",gap:20,transition:"max-width 0.2s"}}>
       {members.length===0&&<div style={{textAlign:"center",padding:60,color:C.muted}}>
         <div style={{fontSize:40,marginBottom:12}}>🌱</div>
         <div style={{fontSize:16,fontWeight:600}}>No members yet. Add one to get started.</div>
@@ -3033,8 +2948,16 @@ export default function App(){
 
       {/* Individual member tab */}
       {activeTab&&members.filter(m=>m.id===activeTab).map(m=>(
-        <MemberCard key={m.id} member={m} logs={logs} allMembers={members}
-          onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}/>
+        <div key={m.id} style={{display:"flex",gap:20,flexWrap:"wrap",alignItems:"flex-start",justifyContent:"center"}}>
+          <div style={{flex:"1 1 460px",maxWidth:860,minWidth:0}}>
+            <MemberCard member={m} logs={logs} allMembers={members}
+              onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}
+              onOpenPP={(id)=>setPpPanelFor(id)}/>
+          </div>
+          {ppPanelFor===m.id&&<div style={{flex:"1 1 320px",maxWidth:380,minWidth:280}}>
+            <PowerPointsPanel member={m} logs={logs} onClose={()=>setPpPanelFor(null)}/>
+          </div>}
+        </div>
       ))}
 
       {/* Family tab */}
