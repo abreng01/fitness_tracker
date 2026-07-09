@@ -1498,6 +1498,7 @@ function PowerPointsPanel({member, logs, onClose}){
   const nextLevel = getNextLevel(total);
   const pct = nextLevel ? Math.round(((total - level.pp) / (nextLevel.pp - level.pp)) * 100) : 100;
   const [tab, setTab] = useState("overview"); // overview | history | info
+  const [showLevels, setShowLevels] = useState(false);
 
   // Build complete level crossing dates — fill gaps via cumulative daily sum
   const completeLevelDates = {};
@@ -1532,8 +1533,12 @@ function PowerPointsPanel({member, logs, onClose}){
           <span style={{fontSize:20}}>{member.emoji}</span>
           <span style={{fontWeight:700,fontSize:14,color:"#fff"}}>{member.name}</span>
         </div>
-        <button onClick={onClose} style={{background:"none",border:"1px solid rgba(255,255,255,0.2)",borderRadius:7,
-          padding:"4px 8px",cursor:"pointer",fontSize:15,color:"rgba(255,255,255,0.6)"}}>×</button>
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <button onClick={()=>setShowLevels(true)} style={{background:"none",border:"1px solid rgba(255,255,255,0.2)",borderRadius:7,
+              padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:600,color:"rgba(255,255,255,0.6)"}}>📖 Levels</button>
+            <button onClick={onClose} style={{background:"none",border:"1px solid rgba(255,255,255,0.2)",borderRadius:7,
+              padding:"4px 8px",cursor:"pointer",fontSize:15,color:"rgba(255,255,255,0.6)"}}>×</button>
+          </div>
       </div>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
         <div>
@@ -1553,6 +1558,32 @@ function PowerPointsPanel({member, logs, onClose}){
       </>}
     </div>
 
+    {/* Levels sub-view — replaces tabs+content when open */}
+    {showLevels ? <>
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+        <button onClick={()=>setShowLevels(false)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,
+          padding:"4px 10px",cursor:"pointer",fontSize:12,fontWeight:600,color:C.muted}}>← Back</button>
+        <span style={{fontWeight:700,fontSize:13}}>📖 All {PP_LEVELS.length} Levels</span>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"8px 12px 16px"}}>
+        {PP_LEVELS.map((l)=>{
+          const isCur = l.level===level.level, isEarned = total>=l.pp;
+          const dateStr = completeLevelDates[l.level];
+          const dateLabel = dateStr ? new Date(dateStr+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"}) : null;
+          return <div key={l.level} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",
+            background:isCur?"#1a1a2e":"transparent",borderRadius:8,marginBottom:3,
+            opacity:isEarned?1:0.35,
+            border:`1px solid ${isCur?"#FFD700":"transparent"}`}}>
+            <span style={{fontSize:10,fontWeight:700,color:isCur?"#FFD700":C.muted,minWidth:18,textAlign:"right"}}>{l.level}</span>
+            <span style={{fontSize:14,minWidth:22}}>{l.icon}</span>
+            <span style={{flex:1,fontSize:12,fontWeight:isCur?700:500,color:isCur?"#FFD700":C.text}}>{l.title}</span>
+            {dateLabel
+              ? <span style={{fontSize:9,color:isCur?"rgba(255,255,255,0.4)":C.muted}}>{dateLabel}</span>
+              : <span style={{fontSize:9,color:isCur?"rgba(255,255,255,0.3)":C.muted}}>{l.pp.toLocaleString()}</span>}
+          </div>;
+        })}
+      </div>
+    </> : <>
     {/* Tabs */}
     <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
       {[{id:"overview",label:"Overview"},{id:"history",label:"History"},{id:"info",label:"Info"}].map(t=>(
@@ -1664,21 +1695,9 @@ function PowerPointsPanel({member, logs, onClose}){
               <span>🔥 {r.s}</span><span style={{fontWeight:700,color:"#E8A838"}}>{r.m}</span>
             </div>)}
         </div>
-        <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>ALL {PP_LEVELS.length} LEVELS</div>
-        <div>
-          {PP_LEVELS.map((l,i)=>{
-            const isCur = l.level===level.level, isEarned = total>=l.pp;
-            return <div key={l.level} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",
-              background:isCur?"#1a1a2e":"transparent",borderRadius:6,opacity:isEarned?1:0.4}}>
-              <span style={{fontSize:10,fontWeight:700,color:isCur?"#FFD700":C.muted,minWidth:18,textAlign:"right"}}>{l.level}</span>
-              <span style={{fontSize:13,minWidth:20}}>{l.icon}</span>
-              <span style={{flex:1,fontSize:11,fontWeight:isCur?700:500,color:isCur?"#FFD700":C.text}}>{l.title}</span>
-              <span style={{fontSize:10,color:isCur?"rgba(255,255,255,0.4)":C.muted}}>{l.pp.toLocaleString()}</span>
-            </div>;
-          })}
-        </div>
       </>}
     </div>
+    </>}
   </div>;
 }
 
