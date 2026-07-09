@@ -1607,6 +1607,7 @@ function PowerPointsPanel({member, logs, onClose}){
             return <div key={l.level} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",
               background:l.level===level.level?"#1a1a2e":C.bg,borderRadius:8,
               border:`1px solid ${l.level===level.level?"#FFD700":C.border}`}}>
+              <span style={{fontSize:10,fontWeight:700,color:l.level===level.level?"#FFD700":C.muted,minWidth:16,textAlign:"right"}}>{l.level}</span>
               <span style={{fontSize:15}}>{l.icon}</span>
               <div style={{flex:1,minWidth:0}}>
                 <span style={{fontWeight:700,fontSize:11,color:l.level===level.level?"#FFD700":C.text}}>{l.title}</span>
@@ -1669,6 +1670,7 @@ function PowerPointsPanel({member, logs, onClose}){
             const isCur = l.level===level.level, isEarned = total>=l.pp;
             return <div key={l.level} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",
               background:isCur?"#1a1a2e":"transparent",borderRadius:6,opacity:isEarned?1:0.4}}>
+              <span style={{fontSize:10,fontWeight:700,color:isCur?"#FFD700":C.muted,minWidth:18,textAlign:"right"}}>{l.level}</span>
               <span style={{fontSize:13,minWidth:20}}>{l.icon}</span>
               <span style={{flex:1,fontSize:11,fontWeight:isCur?700:500,color:isCur?"#FFD700":C.text}}>{l.title}</span>
               <span style={{fontSize:10,color:isCur?"rgba(255,255,255,0.4)":C.muted}}>{l.pp.toLocaleString()}</span>
