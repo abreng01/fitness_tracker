@@ -1217,55 +1217,57 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}
 }
 
 // ── Calendar Cell ─────────────────────────────────────────────────────────────
-function CalCell({dateStr,member,logs,isToday,onClick}){
+function CalCell({dateStr,member,logs,isToday,onClick,ppByDate}){
   const future=isFuture(dateStr)||(member.startDate&&dateStr<member.startDate);
   const status=future?"future":dayStatus(member,logs,dateStr);
   const bg={future:"transparent",empty:C.empty,skipped:C.missed,done:C.done,shielded:"#BBDEFB"}[status]||C.empty;
 
-  // Check if any activity exceeded target or set a PB on this day
   const acts=member.activities||[];
   let aboveTarget=false;
   let isPB=false;
   let displayVal=null;
+  const tooltipLines=[];
   if(!future&&status==="done"&&acts.length>0){
     for(const a of acts){
       const al=getActivityLogs(logs,member.id,a.id);
       const l=al[dateStr];
       if(l&&l.status!=="skipped"&&l.value>0){
-        const effectiveTarget=l.target||a.target; // use stored target if available
+        const effectiveTarget=l.target||a.target;
         if(l.value>effectiveTarget){
           aboveTarget=true;
           if(acts.length===1) displayVal=`${l.value}${a.unit}`;
         }
-        // PB: this day's value equals the all-time best AND it's above effective target
         const best=allTimeBest(al);
-        if(l.value===best&&l.value>effectiveTarget) isPB=true;
+        if(l.value===best&&l.value>effectiveTarget){
+          isPB=true;
+          tooltipLines.push(`🏆 PB: ${l.value}${a.unit} (${a.name})`);
+        } else {
+          tooltipLines.push(`${a.name}: ${l.value}${a.unit}`);
+        }
       }
     }
   }
+  if(status==="skipped") tooltipLines.push("❌ Skipped");
+  if(status==="shielded") tooltipLines.push("🛡️ Shielded");
+  const dayPP = ppByDate&&ppByDate[dateStr];
+  if(dayPP!==undefined&&dayPP!==0) tooltipLines.push(`⚡ ${dayPP>0?"+":""}${dayPP.toLocaleString()} PP`);
 
-  // Above target = richer green + gold border
-  const borderColor = aboveTarget
-    ? "#C9A800"
-    : isToday
-      ? member.color
-      : C.border;
-  const borderWidth = aboveTarget || isToday ? "2px" : "1px";
-  const bgColor = aboveTarget ? "#2E8B57" : bg; // deeper green for above target
+  const borderColor = aboveTarget?"#C9A800":isToday?member.color:C.border;
+  const borderWidth = aboveTarget||isToday?"2px":"1px";
+  const bgColor = aboveTarget?"#2E8B57":bg;
+
+  const[showTip,setShowTip]=useState(false);
 
   return <div onClick={()=>!future&&onClick(dateStr)} style={{
-    background:bgColor,
-    border:`${borderWidth} solid ${borderColor}`,
+    background:bgColor,border:`${borderWidth} solid ${borderColor}`,
     borderRadius:7,minHeight:46,cursor:future?"default":"pointer",
     opacity:future?0.3:1,display:"flex",flexDirection:"column",
     alignItems:"center",justifyContent:"center",gap:1,
     transition:"transform 0.1s",position:"relative",
   }}
-  onMouseEnter={e=>{if(!future)e.currentTarget.style.transform="scale(1.07)";}}
-  onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)";}}>
-    {/* Shield icon for protected days */}
+  onMouseEnter={e=>{if(!future){e.currentTarget.style.transform="scale(1.07)";setShowTip(true);}}}
+  onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)";setShowTip(false);}}>
     {status==="shielded"&&<span style={{fontSize:16}}>🛡️</span>}
-    {/* PB crown or star for above target */}
     {isPB&&<span style={{position:"absolute",top:1,right:2,fontSize:9,lineHeight:1}}>👑</span>}
     {!isPB&&aboveTarget&&<span style={{position:"absolute",top:2,right:3,fontSize:8,lineHeight:1}}>⭐</span>}
     <span style={{fontSize:10,color:status==="empty"||future?C.muted:"#fff",fontWeight:600}}>
@@ -1274,6 +1276,17 @@ function CalCell({dateStr,member,logs,isToday,onClick}){
     {(isPB||displayVal)&&<span style={{fontSize:8,color:"rgba(255,255,255,0.9)",fontWeight:700,lineHeight:1}}>
       {isPB?`PB ${displayVal||""}`:displayVal}
     </span>}
+    {showTip&&tooltipLines.length>0&&<div style={{
+      position:"absolute",bottom:"110%",left:"50%",transform:"translateX(-50%)",
+      background:"rgba(20,20,20,0.92)",color:"#fff",borderRadius:8,padding:"6px 10px",
+      fontSize:10,whiteSpace:"nowrap",zIndex:100,pointerEvents:"none",
+      boxShadow:"0 4px 12px rgba(0,0,0,0.3)",lineHeight:1.6,
+    }}>
+      {tooltipLines.map((l,i)=><div key={i}>{l}</div>)}
+      <div style={{position:"absolute",top:"100%",left:"50%",transform:"translateX(-50%)",
+        width:0,height:0,borderLeft:"5px solid transparent",borderRight:"5px solid transparent",
+        borderTop:"5px solid rgba(20,20,20,0.92)"}}/>
+    </div>}
   </div>;
 }
 
@@ -1480,6 +1493,19 @@ function PowerPointsPanel({member, logs, onClose}){
   const pct = nextLevel ? Math.round(((total - level.pp) / (nextLevel.pp - level.pp)) * 100) : 100;
   const [tab, setTab] = useState("overview"); // overview | history | info
 
+  // Build complete level crossing dates — fill gaps via cumulative daily sum
+  const completeLevelDates = {};
+  for(const h of levelHistory) completeLevelDates[h.level] = h.date;
+  const sortedDailyDates = Object.keys(dailyEarned).sort();
+  let running = 100;
+  for(const d of sortedDailyDates){
+    running += (dailyEarned[d]||0);
+    for(const l of PP_LEVELS){
+      if(!completeLevelDates[l.level] && running>=l.pp) completeLevelDates[l.level] = d;
+    }
+  }
+
+
   const earnedLevels = PP_LEVELS.filter(l => total >= l.pp);
   const lockedLevels = PP_LEVELS.filter(l => total < l.pp);
 
@@ -1570,8 +1596,8 @@ function PowerPointsPanel({member, logs, onClose}){
         <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>LEVELS UNLOCKED ({earnedLevels.length}/{PP_LEVELS.length})</div>
         <div style={{display:"flex",flexDirection:"column",gap:5}}>
           {[...earnedLevels].reverse().slice(0,5).map(l=>{
-            const hist = levelHistory.find(h=>h.level===l.level);
-            const dateLabel = hist ? new Date(hist.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"}) : (l.level===1?"Day 1":null);
+            const dateStr = completeLevelDates[l.level];
+            const dateLabel = dateStr ? new Date(dateStr+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"}) : (l.level===1?"Day 1":null);
             return <div key={l.level} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",
               background:l.level===level.level?"#1a1a2e":C.bg,borderRadius:8,
               border:`1px solid ${l.level===level.level?"#FFD700":C.border}`}}>
@@ -1968,7 +1994,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
         {calDays.map((ds,i)=>ds===null?<div key={`e${i}`}/>:
-          <CalCell key={ds} dateStr={ds} member={member} logs={logs} isToday={ds===today} onClick={d=>setModal(d)}/>)}
+          <CalCell key={ds} dateStr={ds} member={member} logs={logs} isToday={ds===today} onClick={d=>setModal(d)} ppByDate={ppData.dailyEarned}/>)}
       </div>
     </div>}
 
