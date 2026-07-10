@@ -1056,13 +1056,43 @@ function Toast({badge,onDismiss}){
 // ── Multi-activity Log Modal ──────────────────────────────────────────────────
 function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
   const displayDate=new Date(dateStr+"T00:00:00").toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"short"});
+  const isDecimal=(u)=>["km","miles","kg","hrs"].includes(u);
+
+  // Build initial state — track per-activity: alreadySaved (logged before modal opened), editing, value, status
   const init=member.activities.map(a=>{
     const ex=getActivityLogs(logs,member.id,a.id)[dateStr];
-    return{actId:a.id,status:ex?.status??"done",value:ex?.value??a.target};
+    const alreadySaved=ex&&(ex.status==="done"||ex.status==="skipped"||ex.status==="shielded");
+    return{
+      actId:a.id,
+      status:ex?.status??"done",
+      value:ex?.value??a.target,
+      alreadySaved:!!alreadySaved,
+      editing:false, // true when user taps edit on an already-saved activity
+    };
   });
   const[entries,setEntries]=useState(init);
   const upd=(id,f,v)=>setEntries(p=>p.map(e=>e.actId===id?{...e,[f]:v}:e));
-  const isDecimal=(u)=>["km","miles","kg","hrs"].includes(u);
+  const startEdit=(id)=>setEntries(p=>p.map(e=>e.actId===id?{...e,editing:true}:e));
+  const saveSingle=(actId)=>{
+    // Save just this one activity, keeping others as-is
+    const entry=entries.find(e=>e.actId===actId);
+    if(!entry) return;
+    const act=member.activities.find(a=>a.id===actId);
+    // Build full entries array — for unsaved activities, pass their current logged value or skip
+    const toSave=member.activities.map(a=>{
+      if(a.id===actId) return{actId:a.id,value:entry.value,status:entry.status,target:a.target};
+      // For other activities, use whatever is already logged (if anything)
+      const ex=getActivityLogs(logs,member.id,a.id)[dateStr];
+      if(ex) return{actId:a.id,value:ex.value,status:ex.status,target:a.target};
+      return null; // not yet logged, don't touch
+    }).filter(Boolean);
+    onSaveAll(toSave);
+    // Mark as saved in local state
+    setEntries(p=>p.map(e=>e.actId===actId?{...e,alreadySaved:true,editing:false}:e));
+  };
+
+  const allSaved=entries.every(e=>e.alreadySaved);
+  const noneSaved=entries.every(e=>!e.alreadySaved);
 
   return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
     <div style={{background:C.surface,borderRadius:18,padding:24,width:"100%",maxWidth:360,boxShadow:"0 8px 40px rgba(0,0,0,0.2)",maxHeight:"88vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
@@ -1070,41 +1100,97 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
         <span style={{fontSize:26}}>{member.emoji}</span>
         <div><div style={{fontWeight:700,fontSize:16}}>{member.name}</div><div style={{fontSize:12,color:C.muted}}>{displayDate}</div></div>
       </div>
+
       {member.activities.map((act,i)=>{
         const en=entries.find(e=>e.actId===act.id);
         if(!en) return null;
+        const isActive=!en.alreadySaved||en.editing;
+
         return <div key={act.id}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-            <div>
-              <div style={{fontWeight:700,fontSize:14}}>{act.name}</div>
-              <div style={{fontSize:11,color:C.muted}}>Target: {act.target} {act.unit}</div>
+          {/* Already saved — show as greyed summary with Edit button */}
+          {!isActive ? (
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+              padding:"10px 12px",background:C.bg,borderRadius:10,marginBottom:4}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:16,color:en.status==="skipped"?C.missed:C.done}}>
+                  {en.status==="skipped"?"✗":"✓"}
+                </span>
+                <div>
+                  <div style={{fontWeight:600,fontSize:13,color:C.text}}>{act.name}</div>
+                  <div style={{fontSize:11,color:C.muted}}>
+                    {en.status==="skipped"?"Skipped":en.status==="shielded"?"Shielded":`${en.value} ${act.unit}`}
+                  </div>
+                </div>
+              </div>
+              <button onClick={()=>startEdit(act.id)} style={{background:"none",border:`1px solid ${C.border}`,
+                borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:11,fontWeight:600,color:C.muted}}>
+                Edit
+              </button>
             </div>
-            <div style={{display:"flex",gap:6}}>
-              <button onClick={()=>upd(act.id,"status","done")} style={{padding:"5px 12px",borderRadius:8,border:`1.5px solid ${en.status==="done"?member.color:C.border}`,background:en.status==="done"?member.color:"transparent",color:en.status==="done"?"#fff":C.muted,fontWeight:600,cursor:"pointer",fontSize:12}}>✓ Done</button>
-              <button onClick={()=>upd(act.id,"status","skipped")} style={{padding:"5px 12px",borderRadius:8,border:`1.5px solid ${en.status==="skipped"?C.missed:C.border}`,background:en.status==="skipped"?C.missed:"transparent",color:en.status==="skipped"?"#fff":C.muted,fontWeight:600,cursor:"pointer",fontSize:12}}>✗ Skip</button>
+          ) : (
+            /* Active — show full input */
+            <div style={{border:`1.5px solid ${member.color}33`,borderRadius:12,padding:"12px 14px",marginBottom:4}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                <div>
+                  <div style={{fontWeight:700,fontSize:14}}>{act.name}</div>
+                  <div style={{fontSize:11,color:C.muted}}>Target: {act.target} {act.unit}</div>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={()=>upd(act.id,"status","done")}
+                    style={{padding:"5px 10px",borderRadius:8,border:`1.5px solid ${en.status==="done"?member.color:C.border}`,
+                    background:en.status==="done"?member.color:"transparent",color:en.status==="done"?"#fff":C.muted,
+                    fontWeight:600,cursor:"pointer",fontSize:12}}>✓ Done</button>
+                  <button onClick={()=>upd(act.id,"status","skipped")}
+                    style={{padding:"5px 10px",borderRadius:8,border:`1.5px solid ${en.status==="skipped"?C.missed:C.border}`,
+                    background:en.status==="skipped"?C.missed:"transparent",color:en.status==="skipped"?"#fff":C.muted,
+                    fontWeight:600,cursor:"pointer",fontSize:12}}>✗ Skip</button>
+                </div>
+              </div>
+              {en.status==="done"&&<div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                <input type="number" min={0} step={isDecimal(act.unit)?0.1:1}
+                  value={en.value} onChange={e=>upd(act.id,"value",parseFloat(e.target.value)||0)}
+                  style={{flex:1,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,
+                  fontSize:20,fontWeight:700,outline:"none",background:"#fff"}}/>
+                <span style={{fontSize:13,color:C.muted,fontWeight:600,minWidth:36}}>{act.unit}</span>
+              </div>}
+              <button onClick={()=>saveSingle(act.id)} style={{width:"100%",padding:"9px 0",borderRadius:8,
+                border:"none",background:member.color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13}}>
+                Save {act.name}
+              </button>
             </div>
-          </div>
-          {en.status==="done"&&<div style={{display:"flex",alignItems:"center",gap:10,background:member.color+"0D",borderRadius:10,padding:"10px 12px",marginBottom:4}}>
-            <input type="number" min={0} step={isDecimal(act.unit)?0.1:1}
-              value={en.value} onChange={e=>upd(act.id,"value",parseFloat(e.target.value)||0)}
-              style={{flex:1,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,fontSize:20,fontWeight:700,outline:"none",background:"#fff"}}/>
-            <span style={{fontSize:13,color:C.muted,fontWeight:600,minWidth:36}}>{act.unit}</span>
-          </div>}
-          {i<member.activities.length-1&&<div style={{height:1,background:C.border,margin:"14px 0"}}/>}
+          )}
+          {i<member.activities.length-1&&<div style={{height:8}}/>}
         </div>;
       })}
-      <div style={{display:"flex",gap:8,marginTop:20}}>
-        <button onClick={()=>setEntries(p=>p.map(e=>({...e,status:"skipped"})))} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted,fontSize:13}}>Skip all</button>
-        <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>onSaveAll(entries)} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:member.color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save all</button>
+
+      {/* Footer buttons */}
+      <div style={{display:"flex",gap:8,marginTop:16}}>
+        {noneSaved&&<button onClick={()=>setEntries(p=>p.map(e=>({...e,status:"skipped"})))}
+          style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,
+          background:"none",cursor:"pointer",fontWeight:600,color:C.muted,fontSize:13}}>Skip all</button>}
+        <button onClick={onClose}
+          style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,
+          background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>
+          {allSaved?"Done":"Cancel"}
+        </button>
+        {!allSaved&&<button onClick={()=>onSaveAll(entries.map(e=>{
+          const act=member.activities.find(a=>a.id===e.actId);
+          return{actId:e.actId,value:e.value,status:e.status,target:act?.target};
+        }))} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",
+          background:member.color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save all</button>}
       </div>
+
       {/* Shield option */}
-      {shieldsLeft>0&&<div style={{marginTop:10,padding:"10px 14px",background:"#E3F2FD",border:"1.5px solid #90CAF9",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+      {shieldsLeft>0&&!allSaved&&<div style={{marginTop:10,padding:"10px 14px",background:"#E3F2FD",
+        border:"1.5px solid #90CAF9",borderRadius:10,display:"flex",alignItems:"center",
+        justifyContent:"space-between",gap:10}}>
         <div>
           <div style={{fontWeight:700,fontSize:13,color:"#1565C0"}}>🛡️ Use a shield</div>
           <div style={{fontSize:11,color:"#1976D2"}}>{shieldsLeft} of 4 remaining this month · Protects your streak</div>
         </div>
-        <button onClick={()=>onSaveAll(entries.map(e=>({...e,status:"shielded",value:0})))} style={{background:"#1976D2",color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12,whiteSpace:"nowrap"}}>Use shield</button>
+        <button onClick={()=>onSaveAll(entries.map(e=>({...e,status:"shielded",value:0})))}
+          style={{background:"#1976D2",color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",
+          cursor:"pointer",fontWeight:700,fontSize:12,whiteSpace:"nowrap"}}>Use shield</button>
       </div>}
     </div>
   </div>;
