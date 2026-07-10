@@ -1342,7 +1342,10 @@ function CalCell({dateStr,member,logs,isToday,onClick,ppByDate}){
   if(status==="skipped") tooltipLines.push("❌ Skipped");
   if(status==="shielded") tooltipLines.push("🛡️ Shielded");
   const dayPP = ppByDate&&ppByDate[dateStr];
-  if(dayPP!==undefined&&dayPP!==0) tooltipLines.push(`⚡ ${dayPP>0?"+":""}${dayPP.toLocaleString()} PP`);
+  if(dayPP!==undefined&&dayPP!==0){
+    const isMystery = isMysteryBonusDay(member.id, dateStr);
+    tooltipLines.push(`⚡ ${dayPP>0?"+":""}${dayPP.toLocaleString()} PP${isMystery?" 🎁 2x Mystery!":""}`);
+  }
 
   const borderColor = aboveTarget?"#C9A800":isToday?member.color:C.border;
   const borderWidth = aboveTarget||isToday?"2px":"1px";
@@ -2177,6 +2180,19 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
           setTimeout(()=>{
             const next=acts.flatMap(a=>{const en=stampedEntries.find(e=>e.actId===a.id);if(!en)return[];const nl={...getActivityLogs(logs,member.id,a.id),[modal]:{value:en.value,status:en.status,target:en.target}};return earnedBadges(nl,a.target,a.unit);});
             next.filter(id=>!prev.has(id)).forEach(id=>{const b=BADGES.find(x=>x.id===id);if(b)onNewBadge(b,member.name);});
+            // Mystery bonus day reveal
+            if(isMysteryBonusDay(member.id, modal)){
+              const doneEntries=stampedEntries.filter(e=>e.status!=="skipped"&&e.status!=="shielded"&&e.value>0);
+              if(doneEntries.length>0){
+                let normalPP=0;
+                for(const e of doneEntries){
+                  const act=acts.find(a=>a.id===e.actId);
+                  const effectiveTarget=e.target||act?.target||0;
+                  normalPP+=e.value>effectiveTarget*1.5?250:e.value>effectiveTarget?200:e.value>=effectiveTarget?100:50;
+                }
+                setTimeout(()=>setMysteryReveal({normalPP:normalPP*getStreakMultiplier(bestStreak), bonusPP:normalPP*getStreakMultiplier(bestStreak)*2}),300);
+              }
+            }
           },50);
           setModal(null);
         }}
