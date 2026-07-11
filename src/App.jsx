@@ -1710,9 +1710,10 @@ function PowerPointsPanel({member, logs, onClose}){
             <span style={{fontSize:10,fontWeight:700,color:isCur?"#FFD700":C.muted,minWidth:18,textAlign:"right"}}>{l.level}</span>
             <span style={{fontSize:14,minWidth:22}}>{l.icon}</span>
             <span style={{flex:1,fontSize:12,fontWeight:isCur?700:500,color:isCur?"#FFD700":C.text}}>{l.title}</span>
-            {dateLabel
-              ? <span style={{fontSize:9,color:isCur?"rgba(255,255,255,0.4)":C.muted}}>{dateLabel}</span>
-              : <span style={{fontSize:9,color:isCur?"rgba(255,255,255,0.3)":C.muted}}>{l.pp.toLocaleString()}</span>}
+            <span style={{fontSize:9,color:isCur?"rgba(255,255,255,0.4)":C.muted,textAlign:"right"}}>
+              {l.pp.toLocaleString()} PP
+              {isEarned&&dateLabel&&<span style={{display:"block"}}>{dateLabel}</span>}
+            </span>
           </div>;
         })}
       </div>
