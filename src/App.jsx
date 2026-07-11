@@ -467,12 +467,15 @@ function computePowerPoints(member, logs){
   const acts = member.activities || [];
   const sd = member.startDate || null;
 
-  // Collect all days across all activities
+  // Collect all days across all activities AND egg logs
   const allDates = new Set();
   for(const a of acts){
     const al = getActivityLogs(logs, member.id, a.id);
     for(const d of Object.keys(al)) if(d <= today && (!sd || d >= sd)) allDates.add(d);
   }
+  // Also include egg log dates so level crossings driven by eggs are correctly dated
+  const eggLogDates = getEggLogs(logs, member.id);
+  for(const d of Object.keys(eggLogDates)) if(d <= today && (!sd || d >= sd)) allDates.add(d);
   const sortedDates = [...allDates].sort();
 
   let totalPP = 100; // base starting points
@@ -607,7 +610,18 @@ function computePowerPoints(member, logs){
       }
     }
     totalPP = Math.max(0, totalPP);
-    dailyEarned[dateStr] = totalPP - ppBeforeDay; // net change this day, multiplier already applied
+
+    // Add egg PP for this date inside the loop so levelHistory sees it correctly
+    const eggsThisDay = eggLogDates[dateStr] || 0;
+    if(eggsThisDay > 0){
+      const eggPP = eggsThisDay * 1000;
+      totalPP += eggPP;
+      breakdown.eggBonus += eggPP;
+      if(!dailyTags[dateStr]) dailyTags[dateStr]=[];
+      dailyTags[dateStr].push("egg");
+    }
+
+    dailyEarned[dateStr] = totalPP - ppBeforeDay; // net change this day, multiplier + eggs included
 
     // Track level-up moments
     const dayLevel = getLevel(totalPP);
@@ -617,33 +631,16 @@ function computePowerPoints(member, logs){
     }
   }
 
-  // Egg-O-Meter bonus — flat +1000 PP per egg, added directly into the same PP pool
-  const eggLogs = getEggLogs(logs, member.id);
-  let eggBonusTotal = 0;
-  for(const [d, count] of Object.entries(eggLogs)){
-    if(d <= today && (!sd || d >= sd)){
-      const amt = (count||0) * 1000;
-      eggBonusTotal += amt;
-      dailyEarned[d] = (dailyEarned[d]||0) + amt;
-      if(!dailyTags[d]) dailyTags[d]=[];
-      dailyTags[d].push("egg");
-    }
-  }
-  totalPP += eggBonusTotal;
-  breakdown.eggBonus = eggBonusTotal;
+  // Egg-O-Meter bonus — already processed inside loop above, no double counting needed
 
-  // This week's PP — sum of actual net daily earnings (multiplier + mystery bonus already applied)
+  // This week's PP — sum of actual net daily earnings (multiplier + mystery bonus + eggs already applied)
   const weekStart = new Date(today);
   weekStart.setDate(weekStart.getDate() - 6);
   const weekStartStr = weekStart.toISOString().slice(0,10);
   let weekPP = 0;
   for(const dateStr of sortedDates){
     if(dateStr < weekStartStr) continue;
-    weekPP += Math.max(0, dailyEarned[dateStr] || 0); // only count positive earnings for pace, not penalties
-  }
-  // Include recent egg bonuses in the week's pace too
-  for(const [d, count] of Object.entries(eggLogs)){
-    if(d >= weekStartStr && d <= today) weekPP += (count||0) * 1000;
+    weekPP += Math.max(0, dailyEarned[dateStr] || 0);
   }
 
   return { total: Math.round(totalPP), breakdown, weekPP, levelHistory, dailyEarned, dailyTags };
