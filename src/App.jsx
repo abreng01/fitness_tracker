@@ -3260,11 +3260,13 @@ export default function App(){
   return <div style={{background:`${bgPattern}, ${currentTheme.light}`,backgroundRepeat:"repeat",minHeight:"100vh",fontFamily:"'Inter','Helvetica Neue',sans-serif",color:C.text,transition:"background 0.3s"}}>
     <div style={{height:4,background:currentTheme.accent,transition:"background 0.3s"}}/>
     <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"16px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
-      <div>
-        <div style={{fontWeight:800,fontSize:20,letterSpacing:-0.5}}>🌿 Family Fitness</div>
+      <div style={{minWidth:120}}>
+        <div style={{fontWeight:800,fontSize:20,letterSpacing:-0.5}}>⚡ Family Fitness</div>
+      </div>
+      <div style={{textAlign:"center",flex:1}}>
         <div style={{fontSize:12,color:C.muted}}>{getSmartGreeting(members,logs)}</div>
       </div>
-      <div style={{display:"flex",alignItems:"center",gap:10}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,minWidth:120,justifyContent:"flex-end"}}>
         <button onClick={prevMo} style={navBtn}>‹</button>
         <span style={{fontWeight:700,fontSize:14,minWidth:100,textAlign:"center"}}>{MONTHS[mo]} {yr}</span>
         <button onClick={nextMo} disabled={isCurMo} style={{...navBtn,opacity:isCurMo?0.3:1}}>›</button>
