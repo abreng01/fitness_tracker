@@ -17,7 +17,50 @@ const THEMES = [
   {id:"slate",    name:"Slate",    accent:"#546A80", light:"#DCE3E9"},
   {id:"amber",    name:"Amber",    accent:"#C99A2E", light:"#F3E7C9"},
   {id:"teal",     name:"Teal",     accent:"#1F9C8F", light:"#CFEBE7"},
+  {id:"midnight", name:"Midnight", accent:"#3B4A6B", light:"#D8DCE8"},
+  {id:"cherry",   name:"Cherry",   accent:"#C0392B", light:"#F5D0CC"},
+  {id:"mint",     name:"Mint",     accent:"#27AE7A", light:"#C8EDE0"},
+  {id:"peach",    name:"Peach",    accent:"#E8855A", light:"#FAE0D4"},
+  {id:"storm",    name:"Storm",    accent:"#4A6FA5", light:"#D4DCE8"},
 ];
+
+// ── Background Patterns ───────────────────────────────────────────────────────
+function getPatternSvg(patternId, accent){
+  const a = accent;
+  const patterns = {
+    topo: `<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'><g fill='none' stroke='${a}' stroke-width='1' opacity='0.4'><path d='M-20,60 C60,20 140,100 220,50 C300,0 380,80 440,40'/><path d='M-20,110 C60,70 140,150 220,100 C300,50 380,130 440,90'/><path d='M-20,160 C60,120 140,200 220,150 C300,100 380,180 440,140'/><path d='M-20,210 C60,170 140,250 220,200 C300,150 380,230 440,190'/><path d='M-20,260 C60,220 140,300 220,250 C300,200 380,280 440,240'/><path d='M-20,310 C60,270 140,350 220,300 C300,250 380,330 440,290'/><path d='M-20,360 C60,320 140,400 220,350 C300,300 380,380 440,340'/></g></svg>`,
+
+    hex: `<svg xmlns='http://www.w3.org/2000/svg' width='60' height='52' viewBox='0 0 60 52'><g fill='none' stroke='${a}' stroke-width='1' opacity='0.35'><polygon points='30,2 58,17 58,35 30,50 2,35 2,17'/><polygon points='30,28 58,43 58,61 30,76 2,61 2,43' transform='translate(30,0)'/><polygon points='30,28 58,43 58,61 30,76 2,61 2,43' transform='translate(-30,0)'/></g></svg>`,
+
+    dots: `<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 30 30'><circle cx='15' cy='15' r='2' fill='${a}' opacity='0.35'/></svg>`,
+
+    constellation: `<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'><g stroke='${a}' opacity='0.3'><line x1='40' y1='30' x2='100' y2='80' stroke-width='0.5'/><line x1='100' y1='80' x2='160' y2='50' stroke-width='0.5'/><line x1='160' y1='50' x2='180' y2='140' stroke-width='0.5'/><line x1='180' y1='140' x2='100' y2='160' stroke-width='0.5'/><line x1='100' y1='160' x2='20' y2='120' stroke-width='0.5'/><line x1='20' y1='120' x2='40' y2='30' stroke-width='0.5'/><line x1='100' y1='80' x2='100' y2='160' stroke-width='0.5'/></g><g fill='${a}' opacity='0.5'><circle cx='40' cy='30' r='2.5'/><circle cx='100' cy='80' r='3'/><circle cx='160' cy='50' r='2'/><circle cx='180' cy='140' r='2.5'/><circle cx='100' cy='160' r='3'/><circle cx='20' cy='120' r='2'/></g></svg>`,
+
+    waves: `<svg xmlns='http://www.w3.org/2000/svg' width='200' height='80' viewBox='0 0 200 80'><g fill='none' stroke='${a}' stroke-width='1.2' opacity='0.35'><path d='M0,20 C25,10 50,30 75,20 C100,10 125,30 150,20 C175,10 200,30 225,20'/><path d='M0,40 C25,30 50,50 75,40 C100,30 125,50 150,40 C175,30 200,50 225,40'/><path d='M0,60 C25,50 50,70 75,60 C100,50 125,70 150,60 C175,50 200,70 225,60'/></g></svg>`,
+
+    crosshatch: `<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'><g stroke='${a}' stroke-width='0.8' opacity='0.25'><line x1='0' y1='0' x2='40' y2='40'/><line x1='40' y1='0' x2='0' y2='40'/><line x1='20' y1='0' x2='60' y2='40'/><line x1='-20' y1='0' x2='20' y2='40'/></g></svg>`,
+
+    zigzag: `<svg xmlns='http://www.w3.org/2000/svg' width='80' height='40' viewBox='0 0 80 40'><g fill='none' stroke='${a}' stroke-width='1.5' opacity='0.35' stroke-linejoin='round'><polyline points='0,20 10,5 20,20 30,5 40,20 50,5 60,20 70,5 80,20'/><polyline points='0,40 10,25 20,40 30,25 40,40 50,25 60,40 70,25 80,40'/></g></svg>`,
+
+    bubbles: `<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'><g fill='none' stroke='${a}' opacity='0.3'><circle cx='20' cy='20' r='14' stroke-width='1.5'/><circle cx='70' cy='15' r='8' stroke-width='1'/><circle cx='100' cy='40' r='18' stroke-width='1.5'/><circle cx='40' cy='70' r='22' stroke-width='1.5'/><circle cx='95' cy='90' r='12' stroke-width='1'/><circle cx='15' cy='95' r='9' stroke-width='1'/><circle cx='60' cy='55' r='6' stroke-width='1'/></g></svg>`,
+
+    none: `<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1' viewBox='0 0 1 1'></svg>`,
+  };
+  return patterns[patternId] || patterns.topo;
+}
+
+const PATTERN_OPTIONS = [
+  {id:"topo",          name:"Topo",          emoji:"🗺️"},
+  {id:"hex",           name:"Hex",           emoji:"⬡"},
+  {id:"dots",          name:"Dots",          emoji:"⚬"},
+  {id:"constellation", name:"Stars",         emoji:"✦"},
+  {id:"waves",         name:"Waves",         emoji:"〜"},
+  {id:"crosshatch",    name:"Cross",         emoji:"✕"},
+  {id:"zigzag",        name:"Zigzag",        emoji:"⚡"},
+  {id:"bubbles",       name:"Bubbles",       emoji:"○"},
+  {id:"none",          name:"None",          emoji:"□"},
+];
+
 const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const UNIT_OPTIONS=[
@@ -146,12 +189,25 @@ function monthSummary(al,y,m,startDate){
   return{done,missed,remaining};
 }
 
+// ── Infer the earliest date an activity actually has logs (for newly added activities) ──
+function getActivityEffectiveStart(logs, memberId, activityId, memberStartDate){
+  const al = getActivityLogs(logs, memberId, activityId);
+  const dates = Object.keys(al);
+  if(dates.length===0) return memberStartDate||null; // no logs yet — nothing to exclude anyway
+  const firstLog = dates.reduce((min,d)=>d<min?d:min, dates[0]);
+  if(memberStartDate && memberStartDate > firstLog) return memberStartDate;
+  return firstLog;
+}
+
 // ── Member-level consistency (handles alternating) ───────────────────────────
 function memberConsPct(member, logs, y, m){
   const sd=member.startDate||null;
   if(!member.alternating) {
     const acts=member.activities||[];
-    const pcts=acts.map(a=>consPct(getActivityLogs(logs,member.id,a.id),y,m,sd));
+    const pcts=acts.map(a=>{
+      const effectiveStart = getActivityEffectiveStart(logs, member.id, a.id, sd);
+      return consPct(getActivityLogs(logs,member.id,a.id),y,m,effectiveStart);
+    });
     return pcts.length?Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length):0;
   }
   // Alternating: day is done if ANY activity was done
@@ -185,7 +241,10 @@ function memberMonthSummary(member, logs, y, m){
   const today = todayStr();
 
   if(!member.alternating || acts.length <= 1){
-    const summaries = acts.map(a=>monthSummary(getActivityLogs(logs,member.id,a.id),y,m,sd));
+    const summaries = acts.map(a=>{
+      const effectiveStart = getActivityEffectiveStart(logs, member.id, a.id, sd);
+      return monthSummary(getActivityLogs(logs,member.id,a.id),y,m,effectiveStart);
+    });
     const done = summaries.length?Math.max(...summaries.map(s=>s.done)):0;
     const missed = summaries.length?Math.max(...summaries.map(s=>s.missed)):0;
     const remaining = summaries[0]?.remaining||0;
@@ -220,13 +279,10 @@ function memberMonthSummary(member, logs, y, m){
 function memberStreakCount(member, logs){
   const acts = member.activities || [];
   if(!acts.length) return 0;
+  if(acts.length === 1) return streakCount(getActivityLogs(logs,member.id,acts[0].id));
 
-  if(!member.alternating || acts.length <= 1){
-    const streaks = acts.map(a=>streakCount(getActivityLogs(logs,member.id,a.id)));
-    return streaks.length?Math.max(...streaks):0;
-  }
-
-  // Alternating: streak continues as long as ANY activity was logged that day
+  // For any member with multiple activities: streak continues if ANY activity was logged that day
+  // This correctly handles both alternating and non-alternating multi-activity members
   const today = todayStr();
   const anyToday = acts.some(a=>{
     const l = getActivityLogs(logs,member.id,a.id)[today];
@@ -328,31 +384,36 @@ function formatVol(val, unit){
 
 // ── Power Points System ──────────────────────────────────────────────────────
 const PP_LEVELS = [
-  {level:1,  pp:0,      title:"Rookie",     icon:"🌱"},
-  {level:2,  pp:200,    title:"Trainee",    icon:"🔰"},
-  {level:3,  pp:500,    title:"Cadet",      icon:"🥉"},
-  {level:4,  pp:900,    title:"Scout",      icon:"🎯"},
-  {level:5,  pp:1500,   title:"Fighter",    icon:"⚔️"},
-  {level:6,  pp:2500,   title:"Brawler",    icon:"🥊"},
-  {level:7,  pp:4000,   title:"Warrior",    icon:"🛡️"},
-  {level:8,  pp:6000,   title:"Gladiator",  icon:"🏟️"},
-  {level:9,  pp:7200,   title:"Spartan",    icon:"⚡"},
-  {level:10, pp:8600,   title:"Centurion",  icon:"🎖️"},
-  {level:11, pp:10300,  title:"Champion",   icon:"🏆"},
-  {level:12, pp:12300,  title:"Conqueror",  icon:"🗡️"},
-  {level:13, pp:14700,  title:"Vanguard",   icon:"🚩"},
-  {level:14, pp:17600,  title:"Hero",       icon:"🦸"},
-  {level:15, pp:21000,  title:"Guardian",   icon:"🏰"},
-  {level:16, pp:25100,  title:"Sentinel",   icon:"🗿"},
-  {level:17, pp:30000,  title:"Legend",     icon:"🌟"},
-  {level:18, pp:36000,  title:"Mythic",     icon:"🔱"},
-  {level:19, pp:43000,  title:"Paragon",    icon:"💠"},
-  {level:20, pp:51500,  title:"Master",     icon:"💎"},
-  {level:21, pp:61500,  title:"Elite",      icon:"👑"},
-  {level:22, pp:73500,  title:"Ascendant",  icon:"✨"},
-  {level:23, pp:88000,  title:"Titan",      icon:"🌋"},
-  {level:24, pp:105000, title:"Warlord",    icon:"🔥"},
-  {level:25, pp:125000, title:"Immortal",   icon:"🌌"},
+  {level:1,  pp:0,      title:"Rookie",       icon:"🌱"},
+  {level:2,  pp:200,    title:"Trainee",      icon:"🔰"},
+  {level:3,  pp:500,    title:"Cadet",        icon:"🥉"},
+  {level:4,  pp:900,    title:"Scout",        icon:"🎯"},
+  {level:5,  pp:1500,   title:"Fighter",      icon:"⚔️"},
+  {level:6,  pp:2500,   title:"Brawler",      icon:"🥊"},
+  {level:7,  pp:4000,   title:"Warrior",      icon:"🛡️"},
+  {level:8,  pp:6000,   title:"Gladiator",    icon:"🏟️"},
+  {level:9,  pp:7200,   title:"Spartan",      icon:"⚡"},
+  {level:10, pp:8600,   title:"Centurion",    icon:"🎖️"},
+  {level:11, pp:10300,  title:"Champion",     icon:"🏆"},
+  {level:12, pp:12300,  title:"Conqueror",    icon:"🗡️"},
+  {level:13, pp:14700,  title:"Vanguard",     icon:"🚩"},
+  {level:14, pp:17600,  title:"Hero",         icon:"🦸"},
+  {level:15, pp:21000,  title:"Guardian",     icon:"🏰"},
+  {level:16, pp:25100,  title:"Sentinel",     icon:"🗿"},
+  {level:17, pp:30000,  title:"Legend",       icon:"🌟"},
+  {level:18, pp:36000,  title:"Mythic",       icon:"🔱"},
+  {level:19, pp:43000,  title:"Paragon",      icon:"💠"},
+  {level:20, pp:51500,  title:"Master",       icon:"💎"},
+  {level:21, pp:61500,  title:"Elite",        icon:"👑"},
+  {level:22, pp:73500,  title:"Ascendant",    icon:"✨"},
+  {level:23, pp:88000,  title:"Titan",        icon:"🌋"},
+  {level:24, pp:105000, title:"Warlord",      icon:"🔥"},
+  {level:25, pp:125000, title:"Legendary",    icon:"🌠"},
+  {level:26, pp:150000, title:"Demigod",      icon:"⚡👑"},
+  {level:27, pp:180000, title:"Overlord",     icon:"🔱👑"},
+  {level:28, pp:215000, title:"Eternal",      icon:"💫"},
+  {level:29, pp:255000, title:"Transcendent", icon:"🌌✨"},
+  {level:30, pp:300000, title:"Immortal",     icon:"🌌"},
 ];
 
 function getLevel(pp){
@@ -420,6 +481,7 @@ function computePowerPoints(member, logs){
   let levelHistory = []; // [{level, title, icon, date}]
   let lastLevelSeen = 1;
   let dailyEarned = {}; // dateStr -> net PP change that day (for accurate weekPP/pace)
+  let dailyTags = {}; // dateStr -> array of tag strings (pb/above/at/below/shielded/skipped/mystery)
 
   // Track all-time best per activity for PB detection
   const actBests = {};
@@ -482,8 +544,8 @@ function computePowerPoints(member, logs){
         return l && l.status !== "skipped" && l.status !== "shielded" && l.value > 0;
       });
 
-      if(anyShielded){ totalPP += 25; breakdown.shielded += 25; }
-      else if(anySkipped){ totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; }
+      if(anyShielded){ totalPP += 25; breakdown.shielded += 25; dailyTags[dateStr]=["shielded"]; }
+      else if(anySkipped){ totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; dailyTags[dateStr]=["skipped"]; }
       else if(doneActs.length > 0){
         // Use best activity for scoring
         let bestPts = 0;
@@ -504,6 +566,13 @@ function computePowerPoints(member, logs){
         else if(bestPts === 100) breakdown.atTarget += earned;
         else breakdown.belowTarget += earned;
         breakdown.streakBonus += bonus;
+        const tags=[];
+        if(bestPts===250) tags.push("pb");
+        else if(bestPts===200) tags.push("above");
+        else if(bestPts===100) tags.push("at");
+        else tags.push("below");
+        if(mysteryMult===2) tags.push("mystery");
+        dailyTags[dateStr]=tags;
       }
     } else {
       // Non-alternating: score each activity
@@ -512,8 +581,8 @@ function computePowerPoints(member, logs){
         const l = al[dateStr];
         if(!l) continue;
         const effectiveTarget = l.target || a.target;
-        if(l.status === "shielded"){ totalPP += 25; breakdown.shielded += 25; }
-        else if(l.status === "skipped"){ totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; }
+        if(l.status === "shielded"){ totalPP += 25; breakdown.shielded += 25; dailyTags[dateStr]=["shielded"]; }
+        else if(l.status === "skipped"){ totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; dailyTags[dateStr]=["skipped"]; }
         else if(l.value > 0){
           const isPB = l.value > actBests[a.id] && l.value > effectiveTarget;
           if(isPB) actBests[a.id] = l.value;
@@ -527,6 +596,13 @@ function computePowerPoints(member, logs){
           else if(basePts === 100) breakdown.atTarget += earned;
           else breakdown.belowTarget += earned;
           breakdown.streakBonus += bonus;
+          const tags=[];
+          if(basePts===250) tags.push("pb");
+          else if(basePts===200) tags.push("above");
+          else if(basePts===100) tags.push("at");
+          else tags.push("below");
+          if(mysteryMult===2) tags.push("mystery");
+          dailyTags[dateStr]=tags;
         }
       }
     }
@@ -545,7 +621,13 @@ function computePowerPoints(member, logs){
   const eggLogs = getEggLogs(logs, member.id);
   let eggBonusTotal = 0;
   for(const [d, count] of Object.entries(eggLogs)){
-    if(d <= today && (!sd || d >= sd)) eggBonusTotal += (count||0) * 1000;
+    if(d <= today && (!sd || d >= sd)){
+      const amt = (count||0) * 1000;
+      eggBonusTotal += amt;
+      dailyEarned[d] = (dailyEarned[d]||0) + amt;
+      if(!dailyTags[d]) dailyTags[d]=[];
+      dailyTags[d].push("egg");
+    }
   }
   totalPP += eggBonusTotal;
   breakdown.eggBonus = eggBonusTotal;
@@ -564,7 +646,7 @@ function computePowerPoints(member, logs){
     if(d >= weekStartStr && d <= today) weekPP += (count||0) * 1000;
   }
 
-  return { total: Math.round(totalPP), breakdown, weekPP, levelHistory };
+  return { total: Math.round(totalPP), breakdown, weekPP, levelHistory, dailyEarned, dailyTags };
 }
 
 // ── PP Pace Projection ────────────────────────────────────────────────────────
@@ -913,9 +995,10 @@ const MAJOR_MILESTONE_IDS = new Set([
   "month_3","month_6","month_12",
   "hang_36000","walk_500",
   "mon_30","fam_trio",
-  // PP level ups (levels 5+ get celebration, spread across all 25 levels)
+  // PP level ups (levels 5+ get celebration, spread across all 30 levels)
   "pp_level_5","pp_level_7","pp_level_9","pp_level_11","pp_level_13",
-  "pp_level_15","pp_level_17","pp_level_19","pp_level_21","pp_level_23","pp_level_25"
+  "pp_level_15","pp_level_17","pp_level_19","pp_level_21","pp_level_23",
+  "pp_level_25","pp_level_27","pp_level_29","pp_level_30"
 ]);
 
 function CelebrationScreen({badge, memberName, onClose}){
@@ -1013,13 +1096,43 @@ function Toast({badge,onDismiss}){
 // ── Multi-activity Log Modal ──────────────────────────────────────────────────
 function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
   const displayDate=new Date(dateStr+"T00:00:00").toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"short"});
+  const isDecimal=(u)=>["km","miles","kg","hrs"].includes(u);
+
+  // Build initial state — track per-activity: alreadySaved (logged before modal opened), editing, value, status
   const init=member.activities.map(a=>{
     const ex=getActivityLogs(logs,member.id,a.id)[dateStr];
-    return{actId:a.id,status:ex?.status??"done",value:ex?.value??a.target};
+    const alreadySaved=ex&&(ex.status==="done"||ex.status==="skipped"||ex.status==="shielded");
+    return{
+      actId:a.id,
+      status:ex?.status??"done",
+      value:ex?.value??a.target,
+      alreadySaved:!!alreadySaved,
+      editing:false, // true when user taps edit on an already-saved activity
+    };
   });
   const[entries,setEntries]=useState(init);
   const upd=(id,f,v)=>setEntries(p=>p.map(e=>e.actId===id?{...e,[f]:v}:e));
-  const isDecimal=(u)=>["km","miles","kg","hrs"].includes(u);
+  const startEdit=(id)=>setEntries(p=>p.map(e=>e.actId===id?{...e,editing:true}:e));
+  const saveSingle=(actId)=>{
+    // Save just this one activity, keeping others as-is
+    const entry=entries.find(e=>e.actId===actId);
+    if(!entry) return;
+    const act=member.activities.find(a=>a.id===actId);
+    // Build full entries array — for unsaved activities, pass their current logged value or skip
+    const toSave=member.activities.map(a=>{
+      if(a.id===actId) return{actId:a.id,value:entry.value,status:entry.status,target:a.target};
+      // For other activities, use whatever is already logged (if anything)
+      const ex=getActivityLogs(logs,member.id,a.id)[dateStr];
+      if(ex) return{actId:a.id,value:ex.value,status:ex.status,target:a.target};
+      return null; // not yet logged, don't touch
+    }).filter(Boolean);
+    onSaveAll(toSave);
+    // Mark as saved in local state
+    setEntries(p=>p.map(e=>e.actId===actId?{...e,alreadySaved:true,editing:false}:e));
+  };
+
+  const allSaved=entries.every(e=>e.alreadySaved);
+  const noneSaved=entries.every(e=>!e.alreadySaved);
 
   return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
     <div style={{background:C.surface,borderRadius:18,padding:24,width:"100%",maxWidth:360,boxShadow:"0 8px 40px rgba(0,0,0,0.2)",maxHeight:"88vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
@@ -1027,41 +1140,97 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
         <span style={{fontSize:26}}>{member.emoji}</span>
         <div><div style={{fontWeight:700,fontSize:16}}>{member.name}</div><div style={{fontSize:12,color:C.muted}}>{displayDate}</div></div>
       </div>
+
       {member.activities.map((act,i)=>{
         const en=entries.find(e=>e.actId===act.id);
         if(!en) return null;
+        const isActive=!en.alreadySaved||en.editing;
+
         return <div key={act.id}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-            <div>
-              <div style={{fontWeight:700,fontSize:14}}>{act.name}</div>
-              <div style={{fontSize:11,color:C.muted}}>Target: {act.target} {act.unit}</div>
+          {/* Already saved — show as greyed summary with Edit button */}
+          {!isActive ? (
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+              padding:"10px 12px",background:C.bg,borderRadius:10,marginBottom:4}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:16,color:en.status==="skipped"?C.missed:C.done}}>
+                  {en.status==="skipped"?"✗":"✓"}
+                </span>
+                <div>
+                  <div style={{fontWeight:600,fontSize:13,color:C.text}}>{act.name}</div>
+                  <div style={{fontSize:11,color:C.muted}}>
+                    {en.status==="skipped"?"Skipped":en.status==="shielded"?"Shielded":`${en.value} ${act.unit}`}
+                  </div>
+                </div>
+              </div>
+              <button onClick={()=>startEdit(act.id)} style={{background:"none",border:`1px solid ${C.border}`,
+                borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:11,fontWeight:600,color:C.muted}}>
+                Edit
+              </button>
             </div>
-            <div style={{display:"flex",gap:6}}>
-              <button onClick={()=>upd(act.id,"status","done")} style={{padding:"5px 12px",borderRadius:8,border:`1.5px solid ${en.status==="done"?member.color:C.border}`,background:en.status==="done"?member.color:"transparent",color:en.status==="done"?"#fff":C.muted,fontWeight:600,cursor:"pointer",fontSize:12}}>✓ Done</button>
-              <button onClick={()=>upd(act.id,"status","skipped")} style={{padding:"5px 12px",borderRadius:8,border:`1.5px solid ${en.status==="skipped"?C.missed:C.border}`,background:en.status==="skipped"?C.missed:"transparent",color:en.status==="skipped"?"#fff":C.muted,fontWeight:600,cursor:"pointer",fontSize:12}}>✗ Skip</button>
+          ) : (
+            /* Active — show full input */
+            <div style={{border:`1.5px solid ${member.color}33`,borderRadius:12,padding:"12px 14px",marginBottom:4}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                <div>
+                  <div style={{fontWeight:700,fontSize:14}}>{act.name}</div>
+                  <div style={{fontSize:11,color:C.muted}}>Target: {act.target} {act.unit}</div>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={()=>upd(act.id,"status","done")}
+                    style={{padding:"5px 10px",borderRadius:8,border:`1.5px solid ${en.status==="done"?member.color:C.border}`,
+                    background:en.status==="done"?member.color:"transparent",color:en.status==="done"?"#fff":C.muted,
+                    fontWeight:600,cursor:"pointer",fontSize:12}}>✓ Done</button>
+                  <button onClick={()=>upd(act.id,"status","skipped")}
+                    style={{padding:"5px 10px",borderRadius:8,border:`1.5px solid ${en.status==="skipped"?C.missed:C.border}`,
+                    background:en.status==="skipped"?C.missed:"transparent",color:en.status==="skipped"?"#fff":C.muted,
+                    fontWeight:600,cursor:"pointer",fontSize:12}}>✗ Skip</button>
+                </div>
+              </div>
+              {en.status==="done"&&<div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                <input type="number" min={0} step={isDecimal(act.unit)?0.1:1}
+                  value={en.value} onChange={e=>upd(act.id,"value",parseFloat(e.target.value)||0)}
+                  style={{flex:1,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,
+                  fontSize:20,fontWeight:700,outline:"none",background:"#fff"}}/>
+                <span style={{fontSize:13,color:C.muted,fontWeight:600,minWidth:36}}>{act.unit}</span>
+              </div>}
+              <button onClick={()=>saveSingle(act.id)} style={{width:"100%",padding:"9px 0",borderRadius:8,
+                border:"none",background:member.color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13}}>
+                Save {act.name}
+              </button>
             </div>
-          </div>
-          {en.status==="done"&&<div style={{display:"flex",alignItems:"center",gap:10,background:member.color+"0D",borderRadius:10,padding:"10px 12px",marginBottom:4}}>
-            <input type="number" min={0} step={isDecimal(act.unit)?0.1:1}
-              value={en.value} onChange={e=>upd(act.id,"value",parseFloat(e.target.value)||0)}
-              style={{flex:1,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,fontSize:20,fontWeight:700,outline:"none",background:"#fff"}}/>
-            <span style={{fontSize:13,color:C.muted,fontWeight:600,minWidth:36}}>{act.unit}</span>
-          </div>}
-          {i<member.activities.length-1&&<div style={{height:1,background:C.border,margin:"14px 0"}}/>}
+          )}
+          {i<member.activities.length-1&&<div style={{height:8}}/>}
         </div>;
       })}
-      <div style={{display:"flex",gap:8,marginTop:20}}>
-        <button onClick={()=>setEntries(p=>p.map(e=>({...e,status:"skipped"})))} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted,fontSize:13}}>Skip all</button>
-        <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>onSaveAll(entries)} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:member.color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save all</button>
+
+      {/* Footer buttons */}
+      <div style={{display:"flex",gap:8,marginTop:16}}>
+        {noneSaved&&<button onClick={()=>setEntries(p=>p.map(e=>({...e,status:"skipped"})))}
+          style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,
+          background:"none",cursor:"pointer",fontWeight:600,color:C.muted,fontSize:13}}>Skip all</button>}
+        <button onClick={onClose}
+          style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,
+          background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>
+          {allSaved?"Done":"Cancel"}
+        </button>
+        {!allSaved&&<button onClick={()=>onSaveAll(entries.map(e=>{
+          const act=member.activities.find(a=>a.id===e.actId);
+          return{actId:e.actId,value:e.value,status:e.status,target:act?.target};
+        }))} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",
+          background:member.color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save all</button>}
       </div>
+
       {/* Shield option */}
-      {shieldsLeft>0&&<div style={{marginTop:10,padding:"10px 14px",background:"#E3F2FD",border:"1.5px solid #90CAF9",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+      {shieldsLeft>0&&!allSaved&&<div style={{marginTop:10,padding:"10px 14px",background:"#E3F2FD",
+        border:"1.5px solid #90CAF9",borderRadius:10,display:"flex",alignItems:"center",
+        justifyContent:"space-between",gap:10}}>
         <div>
           <div style={{fontWeight:700,fontSize:13,color:"#1565C0"}}>🛡️ Use a shield</div>
           <div style={{fontSize:11,color:"#1976D2"}}>{shieldsLeft} of 4 remaining this month · Protects your streak</div>
         </div>
-        <button onClick={()=>onSaveAll(entries.map(e=>({...e,status:"shielded",value:0})))} style={{background:"#1976D2",color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12,whiteSpace:"nowrap"}}>Use shield</button>
+        <button onClick={()=>onSaveAll(entries.map(e=>({...e,status:"shielded",value:0})))}
+          style={{background:"#1976D2",color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",
+          cursor:"pointer",fontWeight:700,fontSize:12,whiteSpace:"nowrap"}}>Use shield</button>
       </div>}
     </div>
   </div>;
@@ -1180,55 +1349,60 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}
 }
 
 // ── Calendar Cell ─────────────────────────────────────────────────────────────
-function CalCell({dateStr,member,logs,isToday,onClick}){
+function CalCell({dateStr,member,logs,isToday,onClick,ppByDate}){
   const future=isFuture(dateStr)||(member.startDate&&dateStr<member.startDate);
   const status=future?"future":dayStatus(member,logs,dateStr);
   const bg={future:"transparent",empty:C.empty,skipped:C.missed,done:C.done,shielded:"#BBDEFB"}[status]||C.empty;
 
-  // Check if any activity exceeded target or set a PB on this day
   const acts=member.activities||[];
   let aboveTarget=false;
   let isPB=false;
   let displayVal=null;
+  const tooltipLines=[];
   if(!future&&status==="done"&&acts.length>0){
     for(const a of acts){
       const al=getActivityLogs(logs,member.id,a.id);
       const l=al[dateStr];
       if(l&&l.status!=="skipped"&&l.value>0){
-        const effectiveTarget=l.target||a.target; // use stored target if available
+        const effectiveTarget=l.target||a.target;
         if(l.value>effectiveTarget){
           aboveTarget=true;
           if(acts.length===1) displayVal=`${l.value}${a.unit}`;
         }
-        // PB: this day's value equals the all-time best AND it's above effective target
         const best=allTimeBest(al);
-        if(l.value===best&&l.value>effectiveTarget) isPB=true;
+        if(l.value===best&&l.value>effectiveTarget){
+          isPB=true;
+          tooltipLines.push(`🏆 PB: ${l.value}${a.unit} (${a.name})`);
+        } else {
+          tooltipLines.push(`${a.name}: ${l.value}${a.unit}`);
+        }
       }
     }
   }
+  if(status==="skipped") tooltipLines.push("❌ Skipped");
+  if(status==="shielded") tooltipLines.push("🛡️ Shielded");
+  const dayPP = ppByDate&&ppByDate[dateStr];
+  if(dayPP!==undefined&&dayPP!==0){
+    const isMystery = isMysteryBonusDay(member.id, dateStr);
+    tooltipLines.push(`⚡ ${dayPP>0?"+":""}${dayPP.toLocaleString()} PP${isMystery?" 🎁 2x Mystery!":""}`);
+  }
 
-  // Above target = richer green + gold border
-  const borderColor = aboveTarget
-    ? "#C9A800"
-    : isToday
-      ? member.color
-      : C.border;
-  const borderWidth = aboveTarget || isToday ? "2px" : "1px";
-  const bgColor = aboveTarget ? "#2E8B57" : bg; // deeper green for above target
+  const borderColor = aboveTarget?"#C9A800":isToday?member.color:C.border;
+  const borderWidth = aboveTarget||isToday?"2px":"1px";
+  const bgColor = aboveTarget?"#2E8B57":bg;
+
+  const[showTip,setShowTip]=useState(false);
 
   return <div onClick={()=>!future&&onClick(dateStr)} style={{
-    background:bgColor,
-    border:`${borderWidth} solid ${borderColor}`,
+    background:bgColor,border:`${borderWidth} solid ${borderColor}`,
     borderRadius:7,minHeight:46,cursor:future?"default":"pointer",
     opacity:future?0.3:1,display:"flex",flexDirection:"column",
     alignItems:"center",justifyContent:"center",gap:1,
     transition:"transform 0.1s",position:"relative",
   }}
-  onMouseEnter={e=>{if(!future)e.currentTarget.style.transform="scale(1.07)";}}
-  onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)";}}>
-    {/* Shield icon for protected days */}
+  onMouseEnter={e=>{if(!future){e.currentTarget.style.transform="scale(1.07)";setShowTip(true);}}}
+  onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)";setShowTip(false);}}>
     {status==="shielded"&&<span style={{fontSize:16}}>🛡️</span>}
-    {/* PB crown or star for above target */}
     {isPB&&<span style={{position:"absolute",top:1,right:2,fontSize:9,lineHeight:1}}>👑</span>}
     {!isPB&&aboveTarget&&<span style={{position:"absolute",top:2,right:3,fontSize:8,lineHeight:1}}>⭐</span>}
     <span style={{fontSize:10,color:status==="empty"||future?C.muted:"#fff",fontWeight:600}}>
@@ -1237,6 +1411,17 @@ function CalCell({dateStr,member,logs,isToday,onClick}){
     {(isPB||displayVal)&&<span style={{fontSize:8,color:"rgba(255,255,255,0.9)",fontWeight:700,lineHeight:1}}>
       {isPB?`PB ${displayVal||""}`:displayVal}
     </span>}
+    {showTip&&tooltipLines.length>0&&<div style={{
+      position:"absolute",bottom:"110%",left:"50%",transform:"translateX(-50%)",
+      background:"rgba(20,20,20,0.92)",color:"#fff",borderRadius:8,padding:"6px 10px",
+      fontSize:10,whiteSpace:"nowrap",zIndex:100,pointerEvents:"none",
+      boxShadow:"0 4px 12px rgba(0,0,0,0.3)",lineHeight:1.6,
+    }}>
+      {tooltipLines.map((l,i)=><div key={i}>{l}</div>)}
+      <div style={{position:"absolute",top:"100%",left:"50%",transform:"translateX(-50%)",
+        width:0,height:0,borderLeft:"5px solid transparent",borderRight:"5px solid transparent",
+        borderTop:"5px solid rgba(20,20,20,0.92)"}}/>
+    </div>}
   </div>;
 }
 
@@ -1434,232 +1619,224 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
 }
 
 // ── Power Points Drawer ──────────────────────────────────────────────────────
-function PowerPointsDrawer({member, logs, onClose, onLevelUp}){
-  const {total, breakdown, weekPP, levelHistory} = computePowerPoints(member, logs);
+// ── Power Points Panel (in-flow, tabbed — sits beside the card via flexbox, never fixed/floating) ──
+function PowerPointsPanel({member, logs, onClose}){
+  const {total, breakdown, weekPP, levelHistory, dailyEarned, dailyTags} = computePowerPoints(member, logs);
   const projection = projectNextLevel(member, logs);
   const level = getLevel(total);
   const nextLevel = getNextLevel(total);
   const pct = nextLevel ? Math.round(((total - level.pp) / (nextLevel.pp - level.pp)) * 100) : 100;
-  const [showPointsLegend, setShowPointsLegend] = useState(false);
-  const [showLevelsLegend, setShowLevelsLegend] = useState(false);
+  const [tab, setTab] = useState("overview"); // overview | history | info
+  const [showLevels, setShowLevels] = useState(false);
+
+  // Build complete level crossing dates — fill gaps via cumulative daily sum
+  const completeLevelDates = {};
+  for(const h of levelHistory) completeLevelDates[h.level] = h.date;
+
+  // Build a merged daily PP map that includes egg bonuses per day
+  const eggLogsForDates = getEggLogs(logs, member.id);
+  const allDailyPP = {...dailyEarned};
+  for(const [d, count] of Object.entries(eggLogsForDates)){
+    allDailyPP[d] = (allDailyPP[d]||0) + (count||0)*1000;
+  }
+  const sortedDailyDates = Object.keys(allDailyPP).sort();
+  let running = 100;
+  for(const d of sortedDailyDates){
+    running += (allDailyPP[d]||0);
+    for(const l of PP_LEVELS){
+      if(!completeLevelDates[l.level] && running>=l.pp) completeLevelDates[l.level] = d;
+    }
+  }
+
 
   const earnedLevels = PP_LEVELS.filter(l => total >= l.pp);
   const lockedLevels = PP_LEVELS.filter(l => total < l.pp);
 
-  return <>
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
-    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(480px,92vw)",
-      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
-      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
-      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+  const TAG_INFO = {
+    pb:{icon:"🌟",label:"PB"}, above:{icon:"💪",label:"Above"}, at:{icon:"✅",label:"At target"},
+    below:{icon:"📉",label:"Below"}, shielded:{icon:"🛡️",label:"Shielded"}, skipped:{icon:"❌",label:"Skipped"},
+    mystery:{icon:"🎁",label:"Mystery"}, egg:{icon:"🥚",label:"Egg"},
+  };
 
-      {/* Header */}
-      <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:28}}>{member.emoji}</span>
-            <div>
-              <div style={{fontWeight:800,fontSize:18}}>{member.name}</div>
-              <div style={{fontSize:12,color:C.muted}}>⚡ Power Points</div>
-            </div>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:6}}>
-            <button onClick={()=>setShowLevelsLegend(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,
-              padding:"6px 10px",cursor:"pointer",fontSize:12,fontWeight:600,color:C.muted,whiteSpace:"nowrap"}}>📖 All levels</button>
-            <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,
-              padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
-          </div>
+  return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,
+    boxShadow:"0 4px 20px rgba(0,0,0,0.08)",overflow:"hidden",display:"flex",flexDirection:"column",
+    maxHeight:"calc(100vh - 40px)",position:"sticky",top:20}}>
+
+    {/* Header */}
+    <div style={{padding:"16px 18px",background:"linear-gradient(135deg,#1a1a2e,#16213e)",flexShrink:0}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:20}}>{member.emoji}</span>
+          <span style={{fontWeight:700,fontSize:14,color:"#fff"}}>{member.name}</span>
         </div>
-
-        {/* Big PP number + level */}
-        <div style={{background:"linear-gradient(135deg,#1a1a2e,#16213e)",borderRadius:14,padding:"20px 20px 16px",marginBottom:0}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-            <div>
-              <div style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.5)",letterSpacing:1,marginBottom:4}}>TOTAL POWER POINTS</div>
-              <div style={{fontSize:40,fontWeight:900,color:"#FFD700",lineHeight:1}}>{total.toLocaleString()} <span style={{fontSize:18}}>⚡</span></div>
-              {weekPP>0&&<div style={{fontSize:12,color:"rgba(255,255,255,0.5)",marginTop:4}}>+{weekPP.toLocaleString()} this week</div>}
-            </div>
-            <div style={{textAlign:"right"}}>
-              <div style={{fontSize:32}}>{level.icon}</div>
-              <div style={{fontWeight:800,fontSize:14,color:"#FFD700"}}>{level.title}</div>
-              <div style={{fontSize:11,color:"rgba(255,255,255,0.5)"}}>Level {level.level}</div>
-            </div>
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <button onClick={()=>setShowLevels(true)} style={{background:"none",border:"1px solid rgba(255,255,255,0.2)",borderRadius:7,
+              padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:600,color:"rgba(255,255,255,0.6)"}}>📖 Levels</button>
+            <button onClick={onClose} style={{background:"none",border:"1px solid rgba(255,255,255,0.2)",borderRadius:7,
+              padding:"4px 8px",cursor:"pointer",fontSize:15,color:"rgba(255,255,255,0.6)"}}>×</button>
           </div>
-          {/* Progress bar */}
-          {nextLevel ? <>
-            <div style={{background:"rgba(255,255,255,0.1)",borderRadius:99,height:8,overflow:"hidden",marginBottom:6}}>
-              <div style={{height:"100%",width:`${pct}%`,background:"linear-gradient(90deg,#FFD700,#FFA500)",borderRadius:99,transition:"width 0.6s"}}/>
-            </div>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"rgba(255,255,255,0.5)"}}>
-              <span>{level.icon} {level.title}</span>
-              <span>{(nextLevel.pp - total).toLocaleString()} PP to {nextLevel.icon} {nextLevel.title}</span>
-            </div>
-          </> : <div style={{fontSize:12,color:"#FFD700",fontWeight:700,textAlign:"center"}}>🌌 Maximum Level Reached!</div>}
-        </div>
-
-        {/* Pace projection */}
-        {projection&&projection.daysAway!==null&&<div style={{
-          marginTop:10,background:"#FFFDE7",border:"1.5px solid #F9A825",borderRadius:10,
-          padding:"9px 14px",display:"flex",alignItems:"center",gap:8,
-        }}>
-          <span style={{fontSize:16}}>🔮</span>
-          <span style={{fontSize:12,color:"#7A6200"}}>
-            At your current pace, you'll reach <strong>{projection.nextLevel.icon} {projection.nextLevel.title}</strong> in
-            {" "}<strong>{projection.daysAway===1?"about a day":projection.daysAway<7?`about ${projection.daysAway} days`:projection.weeksAway===1?"about a week":`about ${projection.weeksAway} weeks`}</strong>
-          </span>
-        </div>}
       </div>
-
-      {/* Scrollable content */}
-      <div style={{flex:1,overflowY:"auto",padding:"16px 24px 24px"}}>
-
-        {/* Breakdown */}
-        <div style={{marginBottom:20}}>
-          <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>HOW YOU EARNED IT</div>
-          <div style={{background:C.bg,borderRadius:12,overflow:"hidden"}}>
-            {[
-              {label:"Personal best days",val:breakdown.pb,color:"#FFD700",show:breakdown.pb>0},
-              {label:"Above target days",val:breakdown.aboveTarget,color:C.done,show:breakdown.aboveTarget>0},
-              {label:"At target days",val:breakdown.atTarget,color:C.done,show:breakdown.atTarget>0},
-              {label:"Below target days",val:breakdown.belowTarget,color:C.partial,show:breakdown.belowTarget>0},
-              {label:"Shielded days",val:breakdown.shielded,color:"#5B8FD4",show:breakdown.shielded>0},
-              {label:"Streak multiplier bonus",val:breakdown.streakBonus,color:"#E8A838",show:breakdown.streakBonus>0},
-              {label:"🥚 Egg bonus",val:breakdown.eggBonus,color:"#F9A825",show:breakdown.eggBonus>0},
-              {label:"Starting bonus",val:100,color:C.muted,show:true},
-              {label:"🎁 Mystery bonus days",val:breakdown.mysteryDays,color:"#FFD700",show:breakdown.mysteryDays>0},
-              {label:"Skipped days",val:breakdown.skipped,color:C.missed,show:breakdown.skipped<0},
-              {label:"Streak break penalties",val:breakdown.streakBreak,color:C.missed,show:breakdown.streakBreak<0},
-            ].filter(r=>r.show).map((row,i,arr)=>(
-              <div key={row.label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
-                padding:"10px 14px",borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>
-                <span style={{fontSize:13,color:C.text}}>{row.label}</span>
-                <span style={{fontSize:13,fontWeight:700,color:row.color}}>{row.val>0?"+":""}{row.val.toLocaleString()} ⚡</span>
-              </div>
-            ))}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
-              padding:"12px 14px",background:"#1a1a2e",borderTop:`2px solid ${C.border}`}}>
-              <span style={{fontSize:14,fontWeight:700,color:"#fff"}}>Total</span>
-              <span style={{fontSize:16,fontWeight:900,color:"#FFD700"}}>{total.toLocaleString()} ⚡</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Levels earned */}
-        <div style={{marginBottom:20}}>
-          <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>
-            LEVELS UNLOCKED ({earnedLevels.length}/{PP_LEVELS.length})
-          </div>
-          <div style={{display:"flex",flexDirection:"column",gap:6}}>
-            {[...earnedLevels].reverse().map(l=>{
-              const histEntry = levelHistory.find(h=>h.level===l.level);
-              const dateLabel = histEntry ? new Date(histEntry.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}) : (l.level===1?"Day 1":null);
-              return <div key={l.level} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",
-                background:l.level===level.level?"#1a1a2e":C.bg,borderRadius:10,
-                border:`1.5px solid ${l.level===level.level?"#FFD700":C.border}`}}>
-                <span style={{fontSize:20}}>{l.icon}</span>
-                <div style={{flex:1}}>
-                  <div>
-                    <span style={{fontWeight:700,fontSize:13,color:l.level===level.level?"#FFD700":C.text}}>{l.title}</span>
-                    {l.level===level.level&&<span style={{fontSize:10,color:"#FFD700",marginLeft:8}}>← YOU ARE HERE</span>}
-                  </div>
-                  {dateLabel&&<div style={{fontSize:10,color:l.level===level.level?"rgba(255,255,255,0.4)":C.muted,marginTop:1}}>Reached {dateLabel}</div>}
-                </div>
-                <span style={{fontSize:11,color:l.level===level.level?"rgba(255,255,255,0.4)":C.muted}}>Lv.{l.level} · {l.pp.toLocaleString()} PP</span>
-              </div>;
-            })}
-            {lockedLevels.slice(0,3).map(l=>(
-              <div key={l.level} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",
-                background:C.bg,borderRadius:10,border:`1px solid ${C.border}`,opacity:0.4,filter:"grayscale(1)"}}>
-                <span style={{fontSize:20}}>{l.icon}</span>
-                <div style={{flex:1}}><span style={{fontWeight:600,fontSize:13,color:C.muted}}>{l.title}</span></div>
-                <span style={{fontSize:11,color:C.muted}}>Lv.{l.level} · {l.pp.toLocaleString()} PP</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Points legend (collapsible) */}
-        <div style={{marginBottom:12}}>
-          <button onClick={()=>setShowPointsLegend(s=>!s)} style={{background:"none",border:`1px solid ${C.border}`,
-            borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600,color:C.muted,width:"100%",textAlign:"left"}}>
-            {showPointsLegend?"▾":"▸"} How points are calculated
-          </button>
-          {showPointsLegend&&<div style={{background:C.bg,borderRadius:"0 0 10px 10px",padding:14,border:`1px solid ${C.border}`,borderTop:"none"}}>
-            <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8,letterSpacing:0.5}}>DAILY POINTS</div>
-            {[
-              {icon:"🌟",label:"Personal best day",val:"+250 ⚡"},
-              {icon:"💪",label:"Above target",val:"+200 ⚡"},
-              {icon:"✅",label:"At target",val:"+100 ⚡"},
-              {icon:"📉",label:"Below target",val:"+50 ⚡"},
-              {icon:"🛡️",label:"Shielded day",val:"+25 ⚡"},
-              {icon:"❌",label:"Skipped day",val:"-25 ⚡"},
-              {icon:"💔",label:"Breaking 7+ streak",val:"-100 ⚡"},
-            ].map(r=><div key={r.label} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.border}`}}>
-              <span style={{fontSize:12}}>{r.icon} {r.label}</span>
-              <span style={{fontSize:12,fontWeight:700,color:r.val.startsWith("-")?C.missed:C.done}}>{r.val}</span>
-            </div>)}
-            <div style={{fontSize:11,fontWeight:700,color:C.muted,margin:"12px 0 8px",letterSpacing:0.5}}>STREAK MULTIPLIERS</div>
-            {[
-              {streak:"30+ days",mult:"5x"},
-              {streak:"14–29 days",mult:"3x"},
-              {streak:"7–13 days",mult:"2x"},
-              {streak:"3–6 days",mult:"1.5x"},
-              {streak:"1–2 days",mult:"1x"},
-            ].map(r=><div key={r.streak} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.border}`}}>
-              <span style={{fontSize:12}}>🔥 {r.streak}</span>
-              <span style={{fontSize:12,fontWeight:700,color:"#E8A838"}}>{r.mult}</span>
-            </div>)}
-            <div style={{fontSize:11,color:C.muted,marginTop:8}}>Multipliers apply to positive points only, not penalties.</div>
-          </div>}
-        </div>
-
-
-      </div>
-    </div>
-    {showLevelsLegend&&<LevelsLegendDrawer currentLevel={level.level} totalPP={total} onClose={()=>setShowLevelsLegend(false)}/>}
-  </>;
-}
-
-// ── Levels Legend Drawer (floats left of card on desktop, slides from edge on mobile) ──
-function LevelsLegendDrawer({currentLevel, totalPP, onClose}){
-  return <>
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:410}}/>
-    <div style={{position:"fixed",top:0,left:0,height:"100%",width:"min(400px,90vw)",
-      background:C.surface,zIndex:411,boxShadow:"8px 0 40px rgba(0,0,0,0.15)",
-      display:"flex",flexDirection:"column",animation:"slideInLeft 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
-      <style>{`@keyframes slideInLeft{from{transform:translateX(-100%)}to{transform:translateX(0)}}`}</style>
-
-      <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0,
-        display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
         <div>
-          <div style={{fontWeight:800,fontSize:16}}>📖 All Levels</div>
-          <div style={{fontSize:12,color:C.muted}}>{PP_LEVELS.length} levels total</div>
+          <div style={{fontSize:26,fontWeight:900,color:"#FFD700",lineHeight:1}}>{total.toLocaleString()}</div>
+          {weekPP>0&&<div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginTop:2}}>+{weekPP.toLocaleString()} this week</div>}
         </div>
-        <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,
-          padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:22}}>{level.icon}</div>
+          <div style={{fontSize:12,fontWeight:700,color:"#FFD700"}}>{level.title}</div>
+        </div>
       </div>
+      {nextLevel && <>
+        <div style={{background:"rgba(255,255,255,0.1)",borderRadius:99,height:6,overflow:"hidden",marginBottom:4}}>
+          <div style={{height:"100%",width:`${pct}%`,background:"linear-gradient(90deg,#FFD700,#FFA500)",borderRadius:99}}/>
+        </div>
+        <div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>{(nextLevel.pp-total).toLocaleString()} PP to {nextLevel.icon} {nextLevel.title}</div>
+      </>}
+    </div>
 
-      <div style={{flex:1,overflowY:"auto",padding:"12px 16px 24px"}}>
-        {PP_LEVELS.map((l,i)=>{
-          const isCurrentLevel = l.level === currentLevel;
-          const isEarned = totalPP >= l.pp;
-          return <div key={l.level} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
-            background:isCurrentLevel?"#1a1a2e":"transparent",borderRadius:10,
-            marginBottom:4,opacity:isEarned?1:0.4}}>
-            <span style={{fontSize:18,minWidth:26}}>{l.icon}</span>
-            <div style={{flex:1}}>
-              <span style={{fontSize:13,fontWeight:isCurrentLevel?700:500,
-                color:isCurrentLevel?"#FFD700":isEarned?C.text:C.muted}}>{l.title}</span>
-              {isCurrentLevel&&<span style={{fontSize:10,color:"#FFD700",marginLeft:6}}>← YOU</span>}
-            </div>
-            <span style={{fontSize:11,color:isCurrentLevel?"rgba(255,255,255,0.5)":C.muted}}>Lv.{l.level}</span>
-            <span style={{fontSize:11,color:isCurrentLevel?"rgba(255,255,255,0.5)":C.muted,minWidth:70,textAlign:"right"}}>{l.pp.toLocaleString()} PP</span>
+    {/* Levels sub-view — replaces tabs+content when open */}
+    {showLevels ? <>
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+        <button onClick={()=>setShowLevels(false)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,
+          padding:"4px 10px",cursor:"pointer",fontSize:12,fontWeight:600,color:C.muted}}>← Back</button>
+        <span style={{fontWeight:700,fontSize:13}}>📖 All {PP_LEVELS.length} Levels</span>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"8px 12px 16px"}}>
+        {PP_LEVELS.map((l)=>{
+          const isCur = l.level===level.level, isEarned = total>=l.pp;
+          const dateStr = completeLevelDates[l.level];
+          const dateLabel = dateStr ? new Date(dateStr+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"}) : null;
+          return <div key={l.level} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",
+            background:isCur?"#1a1a2e":"transparent",borderRadius:8,marginBottom:3,
+            opacity:isEarned?1:0.35,
+            border:`1px solid ${isCur?"#FFD700":"transparent"}`}}>
+            <span style={{fontSize:10,fontWeight:700,color:isCur?"#FFD700":C.muted,minWidth:18,textAlign:"right"}}>{l.level}</span>
+            <span style={{fontSize:14,minWidth:22}}>{l.icon}</span>
+            <span style={{flex:1,fontSize:12,fontWeight:isCur?700:500,color:isCur?"#FFD700":C.text}}>{l.title}</span>
+            {dateLabel
+              ? <span style={{fontSize:9,color:isCur?"rgba(255,255,255,0.4)":C.muted}}>{dateLabel}</span>
+              : <span style={{fontSize:9,color:isCur?"rgba(255,255,255,0.3)":C.muted}}>{l.pp.toLocaleString()}</span>}
           </div>;
         })}
       </div>
+    </> : <>
+    {/* Tabs */}
+    <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+      {[{id:"overview",label:"Overview"},{id:"history",label:"History"},{id:"info",label:"Info"}].map(t=>(
+        <button key={t.id} onClick={()=>setTab(t.id)} style={{
+          flex:1,padding:"10px 0",border:"none",borderBottom:`2px solid ${tab===t.id?"#FFD700":"transparent"}`,
+          background:"none",cursor:"pointer",fontWeight:tab===t.id?700:500,fontSize:12,
+          color:tab===t.id?C.text:C.muted,
+        }}>{t.label}</button>
+      ))}
     </div>
-  </>;
+
+    {/* Content */}
+    <div style={{flex:1,overflowY:"auto",padding:16}}>
+
+      {tab==="overview"&&<>
+        {projection&&projection.daysAway!==null&&<div style={{
+          background:"#FFFDE7",border:"1px solid #F9A825",borderRadius:10,padding:"10px 12px",marginBottom:14,
+        }}>
+          <div style={{fontSize:11,color:"#7A6200"}}>
+            🔮 At this pace, <strong>{projection.nextLevel.icon} {projection.nextLevel.title}</strong> in{" "}
+            <strong>{projection.daysAway===1?"~1 day":projection.daysAway<7?`~${projection.daysAway} days`:projection.weeksAway===1?"~1 week":`~${projection.weeksAway} weeks`}</strong>
+          </div>
+        </div>}
+
+        <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>HOW YOU EARNED IT</div>
+        <div style={{background:C.bg,borderRadius:10,overflow:"hidden",marginBottom:16}}>
+          {[
+            {label:"PB days",val:breakdown.pb,show:breakdown.pb>0},
+            {label:"Above target",val:breakdown.aboveTarget,show:breakdown.aboveTarget>0},
+            {label:"At target",val:breakdown.atTarget,show:breakdown.atTarget>0},
+            {label:"Below target",val:breakdown.belowTarget,show:breakdown.belowTarget>0},
+            {label:"Shielded",val:breakdown.shielded,show:breakdown.shielded>0},
+            {label:"Streak bonus",val:breakdown.streakBonus,show:breakdown.streakBonus>0},
+            {label:"🥚 Eggs",val:breakdown.eggBonus,show:breakdown.eggBonus>0},
+            {label:"Starting bonus",val:100,show:true},
+            {label:"Skipped",val:breakdown.skipped,show:breakdown.skipped<0},
+            {label:"Streak breaks",val:breakdown.streakBreak,show:breakdown.streakBreak<0},
+          ].filter(r=>r.show).map((row,i,arr)=>(
+            <div key={row.label} style={{display:"flex",justifyContent:"space-between",padding:"7px 12px",
+              borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none",fontSize:11}}>
+              <span style={{color:C.text}}>{row.label}</span>
+              <span style={{fontWeight:700,color:row.val>=0?(row.val>0?C.done:C.muted):C.missed}}>{row.val>0?"+":""}{row.val.toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>LEVELS UNLOCKED ({earnedLevels.length}/{PP_LEVELS.length})</div>
+        <div style={{display:"flex",flexDirection:"column",gap:5}}>
+          {[...earnedLevels].reverse().slice(0,5).map(l=>{
+            const dateStr = completeLevelDates[l.level];
+            const dateLabel = dateStr ? new Date(dateStr+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"}) : (l.level===1?"Day 1":null);
+            return <div key={l.level} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",
+              background:l.level===level.level?"#1a1a2e":C.bg,borderRadius:8,
+              border:`1px solid ${l.level===level.level?"#FFD700":C.border}`}}>
+              <span style={{fontSize:10,fontWeight:700,color:l.level===level.level?"#FFD700":C.muted,minWidth:16,textAlign:"right"}}>{l.level}</span>
+              <span style={{fontSize:15}}>{l.icon}</span>
+              <div style={{flex:1,minWidth:0}}>
+                <span style={{fontWeight:700,fontSize:11,color:l.level===level.level?"#FFD700":C.text}}>{l.title}</span>
+                {dateLabel&&<span style={{fontSize:9,color:l.level===level.level?"rgba(255,255,255,0.4)":C.muted,marginLeft:6}}>{dateLabel}</span>}
+              </div>
+            </div>;
+          })}
+          {earnedLevels.length>5&&<div style={{fontSize:10,color:C.muted,textAlign:"center",marginTop:2}}>+{earnedLevels.length-5} more — see Info tab</div>}
+        </div>
+      </>}
+
+      {tab==="history"&&(()=>{
+        const dates = Object.keys(dailyEarned).filter(d=>dailyEarned[d]!==0 || (dailyTags[d]&&dailyTags[d].length>0)).sort((a,b)=>b.localeCompare(a));
+        if(dates.length===0) return <div style={{fontSize:12,color:C.muted,textAlign:"center",padding:20}}>No history yet.</div>;
+        return <div>
+          {dates.map((d,i)=>{
+            const pts = dailyEarned[d]||0;
+            const tags = dailyTags[d]||[];
+            const dateLabel = new Date(d+"T00:00:00").toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"});
+            return <div key={d} style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+              padding:"9px 4px",borderBottom:i<dates.length-1?`1px solid ${C.border}`:"none"}}>
+              <div>
+                <div style={{fontSize:12,fontWeight:600,color:C.text}}>{dateLabel}</div>
+                <div style={{display:"flex",gap:5,marginTop:2,flexWrap:"wrap"}}>
+                  {tags.map(t=>TAG_INFO[t]&&<span key={t} style={{fontSize:9,color:C.muted}}>{TAG_INFO[t].icon} {TAG_INFO[t].label}</span>)}
+                </div>
+              </div>
+              <span style={{fontSize:12,fontWeight:700,color:pts>=0?(pts>0?C.done:C.muted):C.missed}}>{pts>0?"+":""}{pts.toLocaleString()}</span>
+            </div>;
+          })}
+        </div>;
+      })()}
+
+      {tab==="info"&&<>
+        <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>DAILY POINTS</div>
+        <div style={{marginBottom:16}}>
+          {[
+            {icon:"🌟",label:"Personal best",val:"+250"},
+            {icon:"💪",label:"Above target",val:"+200"},
+            {icon:"✅",label:"At target",val:"+100"},
+            {icon:"📉",label:"Below target",val:"+50"},
+            {icon:"🛡️",label:"Shielded",val:"+25"},
+            {icon:"❌",label:"Skipped",val:"-25"},
+            {icon:"💔",label:"Breaking 7+ streak",val:"-100"},
+          ].map(r=><div key={r.label} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.border}`,fontSize:11}}>
+            <span>{r.icon} {r.label}</span>
+            <span style={{fontWeight:700,color:r.val.startsWith("-")?C.missed:C.done}}>{r.val}</span>
+          </div>)}
+        </div>
+        <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>STREAK MULTIPLIERS</div>
+        <div style={{marginBottom:16}}>
+          {[{s:"30+ days",m:"5x"},{s:"14–29 days",m:"3x"},{s:"7–13 days",m:"2x"},{s:"3–6 days",m:"1.5x"},{s:"1–2 days",m:"1x"}].map(r=>
+            <div key={r.s} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.border}`,fontSize:11}}>
+              <span>🔥 {r.s}</span><span style={{fontWeight:700,color:"#E8A838"}}>{r.m}</span>
+            </div>)}
+        </div>
+      </>}
+    </div>
+    </>}
+  </div>;
 }
+
 
 // ── Mystery Bonus Reveal ─────────────────────────────────────────────────────
 function MysteryBonusReveal({normalPP, bonusPP, onClose}){
@@ -1738,7 +1915,7 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
         onNewBadge({id:`pp_level_${newLevel.level}`,e:newLevel.icon,
           label:`Level ${newLevel.level}: ${newLevel.title}!`,
           desc:`You reached ${newLevel.title}! Keep going!`,
-          tier:newLevel.level>=21?'gold':newLevel.level>=12?'silver':'bronze'}, member.name);
+          tier:newLevel.level>=25?'gold':newLevel.level>=15?'silver':'bronze'}, member.name);
       }
     },100);
   }
@@ -1797,13 +1974,12 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
 }
 
 // ── Member Card ───────────────────────────────────────────────────────────────
-function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme}){
+function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP}){
   const today=todayStr();
   const[showCal,setShowCal]=useState(true);
   const[showBadges,setShowBadges]=useState(false);
   const[showStats,setShowStats]=useState(false);
   const[showHeatmap,setShowHeatmap]=useState(false);
-  const[showPP,setShowPP]=useState(false);
   const[mysteryReveal,setMysteryReveal]=useState(null); // {normalPP, bonusPP}
   const[modal,setModal]=useState(null);
   const ppData = computePowerPoints(member, logs);
@@ -1869,7 +2045,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
     </div>
 
     {/* Power Points Banner */}
-    <div onClick={()=>setShowPP(true)} style={{
+    <div onClick={()=>onOpenPP&&onOpenPP(member.id)} style={{
       background:"linear-gradient(135deg,#1a1a2e,#16213e)",
       borderRadius:12,padding:"12px 16px",marginBottom:12,cursor:"pointer",
       display:"flex",alignItems:"center",justifyContent:"space-between",
@@ -1981,7 +2157,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
         {calDays.map((ds,i)=>ds===null?<div key={`e${i}`}/>:
-          <CalCell key={ds} dateStr={ds} member={member} logs={logs} isToday={ds===today} onClick={d=>setModal(d)}/>)}
+          <CalCell key={ds} dateStr={ds} member={member} logs={logs} isToday={ds===today} onClick={d=>setModal(d)} ppByDate={ppData.dailyEarned}/>)}
       </div>
     </div>}
 
@@ -1995,7 +2171,6 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
     </div>
     {showBadges&&<BadgeDrawer member={member} allEarned={allEarned} acts={acts} logs={logs} onClose={()=>setShowBadges(false)}/>}
     {showStats&&<AllTimeStats member={member} logs={logs} onClose={()=>setShowStats(false)}/>}
-    {showPP&&<PowerPointsDrawer member={member} logs={logs} onClose={()=>setShowPP(false)}/>}
     {mysteryReveal&&<MysteryBonusReveal normalPP={mysteryReveal.normalPP} bonusPP={mysteryReveal.bonusPP} onClose={()=>setMysteryReveal(null)}/>}
 
     {modal&&(member.alternating&&acts.length>1
@@ -2037,7 +2212,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
               onNewBadge({id:`pp_level_${newLevel.level}`,e:newLevel.icon,
                 label:`Level ${newLevel.level}: ${newLevel.title}!`,
                 desc:`You reached ${newLevel.title}! Keep going!`,
-                tier:newLevel.level>=21?'gold':newLevel.level>=12?'silver':'bronze'},member.name);
+                tier:newLevel.level>=25?'gold':newLevel.level>=15?'silver':'bronze'},member.name);
             }
           },200);
         },50);
@@ -2052,6 +2227,19 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
           setTimeout(()=>{
             const next=acts.flatMap(a=>{const en=stampedEntries.find(e=>e.actId===a.id);if(!en)return[];const nl={...getActivityLogs(logs,member.id,a.id),[modal]:{value:en.value,status:en.status,target:en.target}};return earnedBadges(nl,a.target,a.unit);});
             next.filter(id=>!prev.has(id)).forEach(id=>{const b=BADGES.find(x=>x.id===id);if(b)onNewBadge(b,member.name);});
+            // Mystery bonus day reveal
+            if(isMysteryBonusDay(member.id, modal)){
+              const doneEntries=stampedEntries.filter(e=>e.status!=="skipped"&&e.status!=="shielded"&&e.value>0);
+              if(doneEntries.length>0){
+                let normalPP=0;
+                for(const e of doneEntries){
+                  const act=acts.find(a=>a.id===e.actId);
+                  const effectiveTarget=e.target||act?.target||0;
+                  normalPP+=e.value>effectiveTarget*1.5?250:e.value>effectiveTarget?200:e.value>=effectiveTarget?100:50;
+                }
+                setTimeout(()=>setMysteryReveal({normalPP:normalPP*getStreakMultiplier(bestStreak), bonusPP:normalPP*getStreakMultiplier(bestStreak)*2}),300);
+              }
+            }
           },50);
           setModal(null);
         }}
@@ -2069,6 +2257,8 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
   const[alternating,setAlternating]=useState(member?.alternating??false);
   const[eggMeter,setEggMeter]=useState(member?.eggMeter??false);
   const[startDate,setStartDate]=useState(member?.startDate??"");
+  const[memberTheme,setMemberTheme]=useState(member?.memberTheme??"");
+  const[memberPattern,setMemberPattern]=useState(member?.memberPattern??"");
   const eOpts=["🧗","🚶","🏃","🚴","🏋️","🤸","🧘","🏊","⚽","🏓","🎯","💪","🧒","👩","👨"];
   const cOpts=["#5B8FD4","#D47B9E","#3D9E6E","#E8A838","#9B6FD4","#E05C5C","#5BC4C4","#E8873A"];
   const addAct=()=>setActs(a=>[...a,{id:Date.now().toString(),name:"",unit:"reps",target:10}]);
@@ -2094,6 +2284,42 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
         <div style={{display:"flex",gap:7}}>
           {cOpts.map(c=><div key={c} onClick={()=>setColor(c)} style={{width:26,height:26,borderRadius:"50%",background:c,cursor:"pointer",border:color===c?`3px solid ${C.text}`:"3px solid transparent",boxSizing:"border-box"}}/>)}
         </div>
+      </div>
+
+      {/* Per-member theme */}
+      <div style={{marginBottom:14}}>
+        <label style={lStyle}>Page theme (this member only)</label>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
+          <div onClick={()=>setMemberTheme("")} style={{
+            width:26,height:26,borderRadius:"50%",cursor:"pointer",
+            background:"linear-gradient(135deg,#ccc 50%,#fff 50%)",
+            border:memberTheme===""?`3px solid ${C.text}`:"3px solid transparent",boxSizing:"border-box",
+          }} title="Use global theme"/>
+          {THEMES.map(t=><div key={t.id} onClick={()=>setMemberTheme(t.id)} style={{
+            width:26,height:26,borderRadius:"50%",background:t.accent,cursor:"pointer",
+            border:memberTheme===t.id?`3px solid ${C.text}`:"3px solid transparent",boxSizing:"border-box",
+          }} title={t.name}/>)}
+        </div>
+        <div style={{fontSize:10,color:C.muted}}>{memberTheme?`Using: ${THEMES.find(t=>t.id===memberTheme)?.name}`:"Using global theme (half-circle = default)"}</div>
+      </div>
+
+      {/* Per-member pattern */}
+      <div style={{marginBottom:18}}>
+        <label style={lStyle}>Background pattern (this member only)</label>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          <div onClick={()=>setMemberPattern("")} style={{
+            width:30,height:22,borderRadius:5,cursor:"pointer",
+            background:"linear-gradient(135deg,#ccc 50%,#fff 50%)",
+            border:memberPattern===""?`2px solid ${C.text}`:"2px solid transparent",boxSizing:"border-box",
+          }} title="Use global pattern"/>
+          {PATTERN_OPTIONS.map(p=><div key={p.id} onClick={()=>setMemberPattern(p.id)} style={{
+            width:30,height:22,borderRadius:5,cursor:"pointer",fontSize:12,
+            display:"flex",alignItems:"center",justifyContent:"center",
+            background:C.bg,border:memberPattern===p.id?`2px solid ${C.text}`:"2px solid transparent",
+            boxSizing:"border-box",
+          }} title={p.name}>{p.emoji}</div>)}
+        </div>
+        <div style={{fontSize:10,color:C.muted,marginTop:3}}>{memberPattern?`Using: ${PATTERN_OPTIONS.find(p=>p.id===memberPattern)?.name}`:"Using global pattern"}</div>
       </div>
       <div style={{marginBottom:18}}>
         <div onClick={()=>setEggMeter(e=>!e)} style={{
@@ -2148,7 +2374,7 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
       <div style={{display:"flex",gap:8}}>
         {!isNew&&<button onClick={()=>{if(window.confirm("Remove?"))onDelete(member.id);}} style={{padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",cursor:"pointer",color:C.missed,fontWeight:600}}>Delete</button>}
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
+        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
       </div>
     </div>
   </div>;
@@ -2783,39 +3009,149 @@ function getSmartGreeting(members, logs){
   return `${loggedCount}/${total} logged so far — ${remaining} more to go`;
 }
 
+// ── Pattern Picker ─────────────────────────────────────────────────────────────
+function PatternPicker({pattern, setPattern, accent}){
+  const[open,setOpen]=useState(false);
+  const current = PATTERN_OPTIONS.find(p=>p.id===pattern) || PATTERN_OPTIONS[0];
+
+  return <div style={{position:"relative"}}>
+    <button onClick={()=>setOpen(o=>!o)} title="Change pattern" style={{
+      background:"none",border:`1px solid ${C.border}`,borderRadius:8,
+      width:36,height:36,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
+      fontSize:14,
+    }}>{current.emoji}</button>
+    {open&&<>
+      <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:90}}/>
+      <div style={{position:"absolute",top:"110%",right:0,background:C.surface,
+        border:`1px solid ${C.border}`,borderRadius:14,padding:16,zIndex:91,
+        boxShadow:"0 8px 30px rgba(0,0,0,0.15)",width:280}}>
+        <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>🖼️ BACKGROUND PATTERN</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+          {PATTERN_OPTIONS.map(p=>{
+            const isSelected = pattern===p.id;
+            const previewSvg = getPatternSvg(p.id, accent);
+            const previewUrl = `url("data:image/svg+xml,${encodeURIComponent(previewSvg)}")`;
+            return <button key={p.id} onClick={()=>{setPattern(p.id);setOpen(false);}} style={{
+              background:"none",border:"none",cursor:"pointer",padding:0,
+              display:"flex",flexDirection:"column",alignItems:"center",gap:4,
+            }}>
+              <div style={{
+                width:72,height:52,borderRadius:8,
+                background:`${p.id==="none"?"#f5f5f5":`${previewUrl}, #f0f0f0`}`,
+                backgroundRepeat:"repeat",
+                border:`2px solid ${isSelected?accent:C.border}`,
+                display:"flex",alignItems:"center",justifyContent:"center",
+                position:"relative",overflow:"hidden",
+                boxShadow:isSelected?`0 0 0 1px ${accent}`:"none",
+              }}>
+                {isSelected&&<div style={{
+                  position:"absolute",top:3,right:3,width:16,height:16,borderRadius:"50%",
+                  background:accent,display:"flex",alignItems:"center",justifyContent:"center",
+                }}>
+                  <span style={{color:"#fff",fontSize:9,fontWeight:900}}>✓</span>
+                </div>}
+                {p.id==="none"&&<span style={{fontSize:18,opacity:0.3}}>○</span>}
+              </div>
+              <span style={{fontSize:10,color:isSelected?accent:C.muted,fontWeight:isSelected?700:400}}>{p.name}</span>
+            </button>;
+          })}
+        </div>
+      </div>
+    </>}
+  </div>;
+}
+
 // ── Theme Picker ──────────────────────────────────────────────────────────────
 function ThemePicker({theme, setTheme}){
   const[open,setOpen]=useState(false);
-  const current = THEMES.find(t=>t.id===theme) || THEMES[0];
+  const[customColor,setCustomColor]=useState("#5B8FD4");
+  const current = THEMES.find(t=>t.id===theme) || {accent:theme,light:"#E8E4DC",name:"Custom"};
+
+  // Seasonal suggestion based on current month
+  const month = new Date().getMonth();
+  const seasonal = month>=2&&month<=4?"forest":month>=5&&month<=7?"sunset":month>=8&&month<=10?"amber":"midnight";
+  const seasonalName = THEMES.find(t=>t.id===seasonal)?.name;
+
+  const groups = [
+    {label:"🌿 NATURE",    ids:["forest","mint","teal","ocean"]},
+    {label:"🌅 WARM",      ids:["sunset","peach","amber","rose","cherry"]},
+    {label:"🌌 COOL",      ids:["lavender","slate","storm","midnight"]},
+  ];
 
   return <div style={{position:"relative"}}>
     <button onClick={()=>setOpen(o=>!o)} title="Change theme" style={{
       background:"none",border:`1px solid ${C.border}`,borderRadius:8,
-      width:36,height:36,cursor:"pointer",fontSize:16,
+      width:36,height:36,cursor:"pointer",
       display:"flex",alignItems:"center",justifyContent:"center",
     }}>
-      <span style={{width:16,height:16,borderRadius:"50%",background:current.accent,display:"inline-block"}}/>
+      <span style={{width:16,height:16,borderRadius:"50%",background:current.accent,display:"inline-block",
+        boxShadow:`0 0 0 2px ${current.accent}40`}}/>
     </button>
     {open&&<>
       <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:90}}/>
       <div style={{position:"absolute",top:"110%",right:0,background:C.surface,
-        border:`1px solid ${C.border}`,borderRadius:12,padding:14,zIndex:91,
-        boxShadow:"0 8px 30px rgba(0,0,0,0.15)",width:220}}>
+        border:`1px solid ${C.border}`,borderRadius:14,padding:16,zIndex:91,
+        boxShadow:"0 8px 30px rgba(0,0,0,0.15)",width:260}}>
         <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>🎨 CHOOSE A THEME</div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
-          {THEMES.map(t=>(
-            <button key={t.id} onClick={()=>{setTheme(t.id);setOpen(false);}} title={t.name} style={{
-              background:"none",border:"none",cursor:"pointer",padding:4,
-              display:"flex",flexDirection:"column",alignItems:"center",gap:4,
-            }}>
-              <span style={{
-                width:32,height:32,borderRadius:"50%",background:t.accent,
-                display:"block",border:theme===t.id?`3px solid ${C.text}`:"3px solid transparent",
-                boxSizing:"border-box",
-              }}/>
-              <span style={{fontSize:9,color:theme===t.id?C.text:C.muted,fontWeight:theme===t.id?700:500}}>{t.name}</span>
-            </button>
-          ))}
+
+        {/* Seasonal suggestion */}
+        {theme!==seasonal&&<div onClick={()=>{setTheme(seasonal);setOpen(false);}} style={{
+          display:"flex",alignItems:"center",gap:8,background:THEMES.find(t=>t.id===seasonal)?.light,
+          border:`1px solid ${THEMES.find(t=>t.id===seasonal)?.accent}`,borderRadius:8,
+          padding:"6px 10px",marginBottom:12,cursor:"pointer",
+        }}>
+          <span style={{width:14,height:14,borderRadius:"50%",background:THEMES.find(t=>t.id===seasonal)?.accent,flexShrink:0}}/>
+          <span style={{fontSize:11,color:THEMES.find(t=>t.id===seasonal)?.accent,fontWeight:600}}>
+            ✨ Suggested for {MONTHS[month]}: {seasonalName}
+          </span>
+        </div>}
+
+        {/* Grouped swatches */}
+        {groups.map(g=>(
+          <div key={g.label} style={{marginBottom:12}}>
+            <div style={{fontSize:9,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:6}}>{g.label}</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {g.ids.map(id=>{
+                const t = THEMES.find(x=>x.id===id);
+                if(!t) return null;
+                const isSelected = theme===id;
+                return <button key={id} onClick={()=>{setTheme(id);setOpen(false);}} title={t.name} style={{
+                  background:"none",border:"none",cursor:"pointer",padding:2,
+                  display:"flex",flexDirection:"column",alignItems:"center",gap:3,
+                }}>
+                  <span style={{
+                    width:30,height:30,borderRadius:"50%",background:t.accent,
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    border:isSelected?`3px solid ${C.text}`:"3px solid transparent",
+                    boxSizing:"border-box",boxShadow:isSelected?`0 0 0 1px ${C.text}`:"none",
+                  }}>
+                    {isSelected&&<span style={{color:"#fff",fontSize:12,fontWeight:900,lineHeight:1}}>✓</span>}
+                  </span>
+                  <span style={{fontSize:9,color:isSelected?C.text:C.muted,fontWeight:isSelected?700:400}}>{t.name}</span>
+                </button>;
+              })}
+            </div>
+          </div>
+        ))}
+
+        {/* Custom colour */}
+        <div style={{borderTop:`1px solid ${C.border}`,paddingTop:10,marginTop:4}}>
+          <div style={{fontSize:9,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:6}}>🖌️ CUSTOM</div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <input type="color" value={customColor}
+              onChange={e=>setCustomColor(e.target.value)}
+              style={{width:30,height:30,border:"none",borderRadius:"50%",cursor:"pointer",padding:0,background:"none"}}/>
+            <span style={{fontSize:11,color:C.muted,flex:1}}>{customColor}</span>
+            <button onClick={()=>{
+              // Generate a light version of the custom colour
+              const hex = customColor.replace("#","");
+              const r=parseInt(hex.slice(0,2),16), g=parseInt(hex.slice(2,4),16), b=parseInt(hex.slice(4,6),16);
+              const lightHex = `#${Math.round(r+(255-r)*0.75).toString(16).padStart(2,"0")}${Math.round(g+(255-g)*0.75).toString(16).padStart(2,"0")}${Math.round(b+(255-b)*0.75).toString(16).padStart(2,"0")}`;
+              // Store custom theme by adding it temporarily
+              setTheme(customColor);
+              setOpen(false);
+            }} style={{background:customColor,color:"#fff",border:"none",borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>Apply</button>
+          </div>
         </div>
       </div>
     </>}
@@ -2830,11 +3166,13 @@ export default function App(){
   const[editM,setEditM]=useState(null);
   const[toasts,setToasts]=useState([]);
   const[activeTab,setActiveTab]=useState(null); // null = show all (family summary)
+  const[ppPanelFor,setPpPanelFor]=useState(null); // memberId whose PP panel is open, or null
   const[theme,setTheme]=useState("forest");
+  const[pattern,setPattern]=useState("topo");
   const mRef=useRef(members);const lRef=useRef(logs);
-  const tRef=useRef(theme);
-  mRef.current=members;lRef.current=logs;tRef.current=theme;
-  const mInit=useRef(false);const lInit=useRef(false);const tInit=useRef(false);
+  const tRef=useRef(theme);const pRef=useRef(pattern);
+  mRef.current=members;lRef.current=logs;tRef.current=theme;pRef.current=pattern;
+  const mInit=useRef(false);const lInit=useRef(false);const tInit=useRef(false);const pInit=useRef(false);
   const now=new Date();
   const[yr,setYr]=useState(now.getFullYear());
   const[mo,setMo]=useState(now.getMonth());
@@ -2845,7 +3183,8 @@ export default function App(){
       if(d){
         if(d.members&&Array.isArray(d.members)&&d.members.length>0) setMembers(d.members);
         if(d.logs&&typeof d.logs==="object") setLogs(d.logs);
-        if(d.theme&&THEMES.some(t=>t.id===d.theme)) setTheme(d.theme);
+        if(d.theme&&(THEMES.some(t=>t.id===d.theme)||d.theme.startsWith('#'))) setTheme(d.theme);
+        if(d.pattern&&PATTERN_OPTIONS.some(p=>p.id===d.pattern)) setPattern(d.pattern);
       }
       setLoaded(true);
     })();
@@ -2858,9 +3197,10 @@ export default function App(){
     }
   },[loaded]);
 
-  useEffect(()=>{if(!loaded)return;if(!mInit.current){mInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current,theme:tRef.current});},[members,loaded]);
-  useEffect(()=>{if(!loaded)return;if(!lInit.current){lInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current,theme:tRef.current});},[logs,loaded]);
-  useEffect(()=>{if(!loaded)return;if(!tInit.current){tInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current,theme:tRef.current});},[theme,loaded]);
+  useEffect(()=>{if(!loaded)return;if(!mInit.current){mInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current,theme:tRef.current,pattern:pRef.current});},[members,loaded]);
+  useEffect(()=>{if(!loaded)return;if(!lInit.current){lInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current,theme:tRef.current,pattern:pRef.current});},[logs,loaded]);
+  useEffect(()=>{if(!loaded)return;if(!tInit.current){tInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current,theme:tRef.current,pattern:pRef.current});},[theme,loaded]);
+  useEffect(()=>{if(!loaded)return;if(!pInit.current){pInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current,theme:tRef.current,pattern:pRef.current});},[pattern,loaded]);
 
   const handleLogAll=useCallback((mid,dateStr,entries)=>{
     setLogs(prev=>{
@@ -2902,33 +3242,36 @@ export default function App(){
 
   if(!loaded) return <div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{color:C.muted,fontSize:16}}>Loading…</div></div>;
 
-  const currentTheme = THEMES.find(t=>t.id===theme) || THEMES[0];
-  const topoPattern = `url("data:image/svg+xml,${encodeURIComponent(`
-    <svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'>
-      <g fill='none' stroke='${currentTheme.accent}' stroke-width='1' opacity='0.4'>
-        <path d='M-20,60 C60,20 140,100 220,50 C300,0 380,80 440,40'/>
-        <path d='M-20,110 C60,70 140,150 220,100 C300,50 380,130 440,90'/>
-        <path d='M-20,160 C60,120 140,200 220,150 C300,100 380,180 440,140'/>
-        <path d='M-20,210 C60,170 140,250 220,200 C300,150 380,230 440,190'/>
-        <path d='M-20,260 C60,220 140,300 220,250 C300,200 380,280 440,240'/>
-        <path d='M-20,310 C60,270 140,350 220,300 C300,250 380,330 440,290'/>
-        <path d='M-20,360 C60,320 140,400 220,350 C300,300 380,380 440,340'/>
-      </g>
-    </svg>
-  `)}")`;
+  // Derive active theme and pattern — per-member if set, otherwise global
+  const activeMember = activeTab ? members.find(m=>m.id===activeTab) : null;
+  const activeThemeId = (activeMember?.memberTheme) || theme;
+  const activePatternId = (activeMember?.memberPattern) || pattern;
 
-  return <div style={{background:`${topoPattern}, ${currentTheme.light}`,backgroundRepeat:"repeat",minHeight:"100vh",fontFamily:"'Inter','Helvetica Neue',sans-serif",color:C.text,transition:"background 0.3s"}}>
+  const currentTheme = THEMES.find(t=>t.id===activeThemeId) || (activeThemeId.startsWith("#") ? {
+    accent: activeThemeId,
+    light: (()=>{
+      const hex=activeThemeId.replace("#","");
+      const r=parseInt(hex.slice(0,2),16),g=parseInt(hex.slice(2,4),16),b=parseInt(hex.slice(4,6),16);
+      return `#${Math.round(r+(255-r)*0.75).toString(16).padStart(2,"0")}${Math.round(g+(255-g)*0.75).toString(16).padStart(2,"0")}${Math.round(b+(255-b)*0.75).toString(16).padStart(2,"0")}`;
+    })(),
+  } : THEMES[0]);
+  const bgPattern = `url("data:image/svg+xml,${encodeURIComponent(getPatternSvg(activePatternId, currentTheme.accent))}")`;
+
+  return <div style={{background:`${bgPattern}, ${currentTheme.light}`,backgroundRepeat:"repeat",minHeight:"100vh",fontFamily:"'Inter','Helvetica Neue',sans-serif",color:C.text,transition:"background 0.3s"}}>
     <div style={{height:4,background:currentTheme.accent,transition:"background 0.3s"}}/>
     <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"16px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
-      <div>
-        <div style={{fontWeight:800,fontSize:20,letterSpacing:-0.5}}>🌿 Family Fitness</div>
+      <div style={{minWidth:120}}>
+        <div style={{fontWeight:800,fontSize:20,letterSpacing:-0.5}}>⚡ Family Fitness</div>
+      </div>
+      <div style={{textAlign:"center",flex:1}}>
         <div style={{fontSize:12,color:C.muted}}>{getSmartGreeting(members,logs)}</div>
       </div>
-      <div style={{display:"flex",alignItems:"center",gap:10}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,minWidth:120,justifyContent:"flex-end"}}>
         <button onClick={prevMo} style={navBtn}>‹</button>
         <span style={{fontWeight:700,fontSize:14,minWidth:100,textAlign:"center"}}>{MONTHS[mo]} {yr}</span>
         <button onClick={nextMo} disabled={isCurMo} style={{...navBtn,opacity:isCurMo?0.3:1}}>›</button>
         <ThemePicker theme={theme} setTheme={setTheme}/>
+        <PatternPicker pattern={pattern} setPattern={setPattern} accent={currentTheme.accent}/>
         <button onClick={()=>setEditM("new")} style={{background:currentTheme.accent,color:"#fff",border:"none",borderRadius:9,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>+ Add member</button>
       </div>
     </div>
@@ -2937,14 +3280,14 @@ export default function App(){
     {members.length>0&&<div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,position:"sticky",top:65,zIndex:40}}>
       <div style={{maxWidth:860,margin:"0 auto",padding:"0 16px",display:"flex",gap:0,overflowX:"auto"}}>
         {members.map(m=>(
-          <button key={m.id} onClick={()=>setActiveTab(m.id)} style={{
+          <button key={m.id} onClick={()=>{setActiveTab(m.id);setPpPanelFor(null);}} style={{
             padding:"12px 20px",border:"none",borderBottom:`3px solid ${activeTab===m.id?m.color:"transparent"}`,
             background:"none",cursor:"pointer",fontWeight:activeTab===m.id?700:500,
             fontSize:14,color:activeTab===m.id?m.color:C.muted,
             whiteSpace:"nowrap",transition:"all 0.15s",
           }}>{m.name}</button>
         ))}
-        <button onClick={()=>setActiveTab(null)} style={{
+        <button onClick={()=>{setActiveTab(null);setPpPanelFor(null);}} style={{
           padding:"12px 20px",border:"none",borderBottom:`3px solid ${activeTab===null?currentTheme.accent:"transparent"}`,
           background:"none",cursor:"pointer",fontWeight:activeTab===null?700:500,
           fontSize:14,color:activeTab===null?currentTheme.accent:C.muted,
@@ -2953,7 +3296,7 @@ export default function App(){
       </div>
     </div>}
 
-    <div style={{maxWidth:860,margin:"0 auto",padding:"24px 16px",display:"flex",flexDirection:"column",gap:20}}>
+    <div style={{maxWidth:(activeTab&&ppPanelFor===activeTab)?1300:860,margin:"0 auto",padding:"24px 16px",display:"flex",flexDirection:"column",gap:20,transition:"max-width 0.2s"}}>
       {members.length===0&&<div style={{textAlign:"center",padding:60,color:C.muted}}>
         <div style={{fontSize:40,marginBottom:12}}>🌱</div>
         <div style={{fontSize:16,fontWeight:600}}>No members yet. Add one to get started.</div>
@@ -2961,8 +3304,16 @@ export default function App(){
 
       {/* Individual member tab */}
       {activeTab&&members.filter(m=>m.id===activeTab).map(m=>(
-        <MemberCard key={m.id} member={m} logs={logs} allMembers={members}
-          onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}/>
+        <div key={m.id} style={{display:"flex",gap:20,flexWrap:"wrap",alignItems:"flex-start",justifyContent:"center"}}>
+          <div style={{flex:"1 1 460px",maxWidth:860,minWidth:0}}>
+            <MemberCard member={m} logs={logs} allMembers={members}
+              onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}
+              onOpenPP={(id)=>setPpPanelFor(id)}/>
+          </div>
+          {ppPanelFor===m.id&&<div style={{flex:"1 1 320px",maxWidth:380,minWidth:280}}>
+            <PowerPointsPanel member={m} logs={logs} onClose={()=>setPpPanelFor(null)}/>
+          </div>}
+        </div>
       ))}
 
       {/* Family tab */}
