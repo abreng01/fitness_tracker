@@ -1632,10 +1632,17 @@ function PowerPointsPanel({member, logs, onClose}){
   // Build complete level crossing dates — fill gaps via cumulative daily sum
   const completeLevelDates = {};
   for(const h of levelHistory) completeLevelDates[h.level] = h.date;
-  const sortedDailyDates = Object.keys(dailyEarned).sort();
+
+  // Build a merged daily PP map that includes egg bonuses per day
+  const eggLogsForDates = getEggLogs(logs, member.id);
+  const allDailyPP = {...dailyEarned};
+  for(const [d, count] of Object.entries(eggLogsForDates)){
+    allDailyPP[d] = (allDailyPP[d]||0) + (count||0)*1000;
+  }
+  const sortedDailyDates = Object.keys(allDailyPP).sort();
   let running = 100;
   for(const d of sortedDailyDates){
-    running += (dailyEarned[d]||0);
+    running += (allDailyPP[d]||0);
     for(const l of PP_LEVELS){
       if(!completeLevelDates[l.level] && running>=l.pp) completeLevelDates[l.level] = d;
     }
