@@ -17,6 +17,11 @@ const THEMES = [
   {id:"slate",    name:"Slate",    accent:"#546A80", light:"#DCE3E9"},
   {id:"amber",    name:"Amber",    accent:"#C99A2E", light:"#F3E7C9"},
   {id:"teal",     name:"Teal",     accent:"#1F9C8F", light:"#CFEBE7"},
+  {id:"midnight", name:"Midnight", accent:"#3B4A6B", light:"#D8DCE8"},
+  {id:"cherry",   name:"Cherry",   accent:"#C0392B", light:"#F5D0CC"},
+  {id:"mint",     name:"Mint",     accent:"#27AE7A", light:"#C8EDE0"},
+  {id:"peach",    name:"Peach",    accent:"#E8855A", light:"#FAE0D4"},
+  {id:"storm",    name:"Storm",    accent:"#4A6FA5", light:"#D4DCE8"},
 ];
 const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
@@ -2924,36 +2929,94 @@ function getSmartGreeting(members, logs){
 // ── Theme Picker ──────────────────────────────────────────────────────────────
 function ThemePicker({theme, setTheme}){
   const[open,setOpen]=useState(false);
-  const current = THEMES.find(t=>t.id===theme) || THEMES[0];
+  const[customColor,setCustomColor]=useState("#5B8FD4");
+  const current = THEMES.find(t=>t.id===theme) || {accent:theme,light:"#E8E4DC",name:"Custom"};
+
+  // Seasonal suggestion based on current month
+  const month = new Date().getMonth();
+  const seasonal = month>=2&&month<=4?"forest":month>=5&&month<=7?"sunset":month>=8&&month<=10?"amber":"midnight";
+  const seasonalName = THEMES.find(t=>t.id===seasonal)?.name;
+
+  const groups = [
+    {label:"🌿 NATURE",    ids:["forest","mint","teal","ocean"]},
+    {label:"🌅 WARM",      ids:["sunset","peach","amber","rose","cherry"]},
+    {label:"🌌 COOL",      ids:["lavender","slate","storm","midnight"]},
+  ];
 
   return <div style={{position:"relative"}}>
     <button onClick={()=>setOpen(o=>!o)} title="Change theme" style={{
       background:"none",border:`1px solid ${C.border}`,borderRadius:8,
-      width:36,height:36,cursor:"pointer",fontSize:16,
+      width:36,height:36,cursor:"pointer",
       display:"flex",alignItems:"center",justifyContent:"center",
     }}>
-      <span style={{width:16,height:16,borderRadius:"50%",background:current.accent,display:"inline-block"}}/>
+      <span style={{width:16,height:16,borderRadius:"50%",background:current.accent,display:"inline-block",
+        boxShadow:`0 0 0 2px ${current.accent}40`}}/>
     </button>
     {open&&<>
       <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:90}}/>
       <div style={{position:"absolute",top:"110%",right:0,background:C.surface,
-        border:`1px solid ${C.border}`,borderRadius:12,padding:14,zIndex:91,
-        boxShadow:"0 8px 30px rgba(0,0,0,0.15)",width:220}}>
+        border:`1px solid ${C.border}`,borderRadius:14,padding:16,zIndex:91,
+        boxShadow:"0 8px 30px rgba(0,0,0,0.15)",width:260}}>
         <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>🎨 CHOOSE A THEME</div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
-          {THEMES.map(t=>(
-            <button key={t.id} onClick={()=>{setTheme(t.id);setOpen(false);}} title={t.name} style={{
-              background:"none",border:"none",cursor:"pointer",padding:4,
-              display:"flex",flexDirection:"column",alignItems:"center",gap:4,
-            }}>
-              <span style={{
-                width:32,height:32,borderRadius:"50%",background:t.accent,
-                display:"block",border:theme===t.id?`3px solid ${C.text}`:"3px solid transparent",
-                boxSizing:"border-box",
-              }}/>
-              <span style={{fontSize:9,color:theme===t.id?C.text:C.muted,fontWeight:theme===t.id?700:500}}>{t.name}</span>
-            </button>
-          ))}
+
+        {/* Seasonal suggestion */}
+        {theme!==seasonal&&<div onClick={()=>{setTheme(seasonal);setOpen(false);}} style={{
+          display:"flex",alignItems:"center",gap:8,background:THEMES.find(t=>t.id===seasonal)?.light,
+          border:`1px solid ${THEMES.find(t=>t.id===seasonal)?.accent}`,borderRadius:8,
+          padding:"6px 10px",marginBottom:12,cursor:"pointer",
+        }}>
+          <span style={{width:14,height:14,borderRadius:"50%",background:THEMES.find(t=>t.id===seasonal)?.accent,flexShrink:0}}/>
+          <span style={{fontSize:11,color:THEMES.find(t=>t.id===seasonal)?.accent,fontWeight:600}}>
+            ✨ Suggested for {MONTHS[month]}: {seasonalName}
+          </span>
+        </div>}
+
+        {/* Grouped swatches */}
+        {groups.map(g=>(
+          <div key={g.label} style={{marginBottom:12}}>
+            <div style={{fontSize:9,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:6}}>{g.label}</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {g.ids.map(id=>{
+                const t = THEMES.find(x=>x.id===id);
+                if(!t) return null;
+                const isSelected = theme===id;
+                return <button key={id} onClick={()=>{setTheme(id);setOpen(false);}} title={t.name} style={{
+                  background:"none",border:"none",cursor:"pointer",padding:2,
+                  display:"flex",flexDirection:"column",alignItems:"center",gap:3,
+                }}>
+                  <span style={{
+                    width:30,height:30,borderRadius:"50%",background:t.accent,
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    border:isSelected?`3px solid ${C.text}`:"3px solid transparent",
+                    boxSizing:"border-box",boxShadow:isSelected?`0 0 0 1px ${C.text}`:"none",
+                  }}>
+                    {isSelected&&<span style={{color:"#fff",fontSize:12,fontWeight:900,lineHeight:1}}>✓</span>}
+                  </span>
+                  <span style={{fontSize:9,color:isSelected?C.text:C.muted,fontWeight:isSelected?700:400}}>{t.name}</span>
+                </button>;
+              })}
+            </div>
+          </div>
+        ))}
+
+        {/* Custom colour */}
+        <div style={{borderTop:`1px solid ${C.border}`,paddingTop:10,marginTop:4}}>
+          <div style={{fontSize:9,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:6}}>🖌️ CUSTOM</div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <input type="color" value={customColor}
+              onChange={e=>setCustomColor(e.target.value)}
+              style={{width:30,height:30,border:"none",borderRadius:"50%",cursor:"pointer",padding:0,background:"none"}}/>
+            <span style={{fontSize:11,color:C.muted,flex:1}}>{customColor}</span>
+            <button onClick={()=>{
+              // Generate a light version of the custom colour
+              const hex = customColor.replace("#","");
+              const r=parseInt(hex.slice(0,2),16), g=parseInt(hex.slice(2,4),16), b=parseInt(hex.slice(4,6),16);
+              const lightHex = `#${Math.round(r+(255-r)*0.75).toString(16).padStart(2,"0")}${Math.round(g+(255-g)*0.75).toString(16).padStart(2,"0")}${Math.round(b+(255-b)*0.75).toString(16).padStart(2,"0")}`;
+              // Store custom theme by adding it temporarily
+              setTheme(customColor);
+              setOpen(false);
+            }} style={{background:customColor,color:"#fff",border:"none",borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>Apply</button>
+          </div>
         </div>
       </div>
     </>}
@@ -3041,7 +3104,14 @@ export default function App(){
 
   if(!loaded) return <div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{color:C.muted,fontSize:16}}>Loading…</div></div>;
 
-  const currentTheme = THEMES.find(t=>t.id===theme) || THEMES[0];
+  const currentTheme = THEMES.find(t=>t.id===theme) || (theme.startsWith("#") ? {
+    accent: theme,
+    light: (()=>{
+      const hex=theme.replace("#","");
+      const r=parseInt(hex.slice(0,2),16),g=parseInt(hex.slice(2,4),16),b=parseInt(hex.slice(4,6),16);
+      return `#${Math.round(r+(255-r)*0.75).toString(16).padStart(2,"0")}${Math.round(g+(255-g)*0.75).toString(16).padStart(2,"0")}${Math.round(b+(255-b)*0.75).toString(16).padStart(2,"0")}`;
+    })(),
+  } : THEMES[0]);
   const topoPattern = `url("data:image/svg+xml,${encodeURIComponent(`
     <svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'>
       <g fill='none' stroke='${currentTheme.accent}' stroke-width='1' opacity='0.4'>
