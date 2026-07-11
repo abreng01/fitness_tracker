@@ -3263,9 +3263,7 @@ export default function App(){
       <div style={{minWidth:120}}>
         <div style={{fontWeight:800,fontSize:20,letterSpacing:-0.5}}>⚡ Family Fitness</div>
       </div>
-      <div style={{textAlign:"center",flex:1}}>
-        <div style={{fontSize:12,color:C.muted}}>{getSmartGreeting(members,logs)}</div>
-      </div>
+      <div style={{flex:1}}/>
       <div style={{display:"flex",alignItems:"center",gap:10,minWidth:120,justifyContent:"flex-end"}}>
         <button onClick={prevMo} style={navBtn}>‹</button>
         <span style={{fontWeight:700,fontSize:14,minWidth:100,textAlign:"center"}}>{MONTHS[mo]} {yr}</span>
