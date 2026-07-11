@@ -23,6 +23,44 @@ const THEMES = [
   {id:"peach",    name:"Peach",    accent:"#E8855A", light:"#FAE0D4"},
   {id:"storm",    name:"Storm",    accent:"#4A6FA5", light:"#D4DCE8"},
 ];
+
+// ── Background Patterns ───────────────────────────────────────────────────────
+function getPatternSvg(patternId, accent){
+  const a = accent;
+  const patterns = {
+    topo: `<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'><g fill='none' stroke='${a}' stroke-width='1' opacity='0.4'><path d='M-20,60 C60,20 140,100 220,50 C300,0 380,80 440,40'/><path d='M-20,110 C60,70 140,150 220,100 C300,50 380,130 440,90'/><path d='M-20,160 C60,120 140,200 220,150 C300,100 380,180 440,140'/><path d='M-20,210 C60,170 140,250 220,200 C300,150 380,230 440,190'/><path d='M-20,260 C60,220 140,300 220,250 C300,200 380,280 440,240'/><path d='M-20,310 C60,270 140,350 220,300 C300,250 380,330 440,290'/><path d='M-20,360 C60,320 140,400 220,350 C300,300 380,380 440,340'/></g></svg>`,
+
+    hex: `<svg xmlns='http://www.w3.org/2000/svg' width='60' height='52' viewBox='0 0 60 52'><g fill='none' stroke='${a}' stroke-width='1' opacity='0.35'><polygon points='30,2 58,17 58,35 30,50 2,35 2,17'/><polygon points='30,28 58,43 58,61 30,76 2,61 2,43' transform='translate(30,0)'/><polygon points='30,28 58,43 58,61 30,76 2,61 2,43' transform='translate(-30,0)'/></g></svg>`,
+
+    dots: `<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 30 30'><circle cx='15' cy='15' r='2' fill='${a}' opacity='0.35'/></svg>`,
+
+    constellation: `<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'><g stroke='${a}' opacity='0.3'><line x1='40' y1='30' x2='100' y2='80' stroke-width='0.5'/><line x1='100' y1='80' x2='160' y2='50' stroke-width='0.5'/><line x1='160' y1='50' x2='180' y2='140' stroke-width='0.5'/><line x1='180' y1='140' x2='100' y2='160' stroke-width='0.5'/><line x1='100' y1='160' x2='20' y2='120' stroke-width='0.5'/><line x1='20' y1='120' x2='40' y2='30' stroke-width='0.5'/><line x1='100' y1='80' x2='100' y2='160' stroke-width='0.5'/></g><g fill='${a}' opacity='0.5'><circle cx='40' cy='30' r='2.5'/><circle cx='100' cy='80' r='3'/><circle cx='160' cy='50' r='2'/><circle cx='180' cy='140' r='2.5'/><circle cx='100' cy='160' r='3'/><circle cx='20' cy='120' r='2'/></g></svg>`,
+
+    waves: `<svg xmlns='http://www.w3.org/2000/svg' width='200' height='80' viewBox='0 0 200 80'><g fill='none' stroke='${a}' stroke-width='1.2' opacity='0.35'><path d='M0,20 C25,10 50,30 75,20 C100,10 125,30 150,20 C175,10 200,30 225,20'/><path d='M0,40 C25,30 50,50 75,40 C100,30 125,50 150,40 C175,30 200,50 225,40'/><path d='M0,60 C25,50 50,70 75,60 C100,50 125,70 150,60 C175,50 200,70 225,60'/></g></svg>`,
+
+    crosshatch: `<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'><g stroke='${a}' stroke-width='0.8' opacity='0.25'><line x1='0' y1='0' x2='40' y2='40'/><line x1='40' y1='0' x2='0' y2='40'/><line x1='20' y1='0' x2='60' y2='40'/><line x1='-20' y1='0' x2='20' y2='40'/></g></svg>`,
+
+    zigzag: `<svg xmlns='http://www.w3.org/2000/svg' width='80' height='40' viewBox='0 0 80 40'><g fill='none' stroke='${a}' stroke-width='1.5' opacity='0.35' stroke-linejoin='round'><polyline points='0,20 10,5 20,20 30,5 40,20 50,5 60,20 70,5 80,20'/><polyline points='0,40 10,25 20,40 30,25 40,40 50,25 60,40 70,25 80,40'/></g></svg>`,
+
+    bubbles: `<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'><g fill='none' stroke='${a}' opacity='0.3'><circle cx='20' cy='20' r='14' stroke-width='1.5'/><circle cx='70' cy='15' r='8' stroke-width='1'/><circle cx='100' cy='40' r='18' stroke-width='1.5'/><circle cx='40' cy='70' r='22' stroke-width='1.5'/><circle cx='95' cy='90' r='12' stroke-width='1'/><circle cx='15' cy='95' r='9' stroke-width='1'/><circle cx='60' cy='55' r='6' stroke-width='1'/></g></svg>`,
+
+    none: `<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1' viewBox='0 0 1 1'></svg>`,
+  };
+  return patterns[patternId] || patterns.topo;
+}
+
+const PATTERN_OPTIONS = [
+  {id:"topo",          name:"Topo",          emoji:"🗺️"},
+  {id:"hex",           name:"Hex",           emoji:"⬡"},
+  {id:"dots",          name:"Dots",          emoji:"⚬"},
+  {id:"constellation", name:"Stars",         emoji:"✦"},
+  {id:"waves",         name:"Waves",         emoji:"〜"},
+  {id:"crosshatch",    name:"Cross",         emoji:"✕"},
+  {id:"zigzag",        name:"Zigzag",        emoji:"⚡"},
+  {id:"bubbles",       name:"Bubbles",       emoji:"○"},
+  {id:"none",          name:"None",          emoji:"□"},
+];
+
 const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const UNIT_OPTIONS=[
@@ -2926,6 +2964,58 @@ function getSmartGreeting(members, logs){
   return `${loggedCount}/${total} logged so far — ${remaining} more to go`;
 }
 
+// ── Pattern Picker ─────────────────────────────────────────────────────────────
+function PatternPicker({pattern, setPattern, accent}){
+  const[open,setOpen]=useState(false);
+  const current = PATTERN_OPTIONS.find(p=>p.id===pattern) || PATTERN_OPTIONS[0];
+
+  return <div style={{position:"relative"}}>
+    <button onClick={()=>setOpen(o=>!o)} title="Change pattern" style={{
+      background:"none",border:`1px solid ${C.border}`,borderRadius:8,
+      width:36,height:36,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
+      fontSize:14,
+    }}>{current.emoji}</button>
+    {open&&<>
+      <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:90}}/>
+      <div style={{position:"absolute",top:"110%",right:0,background:C.surface,
+        border:`1px solid ${C.border}`,borderRadius:14,padding:16,zIndex:91,
+        boxShadow:"0 8px 30px rgba(0,0,0,0.15)",width:280}}>
+        <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>🖼️ BACKGROUND PATTERN</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+          {PATTERN_OPTIONS.map(p=>{
+            const isSelected = pattern===p.id;
+            const previewSvg = getPatternSvg(p.id, accent);
+            const previewUrl = `url("data:image/svg+xml,${encodeURIComponent(previewSvg)}")`;
+            return <button key={p.id} onClick={()=>{setPattern(p.id);setOpen(false);}} style={{
+              background:"none",border:"none",cursor:"pointer",padding:0,
+              display:"flex",flexDirection:"column",alignItems:"center",gap:4,
+            }}>
+              <div style={{
+                width:72,height:52,borderRadius:8,
+                background:`${p.id==="none"?"#f5f5f5":`${previewUrl}, #f0f0f0`}`,
+                backgroundRepeat:"repeat",
+                border:`2px solid ${isSelected?accent:C.border}`,
+                display:"flex",alignItems:"center",justifyContent:"center",
+                position:"relative",overflow:"hidden",
+                boxShadow:isSelected?`0 0 0 1px ${accent}`:"none",
+              }}>
+                {isSelected&&<div style={{
+                  position:"absolute",top:3,right:3,width:16,height:16,borderRadius:"50%",
+                  background:accent,display:"flex",alignItems:"center",justifyContent:"center",
+                }}>
+                  <span style={{color:"#fff",fontSize:9,fontWeight:900}}>✓</span>
+                </div>}
+                {p.id==="none"&&<span style={{fontSize:18,opacity:0.3}}>○</span>}
+              </div>
+              <span style={{fontSize:10,color:isSelected?accent:C.muted,fontWeight:isSelected?700:400}}>{p.name}</span>
+            </button>;
+          })}
+        </div>
+      </div>
+    </>}
+  </div>;
+}
+
 // ── Theme Picker ──────────────────────────────────────────────────────────────
 function ThemePicker({theme, setTheme}){
   const[open,setOpen]=useState(false);
@@ -3033,10 +3123,11 @@ export default function App(){
   const[activeTab,setActiveTab]=useState(null); // null = show all (family summary)
   const[ppPanelFor,setPpPanelFor]=useState(null); // memberId whose PP panel is open, or null
   const[theme,setTheme]=useState("forest");
+  const[pattern,setPattern]=useState("topo");
   const mRef=useRef(members);const lRef=useRef(logs);
-  const tRef=useRef(theme);
-  mRef.current=members;lRef.current=logs;tRef.current=theme;
-  const mInit=useRef(false);const lInit=useRef(false);const tInit=useRef(false);
+  const tRef=useRef(theme);const pRef=useRef(pattern);
+  mRef.current=members;lRef.current=logs;tRef.current=theme;pRef.current=pattern;
+  const mInit=useRef(false);const lInit=useRef(false);const tInit=useRef(false);const pInit=useRef(false);
   const now=new Date();
   const[yr,setYr]=useState(now.getFullYear());
   const[mo,setMo]=useState(now.getMonth());
@@ -3047,7 +3138,8 @@ export default function App(){
       if(d){
         if(d.members&&Array.isArray(d.members)&&d.members.length>0) setMembers(d.members);
         if(d.logs&&typeof d.logs==="object") setLogs(d.logs);
-        if(d.theme&&THEMES.some(t=>t.id===d.theme)) setTheme(d.theme);
+        if(d.theme&&(THEMES.some(t=>t.id===d.theme)||d.theme.startsWith('#'))) setTheme(d.theme);
+        if(d.pattern&&PATTERN_OPTIONS.some(p=>p.id===d.pattern)) setPattern(d.pattern);
       }
       setLoaded(true);
     })();
@@ -3060,9 +3152,10 @@ export default function App(){
     }
   },[loaded]);
 
-  useEffect(()=>{if(!loaded)return;if(!mInit.current){mInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current,theme:tRef.current});},[members,loaded]);
-  useEffect(()=>{if(!loaded)return;if(!lInit.current){lInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current,theme:tRef.current});},[logs,loaded]);
-  useEffect(()=>{if(!loaded)return;if(!tInit.current){tInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current,theme:tRef.current});},[theme,loaded]);
+  useEffect(()=>{if(!loaded)return;if(!mInit.current){mInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current,theme:tRef.current,pattern:pRef.current});},[members,loaded]);
+  useEffect(()=>{if(!loaded)return;if(!lInit.current){lInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current,theme:tRef.current,pattern:pRef.current});},[logs,loaded]);
+  useEffect(()=>{if(!loaded)return;if(!tInit.current){tInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current,theme:tRef.current,pattern:pRef.current});},[theme,loaded]);
+  useEffect(()=>{if(!loaded)return;if(!pInit.current){pInit.current=true;return;}scheduleSave({members:mRef.current,logs:lRef.current,theme:tRef.current,pattern:pRef.current});},[pattern,loaded]);
 
   const handleLogAll=useCallback((mid,dateStr,entries)=>{
     setLogs(prev=>{
@@ -3112,21 +3205,9 @@ export default function App(){
       return `#${Math.round(r+(255-r)*0.75).toString(16).padStart(2,"0")}${Math.round(g+(255-g)*0.75).toString(16).padStart(2,"0")}${Math.round(b+(255-b)*0.75).toString(16).padStart(2,"0")}`;
     })(),
   } : THEMES[0]);
-  const topoPattern = `url("data:image/svg+xml,${encodeURIComponent(`
-    <svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'>
-      <g fill='none' stroke='${currentTheme.accent}' stroke-width='1' opacity='0.4'>
-        <path d='M-20,60 C60,20 140,100 220,50 C300,0 380,80 440,40'/>
-        <path d='M-20,110 C60,70 140,150 220,100 C300,50 380,130 440,90'/>
-        <path d='M-20,160 C60,120 140,200 220,150 C300,100 380,180 440,140'/>
-        <path d='M-20,210 C60,170 140,250 220,200 C300,150 380,230 440,190'/>
-        <path d='M-20,260 C60,220 140,300 220,250 C300,200 380,280 440,240'/>
-        <path d='M-20,310 C60,270 140,350 220,300 C300,250 380,330 440,290'/>
-        <path d='M-20,360 C60,320 140,400 220,350 C300,300 380,380 440,340'/>
-      </g>
-    </svg>
-  `)}")`;
+  const bgPattern = `url("data:image/svg+xml,${encodeURIComponent(getPatternSvg(pattern, currentTheme.accent))}")`;
 
-  return <div style={{background:`${topoPattern}, ${currentTheme.light}`,backgroundRepeat:"repeat",minHeight:"100vh",fontFamily:"'Inter','Helvetica Neue',sans-serif",color:C.text,transition:"background 0.3s"}}>
+  return <div style={{background:`${bgPattern}, ${currentTheme.light}`,backgroundRepeat:"repeat",minHeight:"100vh",fontFamily:"'Inter','Helvetica Neue',sans-serif",color:C.text,transition:"background 0.3s"}}>
     <div style={{height:4,background:currentTheme.accent,transition:"background 0.3s"}}/>
     <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"16px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
       <div>
@@ -3138,6 +3219,7 @@ export default function App(){
         <span style={{fontWeight:700,fontSize:14,minWidth:100,textAlign:"center"}}>{MONTHS[mo]} {yr}</span>
         <button onClick={nextMo} disabled={isCurMo} style={{...navBtn,opacity:isCurMo?0.3:1}}>›</button>
         <ThemePicker theme={theme} setTheme={setTheme}/>
+        <PatternPicker pattern={pattern} setPattern={setPattern} accent={currentTheme.accent}/>
         <button onClick={()=>setEditM("new")} style={{background:currentTheme.accent,color:"#fff",border:"none",borderRadius:9,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>+ Add member</button>
       </div>
     </div>
