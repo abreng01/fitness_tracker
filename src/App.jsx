@@ -2250,6 +2250,8 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
   const[alternating,setAlternating]=useState(member?.alternating??false);
   const[eggMeter,setEggMeter]=useState(member?.eggMeter??false);
   const[startDate,setStartDate]=useState(member?.startDate??"");
+  const[memberTheme,setMemberTheme]=useState(member?.memberTheme??"");
+  const[memberPattern,setMemberPattern]=useState(member?.memberPattern??"");
   const eOpts=["🧗","🚶","🏃","🚴","🏋️","🤸","🧘","🏊","⚽","🏓","🎯","💪","🧒","👩","👨"];
   const cOpts=["#5B8FD4","#D47B9E","#3D9E6E","#E8A838","#9B6FD4","#E05C5C","#5BC4C4","#E8873A"];
   const addAct=()=>setActs(a=>[...a,{id:Date.now().toString(),name:"",unit:"reps",target:10}]);
@@ -2275,6 +2277,42 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
         <div style={{display:"flex",gap:7}}>
           {cOpts.map(c=><div key={c} onClick={()=>setColor(c)} style={{width:26,height:26,borderRadius:"50%",background:c,cursor:"pointer",border:color===c?`3px solid ${C.text}`:"3px solid transparent",boxSizing:"border-box"}}/>)}
         </div>
+      </div>
+
+      {/* Per-member theme */}
+      <div style={{marginBottom:14}}>
+        <label style={lStyle}>Page theme (this member only)</label>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
+          <div onClick={()=>setMemberTheme("")} style={{
+            width:26,height:26,borderRadius:"50%",cursor:"pointer",
+            background:"linear-gradient(135deg,#ccc 50%,#fff 50%)",
+            border:memberTheme===""?`3px solid ${C.text}`:"3px solid transparent",boxSizing:"border-box",
+          }} title="Use global theme"/>
+          {THEMES.map(t=><div key={t.id} onClick={()=>setMemberTheme(t.id)} style={{
+            width:26,height:26,borderRadius:"50%",background:t.accent,cursor:"pointer",
+            border:memberTheme===t.id?`3px solid ${C.text}`:"3px solid transparent",boxSizing:"border-box",
+          }} title={t.name}/>)}
+        </div>
+        <div style={{fontSize:10,color:C.muted}}>{memberTheme?`Using: ${THEMES.find(t=>t.id===memberTheme)?.name}`:"Using global theme (half-circle = default)"}</div>
+      </div>
+
+      {/* Per-member pattern */}
+      <div style={{marginBottom:18}}>
+        <label style={lStyle}>Background pattern (this member only)</label>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          <div onClick={()=>setMemberPattern("")} style={{
+            width:30,height:22,borderRadius:5,cursor:"pointer",
+            background:"linear-gradient(135deg,#ccc 50%,#fff 50%)",
+            border:memberPattern===""?`2px solid ${C.text}`:"2px solid transparent",boxSizing:"border-box",
+          }} title="Use global pattern"/>
+          {PATTERN_OPTIONS.map(p=><div key={p.id} onClick={()=>setMemberPattern(p.id)} style={{
+            width:30,height:22,borderRadius:5,cursor:"pointer",fontSize:12,
+            display:"flex",alignItems:"center",justifyContent:"center",
+            background:C.bg,border:memberPattern===p.id?`2px solid ${C.text}`:"2px solid transparent",
+            boxSizing:"border-box",
+          }} title={p.name}>{p.emoji}</div>)}
+        </div>
+        <div style={{fontSize:10,color:C.muted,marginTop:3}}>{memberPattern?`Using: ${PATTERN_OPTIONS.find(p=>p.id===memberPattern)?.name}`:"Using global pattern"}</div>
       </div>
       <div style={{marginBottom:18}}>
         <div onClick={()=>setEggMeter(e=>!e)} style={{
@@ -2329,7 +2367,7 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
       <div style={{display:"flex",gap:8}}>
         {!isNew&&<button onClick={()=>{if(window.confirm("Remove?"))onDelete(member.id);}} style={{padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",cursor:"pointer",color:C.missed,fontWeight:600}}>Delete</button>}
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
+        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
       </div>
     </div>
   </div>;
@@ -3197,15 +3235,20 @@ export default function App(){
 
   if(!loaded) return <div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{color:C.muted,fontSize:16}}>Loading…</div></div>;
 
-  const currentTheme = THEMES.find(t=>t.id===theme) || (theme.startsWith("#") ? {
-    accent: theme,
+  // Derive active theme and pattern — per-member if set, otherwise global
+  const activeMember = activeTab ? members.find(m=>m.id===activeTab) : null;
+  const activeThemeId = (activeMember?.memberTheme) || theme;
+  const activePatternId = (activeMember?.memberPattern) || pattern;
+
+  const currentTheme = THEMES.find(t=>t.id===activeThemeId) || (activeThemeId.startsWith("#") ? {
+    accent: activeThemeId,
     light: (()=>{
-      const hex=theme.replace("#","");
+      const hex=activeThemeId.replace("#","");
       const r=parseInt(hex.slice(0,2),16),g=parseInt(hex.slice(2,4),16),b=parseInt(hex.slice(4,6),16);
       return `#${Math.round(r+(255-r)*0.75).toString(16).padStart(2,"0")}${Math.round(g+(255-g)*0.75).toString(16).padStart(2,"0")}${Math.round(b+(255-b)*0.75).toString(16).padStart(2,"0")}`;
     })(),
   } : THEMES[0]);
-  const bgPattern = `url("data:image/svg+xml,${encodeURIComponent(getPatternSvg(pattern, currentTheme.accent))}")`;
+  const bgPattern = `url("data:image/svg+xml,${encodeURIComponent(getPatternSvg(activePatternId, currentTheme.accent))}")`;
 
   return <div style={{background:`${bgPattern}, ${currentTheme.light}`,backgroundRepeat:"repeat",minHeight:"100vh",fontFamily:"'Inter','Helvetica Neue',sans-serif",color:C.text,transition:"background 0.3s"}}>
     <div style={{height:4,background:currentTheme.accent,transition:"background 0.3s"}}/>
