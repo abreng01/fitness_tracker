@@ -236,13 +236,10 @@ function memberMonthSummary(member, logs, y, m){
 function memberStreakCount(member, logs){
   const acts = member.activities || [];
   if(!acts.length) return 0;
+  if(acts.length === 1) return streakCount(getActivityLogs(logs,member.id,acts[0].id));
 
-  if(!member.alternating || acts.length <= 1){
-    const streaks = acts.map(a=>streakCount(getActivityLogs(logs,member.id,a.id)));
-    return streaks.length?Math.max(...streaks):0;
-  }
-
-  // Alternating: streak continues as long as ANY activity was logged that day
+  // For any member with multiple activities: streak continues if ANY activity was logged that day
+  // This correctly handles both alternating and non-alternating multi-activity members
   const today = todayStr();
   const anyToday = acts.some(a=>{
     const l = getActivityLogs(logs,member.id,a.id)[today];
