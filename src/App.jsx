@@ -2457,7 +2457,7 @@ function GrowthLogModal({member, existing, onSave, onClose}){
   const [weight, setWeight] = useState(existing?.weight ?? "");
   const monthLabel = now.toLocaleDateString("en-IN",{month:"long",year:"numeric"});
 
-  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:300,
+  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:500,
     display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
     <div style={{background:C.surface,borderRadius:18,padding:24,width:"100%",maxWidth:320,
       boxShadow:"0 8px 40px rgba(0,0,0,0.2)"}} onClick={e=>e.stopPropagation()}>
