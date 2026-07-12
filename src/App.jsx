@@ -1972,11 +1972,12 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
 }
 
 // ── Member Card ───────────────────────────────────────────────────────────────
-function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP}){
+function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave}){
   const today=todayStr();
   const[showCal,setShowCal]=useState(true);
   const[showBadges,setShowBadges]=useState(false);
   const[showStats,setShowStats]=useState(false);
+  const[showGrowth,setShowGrowth]=useState(false);
   const[showHeatmap,setShowHeatmap]=useState(false);
   const[mysteryReveal,setMysteryReveal]=useState(null); // {normalPP, bonusPP}
   const[modal,setModal]=useState(null);
@@ -2164,11 +2165,13 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
       <span style={{fontSize:12,color:C.muted}}><span style={{fontWeight:700,color:C.text}}>{allEarned.size}</span> / {personalBadges.length} badges earned</span>
       <div style={{display:"flex",gap:6}}>
         <button onClick={()=>setShowStats(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:C.muted}}>📊 Stats</button>
+        <button onClick={()=>setShowGrowth(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:C.muted}}>📏 Growth</button>
         <button onClick={()=>setShowBadges(true)} style={{background:member.color,color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12}}>🏆 Badges</button>
       </div>
     </div>
     {showBadges&&<BadgeDrawer member={member} allEarned={allEarned} acts={acts} logs={logs} onClose={()=>setShowBadges(false)}/>}
     {showStats&&<AllTimeStats member={member} logs={logs} onClose={()=>setShowStats(false)}/>}
+    {showGrowth&&<GrowthDrawer member={member} logs={logs} onSave={onGrowthSave} onClose={()=>setShowGrowth(false)}/>}
     {mysteryReveal&&<MysteryBonusReveal normalPP={mysteryReveal.normalPP} bonusPP={mysteryReveal.bonusPP} onClose={()=>setMysteryReveal(null)}/>}
 
     {modal&&(member.alternating&&acts.length>1
@@ -2442,6 +2445,235 @@ function FamilyFeed({members,logs}){
 }
 
 // ── All-time Stats Panel ──────────────────────────────────────────────────────
+// ── Growth Tracker ────────────────────────────────────────────────────────────
+function getGrowthLogs(logs, memberId){
+  return (logs[memberId] && logs[memberId].growth) || [];
+}
+
+function GrowthLogModal({member, existing, onSave, onClose}){
+  const now = new Date();
+  const monthStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+  const [height, setHeight] = useState(existing?.height ?? "");
+  const [weight, setWeight] = useState(existing?.weight ?? "");
+  const monthLabel = now.toLocaleDateString("en-IN",{month:"long",year:"numeric"});
+
+  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:300,
+    display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
+    <div style={{background:C.surface,borderRadius:18,padding:24,width:"100%",maxWidth:320,
+      boxShadow:"0 8px 40px rgba(0,0,0,0.2)"}} onClick={e=>e.stopPropagation()}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+        <span style={{fontSize:24}}>{member.emoji}</span>
+        <div>
+          <div style={{fontWeight:700,fontSize:15}}>Log Measurement</div>
+          <div style={{fontSize:11,color:C.muted}}>{monthLabel}</div>
+        </div>
+      </div>
+      <div style={{marginBottom:14}}>
+        <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:6}}>HEIGHT (cm)</label>
+        <input type="number" min={50} max={250} step={0.1} value={height}
+          onChange={e=>setHeight(e.target.value)} placeholder="e.g. 128.5"
+          style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.border}`,
+          fontSize:18,fontWeight:700,outline:"none",boxSizing:"border-box"}}/>
+      </div>
+      <div style={{marginBottom:20}}>
+        <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:6}}>WEIGHT (kg)</label>
+        <input type="number" min={5} max={300} step={0.1} value={weight}
+          onChange={e=>setWeight(e.target.value)} placeholder="e.g. 26.5"
+          style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.border}`,
+          fontSize:18,fontWeight:700,outline:"none",boxSizing:"border-box"}}/>
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,
+          border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",
+          fontWeight:600,color:C.muted}}>Cancel</button>
+        <button onClick={()=>{
+          if(!height&&!weight) return;
+          onSave({month:monthStr,
+            height:height?parseFloat(height):null,
+            weight:weight?parseFloat(weight):null});
+          onClose();
+        }} disabled={!height&&!weight} style={{flex:2,padding:"10px 0",borderRadius:8,
+          border:"none",background:(!height&&!weight)?C.border:member.color,
+          color:"#fff",cursor:(!height&&!weight)?"not-allowed":"pointer",
+          fontWeight:700,fontSize:14}}>Save</button>
+      </div>
+    </div>
+  </div>;
+}
+
+function GrowthDrawer({member, logs, onSave, onClose}){
+  const growthLogs = getGrowthLogs(logs, member.id)
+    .slice().sort((a,b)=>a.month.localeCompare(b.month));
+  const [showLogModal, setShowLogModal] = useState(false);
+
+  const now = new Date();
+  const thisMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+  const thisMonthEntry = growthLogs.find(g=>g.month===thisMonth);
+  const latest = growthLogs[growthLogs.length-1];
+  const prev = growthLogs[growthLogs.length-2];
+
+  const heightDelta = latest?.height&&prev?.height ? (latest.height-prev.height).toFixed(1) : null;
+  const weightDelta = latest?.weight&&prev?.weight ? (latest.weight-prev.weight).toFixed(1) : null;
+
+  // SVG chart dimensions
+  const W=320, H=140, padL=36, padR=16, padT=16, padB=28;
+  const cW=W-padL-padR, cH=H-padT-padB;
+  const hasChart = growthLogs.filter(g=>g.height||g.weight).length >= 2;
+
+  function chartPath(key, color){
+    const pts = growthLogs.filter(g=>g[key]!=null);
+    if(pts.length<2) return null;
+    const vals = pts.map(g=>g[key]);
+    const minV=Math.min(...vals), maxV=Math.max(...vals);
+    const range = maxV-minV || 1;
+    const xStep = cW/(growthLogs.length-1);
+    return pts.map((g,i)=>{
+      const xi = growthLogs.indexOf(g);
+      const x = padL+xi*xStep;
+      const y = padT+cH-(((g[key]-minV)/range)*cH);
+      return {x,y,val:g[key],month:g.month};
+    });
+  }
+
+  const hPts = chartPath("height","#5B8FD4");
+  const wPts = chartPath("weight","#E8873A");
+
+  function buildD(pts){
+    if(!pts||pts.length<2) return "";
+    return pts.map((p,i)=>i===0?`M${p.x},${p.y}`:`L${p.x},${p.y}`).join(" ");
+  }
+
+  function monthLabel(m){
+    const d=new Date(m+"-01");
+    return d.toLocaleDateString("en-IN",{month:"short",year:"2-digit"});
+  }
+
+  return <>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
+    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
+      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
+      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+
+      {/* Header */}
+      <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:26}}>{member.emoji}</span>
+            <div>
+              <div style={{fontWeight:800,fontSize:16}}>📏 Growth</div>
+              <div style={{fontSize:11,color:C.muted}}>{member.name}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,
+            borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+        </div>
+      </div>
+
+      <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px"}}>
+
+        {/* Latest + delta */}
+        {latest ? <div style={{background:C.bg,borderRadius:12,padding:"14px 16px",marginBottom:16}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>
+            LATEST — {monthLabel(latest.month)}
+          </div>
+          <div style={{display:"flex",gap:16}}>
+            {latest.height&&<div>
+              <div style={{fontSize:28,fontWeight:900,color:member.color}}>{latest.height}</div>
+              <div style={{fontSize:11,color:C.muted}}>cm height</div>
+              {heightDelta&&<div style={{fontSize:11,fontWeight:600,
+                color:parseFloat(heightDelta)>=0?C.done:C.missed,marginTop:2}}>
+                {parseFloat(heightDelta)>=0?"↑":"↓"} {Math.abs(heightDelta)}cm
+              </div>}
+            </div>}
+            {latest.height&&latest.weight&&<div style={{width:1,background:C.border}}/>}
+            {latest.weight&&<div>
+              <div style={{fontSize:28,fontWeight:900,color:"#E8873A"}}>{latest.weight}</div>
+              <div style={{fontSize:11,color:C.muted}}>kg weight</div>
+              {weightDelta&&<div style={{fontSize:11,fontWeight:600,
+                color:C.muted,marginTop:2}}>
+                {parseFloat(weightDelta)>=0?"↑":"↓"} {Math.abs(weightDelta)}kg
+              </div>}
+            </div>}
+          </div>
+        </div> : <div style={{background:C.bg,borderRadius:12,padding:20,textAlign:"center",
+          marginBottom:16,color:C.muted,fontSize:13}}>
+          No measurements yet. Log the first one!
+        </div>}
+
+        {/* Chart */}
+        {hasChart&&<div style={{marginBottom:16}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>GROWTH CHART</div>
+          <div style={{display:"flex",gap:12,marginBottom:8}}>
+            <span style={{fontSize:10,color:"#5B8FD4",fontWeight:600}}>— Height (cm)</span>
+            <span style={{fontSize:10,color:"#E8873A",fontWeight:600}}>— Weight (kg)</span>
+          </div>
+          <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto"}}>
+            {/* Grid */}
+            {[0,0.5,1].map(t=><line key={t}
+              x1={padL} y1={padT+cH*(1-t)} x2={W-padR} y2={padT+cH*(1-t)}
+              stroke={C.border} strokeWidth={1} strokeDasharray={t===0?"":"4,4"}/>)}
+            {/* Height line */}
+            {hPts&&<>
+              <path d={buildD(hPts)} fill="none" stroke="#5B8FD4" strokeWidth={2.5}
+                strokeLinecap="round" strokeLinejoin="round"/>
+              {hPts.map((p,i)=><g key={i}>
+                <circle cx={p.x} cy={p.y} r={4} fill="#5B8FD4" stroke="#fff" strokeWidth={2}/>
+                <text x={p.x} y={p.y-8} textAnchor="middle" fontSize={8} fill="#5B8FD4">{p.val}</text>
+              </g>)}
+            </>}
+            {/* Weight line */}
+            {wPts&&<>
+              <path d={buildD(wPts)} fill="none" stroke="#E8873A" strokeWidth={2.5}
+                strokeLinecap="round" strokeLinejoin="round"/>
+              {wPts.map((p,i)=><g key={i}>
+                <circle cx={p.x} cy={p.y} r={4} fill="#E8873A" stroke="#fff" strokeWidth={2}/>
+                <text x={p.x} y={p.y-8} textAnchor="middle" fontSize={8} fill="#E8873A">{p.val}</text>
+              </g>)}
+            </>}
+            {/* X axis labels */}
+            {growthLogs.map((g,i)=>{
+              const xStep=cW/(growthLogs.length-1);
+              return <text key={g.month} x={padL+i*xStep} y={H-6}
+                textAnchor="middle" fontSize={8} fill={C.muted}>{monthLabel(g.month)}</text>;
+            })}
+          </svg>
+        </div>}
+
+        {/* History list */}
+        {growthLogs.length>0&&<div style={{marginBottom:16}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>HISTORY</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {[...growthLogs].reverse().map(g=><div key={g.month} style={{
+              display:"flex",alignItems:"center",justifyContent:"space-between",
+              padding:"8px 12px",background:C.bg,borderRadius:8}}>
+              <span style={{fontSize:12,fontWeight:600,color:C.text}}>{monthLabel(g.month)}</span>
+              <div style={{display:"flex",gap:12}}>
+                {g.height&&<span style={{fontSize:12,color:"#5B8FD4",fontWeight:700}}>{g.height}cm</span>}
+                {g.weight&&<span style={{fontSize:12,color:"#E8873A",fontWeight:700}}>{g.weight}kg</span>}
+              </div>
+            </div>)}
+          </div>
+        </div>}
+
+        {/* Log button */}
+        <button onClick={()=>setShowLogModal(true)} style={{
+          width:"100%",padding:"12px 0",borderRadius:10,border:"none",
+          background:thisMonthEntry?C.bg:member.color,
+          color:thisMonthEntry?C.muted:"#fff",
+          cursor:"pointer",fontWeight:700,fontSize:14,
+          border:thisMonthEntry?`1.5px solid ${C.border}`:"none",
+        }}>
+          {thisMonthEntry?"✏️ Edit this month's measurement":"📏 Log this month's measurement"}
+        </button>
+      </div>
+    </div>
+
+    {showLogModal&&<GrowthLogModal member={member} existing={thisMonthEntry}
+      onSave={entry=>onSave(member.id,entry)} onClose={()=>setShowLogModal(false)}/>}
+  </>;
+}
+
 function AllTimeStats({member,logs,onClose}){
   const today=todayStr();
   const acts=member.activities||[];
@@ -3220,6 +3452,17 @@ export default function App(){
     });
   },[]);
 
+  const handleGrowthSave=useCallback((mid,entry)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const growth=[...(next[mid].growth||[])];
+      const idx=growth.findIndex(g=>g.month===entry.month);
+      if(idx>=0) growth[idx]=entry; else growth.push(entry);
+      next[mid].growth=growth;
+      return next;
+    });
+  },[]);
+
   const handleSave=useCallback((m)=>{
     setMembers(p=>{const ex=p.find(x=>x.id===m.id);return ex?p.map(x=>x.id===m.id?m:x):[...p,m];});
     setEditM(null);
@@ -3304,7 +3547,7 @@ export default function App(){
           <div style={{flex:"1 1 460px",maxWidth:860,minWidth:0}}>
             <MemberCard member={m} logs={logs} allMembers={members}
               onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}
-              onOpenPP={(id)=>setPpPanelFor(id)}/>
+              onOpenPP={(id)=>setPpPanelFor(id)} onGrowthSave={handleGrowthSave}/>
           </div>
           {ppPanelFor===m.id&&<div style={{flex:"1 1 320px",maxWidth:380,minWidth:280}}>
             <PowerPointsPanel member={m} logs={logs} onClose={()=>setPpPanelFor(null)}/>
