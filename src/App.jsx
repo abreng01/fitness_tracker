@@ -741,8 +741,49 @@ const BADGES=[
   {id:"walk_200",  e:"🚶",label:"200km",             desc:"200 km total distance",           tier:"gold",  check:s=>s.unit==="km"&&s.totalVol>=200},
   {id:"walk_250",  e:"🏆",label:"Long Hauler",       desc:"250 km total distance",           tier:"gold",  check:s=>s.unit==="km"&&s.totalVol>=250},
   {id:"walk_500",  e:"🚀",label:"500 Club",          desc:"500 km total distance",           tier:"gold",  check:s=>s.unit==="km"&&s.totalVol>=500},
+  // ── 🚶 NEW: extended km milestones + single-session PBs
+  {id:"walk_750",  e:"🌄",label:"750km",             desc:"750 km total distance",           tier:"gold",  check:s=>s.unit==="km"&&s.totalVol>=750},
+  {id:"walk_1000", e:"🌍",label:"1000km Club",       desc:"1000 km total distance",          tier:"gold",  check:s=>s.unit==="km"&&s.totalVol>=1000},
+  {id:"km_pb5",     e:"🏃",label:"5km Session",       desc:"5 km in one session",             tier:"bronze",check:s=>s.unit==="km"&&s.bestVal>=5},
+  {id:"km_pb10",    e:"🎽",label:"10km Session",      desc:"10 km in one session",            tier:"silver",check:s=>s.unit==="km"&&s.bestVal>=10},
+  // ── 🧗 NEW: single-session hang PBs (sec)
+  {id:"hang_pb60",  e:"⏱️",label:"One Minute",       desc:"Single hang of 60 sec",           tier:"bronze",check:s=>s.unit==="sec"&&s.bestVal>=60},
+  {id:"hang_pb90",  e:"🥋",label:"90 Seconds",       desc:"Single hang of 90 sec",           tier:"silver",check:s=>s.unit==="sec"&&s.bestVal>=90},
+  {id:"hang_pb120", e:"🦅",label:"Two Minutes",      desc:"Single hang of 2 min",            tier:"silver",check:s=>s.unit==="sec"&&s.bestVal>=120},
+  {id:"hang_pb180", e:"🏰",label:"Three Minutes",    desc:"Single hang of 3 min",            tier:"gold",  check:s=>s.unit==="sec"&&s.bestVal>=180},
+  {id:"hang_pb300", e:"🌌",label:"Five Minutes",     desc:"Single hang of 5 min",            tier:"gold",  check:s=>s.unit==="sec"&&s.bestVal>=300},
+  // ── 🏋️ NEW: reps unit milestones (squats, push-ups etc.) — brand new unit type
+  {id:"reps_50",   e:"🌱",label:"50 Reps",           desc:"50 total reps logged",            tier:"bronze",check:s=>s.unit==="reps"&&s.totalVol>=50},
+  {id:"reps_100",  e:"💯",label:"Century Reps",      desc:"100 total reps logged",           tier:"bronze",check:s=>s.unit==="reps"&&s.totalVol>=100},
+  {id:"reps_250",  e:"🔥",label:"250 Reps",          desc:"250 total reps logged",           tier:"silver",check:s=>s.unit==="reps"&&s.totalVol>=250},
+  {id:"reps_500",  e:"💪",label:"500 Reps",          desc:"500 total reps logged",           tier:"silver",check:s=>s.unit==="reps"&&s.totalVol>=500},
+  {id:"reps_1000", e:"🏆",label:"1000 Reps",         desc:"1000 total reps logged",          tier:"gold",  check:s=>s.unit==="reps"&&s.totalVol>=1000},
+  {id:"reps_2500", e:"🌟",label:"2500 Reps",         desc:"2500 total reps logged",          tier:"gold",  check:s=>s.unit==="reps"&&s.totalVol>=2500},
+  {id:"reps_pb10", e:"🎯",label:"10 in a Row",       desc:"10 reps in one session",          tier:"bronze",check:s=>s.unit==="reps"&&s.bestVal>=10},
+  {id:"reps_pb20", e:"⚡",label:"20 in a Row",       desc:"20 reps in one session",          tier:"silver",check:s=>s.unit==="reps"&&s.bestVal>=20},
+  {id:"reps_pb30", e:"🦾",label:"30 in a Row",       desc:"30 reps in one session",          tier:"silver",check:s=>s.unit==="reps"&&s.bestVal>=30},
+  {id:"reps_pb50", e:"🌋",label:"50 in a Row",       desc:"50 reps in one session",          tier:"gold",  check:s=>s.unit==="reps"&&s.bestVal>=50},
+  // ── ⏱️ NEW: min unit milestones (strength training etc.)
+  {id:"min_60",    e:"⏱️",label:"First Hour",        desc:"60 total minutes logged",         tier:"bronze",check:s=>s.unit==="min"&&s.totalVol>=60},
+  {id:"min_300",   e:"🔥",label:"5 Hours",           desc:"300 total minutes logged",        tier:"bronze",check:s=>s.unit==="min"&&s.totalVol>=300},
+  {id:"min_600",   e:"💪",label:"10 Hours",          desc:"600 total minutes logged",        tier:"silver",check:s=>s.unit==="min"&&s.totalVol>=600},
+  {id:"min_pb30",  e:"🌱",label:"30 Min Session",    desc:"Single session of 30 min",        tier:"bronze",check:s=>s.unit==="min"&&s.bestVal>=30},
+  {id:"min_pb45",  e:"🎯",label:"45 Min Session",    desc:"Single session of 45 min",        tier:"silver",check:s=>s.unit==="min"&&s.bestVal>=45},
 ];
 const FAM_IDS=new Set(["fam_day","fam_10","fam_week","fam_trio"]);
+// ── Get relevant badges for a member based on their actual activity units ─────
+function getMemberBadges(member){
+  const units = new Set((member.activities||[]).map(a=>a.unit));
+  return BADGES.filter(b=>{
+    if(FAM_IDS.has(b.id)) return false;
+    // Prefix-based unit detection — most reliable
+    if(b.id.startsWith("hang_")) return units.has("sec");
+    if(b.id.startsWith("reps_")) return units.has("reps");
+    if(b.id.startsWith("walk_")||b.id.startsWith("km_")) return units.has("km");
+    if(b.id.startsWith("min_")) return units.has("min");
+    return true; // generic badge — applies to everyone
+  });
+}
 const TC={
   bronze:{bg:"#FDF0E0",bd:"#C97D3A",tx:"#7A4A1E",gl:"#C97D3A33"},
   silver:{bg:"#F0F4F8",bd:"#8A9BB0",tx:"#3A4A5E",gl:"#8A9BB033"},
@@ -787,18 +828,21 @@ function computeStats(al,target){
     if(gap>=7){pg++;if(pg>=3){comeback=true;break;}}
     lastL=ds;
   }
-  let perfMon=false,perfSun=false;
+  let perfMon=false,perfSun=false,perfTue=false,perfThu=false;
   for(const ym of mons){
     const[y,m]=ym.split("-").map(Number);const dm=new Date(y,m,0).getDate();
-    let am=true,hm=false,as_=true,hs=false;
+    let am=true,hm=false,as_=true,hs=false,at=true,ht=false,ath=true,hth=false;
     for(let day=1;day<=dm;day++){
       const dt=new Date(y,m-1,day);const dow=dt.getDay();
       const key=`${y}-${String(m).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
       if(key>today) continue;
       if(dow===1){hm=true;const l=al[key];if(!l||l.status==="skipped")am=false;}
       if(dow===0){hs=true;const l=al[key];if(!l||l.status==="skipped")as_=false;}
+      if(dow===2){ht=true;const l=al[key];if(!l||l.status==="skipped")at=false;}
+      if(dow===4){hth=true;const l=al[key];if(!l||l.status==="skipped")ath=false;}
     }
     if(hm&&am)perfMon=true;if(hs&&as_)perfSun=true;
+    if(ht&&at)perfTue=true;if(hth&&ath)perfThu=true;
   }
   const wem={};
   for(const[ds,l]of entries){
@@ -839,7 +883,7 @@ function computeStats(al,target){
   }
 
   return{totalDone,bestVal,bestPct,streak,bestStreak,bestPerf,bestMonPct,highMons,hasPB:bestVal>target,
-    bestWeek,consec5w,comeback,perfMon,perfSun,perfWknd,trackDays,overStreak,steadyStreak,
+    bestWeek,consec5w,comeback,perfMon,perfSun,perfTue,perfThu,perfWknd,trackDays,overStreak,steadyStreak,
     totalVol,unit:"",bestMonthDays,famDays:0,famWeeks:0,famActive:false};
 }
 
@@ -883,6 +927,8 @@ function computeMemberLevelStats(member, logs){
     comeback: stats.comeback,
     perfMon: stats.perfMon,
     perfSun: stats.perfSun,
+    perfTue: stats.perfTue,
+    perfThu: stats.perfThu,
     perfWknd: stats.perfWknd,
     bestMonthDays: stats.bestMonthDays,
   };
@@ -1425,7 +1471,7 @@ function CalCell({dateStr,member,logs,isToday,onClick,ppByDate}){
 
 // ── Badge Drawer ──────────────────────────────────────────────────────────────
 function BadgeDrawer({member, allEarned, acts, logs, onClose}){
-  const personalBadges = BADGES.filter(b=>!FAM_IDS.has(b.id));
+  const personalBadges = getMemberBadges(member);
   const earnedList     = personalBadges.filter(b=>allEarned.has(b.id));
   const lockedList     = personalBadges.filter(b=>!allEarned.has(b.id));
 
@@ -1996,7 +2042,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
   const fs=computeFamStats(allMembers,logs);
   const memberOverride = (member.alternating && acts.length>1) ? computeMemberLevelStats(member,logs) : {};
   const allEarned=new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,member.id,a.id),a.target,a.unit,{...fs,...memberOverride})));
-  const personalBadges=BADGES.filter(b=>!FAM_IDS.has(b.id));
+  const personalBadges=getMemberBadges(member);
 
   const dCount=daysInMonth(year,month);
   const firstDay=firstDayOfMonth(year,month);
@@ -2518,19 +2564,20 @@ function GrowthDrawer({member, logs, onSave, onClose}){
   // SVG chart dimensions
   const W=320, H=140, padL=36, padR=16, padT=16, padB=28;
   const cW=W-padL-padR, cH=H-padT-padB;
-  const hasChart = growthLogs.filter(g=>g.height||g.weight).length >= 2;
+  const hasChart = growthLogs.filter(g=>g.height||g.weight).length >= 1;
 
-  function chartPath(key, color){
+  function chartPath(key){
     const pts = growthLogs.filter(g=>g[key]!=null);
-    if(pts.length<2) return null;
+    if(pts.length===0) return null;
     const vals = pts.map(g=>g[key]);
     const minV=Math.min(...vals), maxV=Math.max(...vals);
-    const range = maxV-minV || 1;
-    const xStep = cW/(growthLogs.length-1);
-    return pts.map((g,i)=>{
+    const range = maxV-minV || 10; // avoid divide by zero with single point
+    const totalSlots = Math.max(growthLogs.length-1, 1);
+    const xStep = cW/totalSlots;
+    return pts.map((g)=>{
       const xi = growthLogs.indexOf(g);
-      const x = padL+xi*xStep;
-      const y = padT+cH-(((g[key]-minV)/range)*cH);
+      const x = padL + (growthLogs.length===1 ? cW/2 : xi*xStep); // center single point
+      const y = padT+cH-(((g[key]-minV)/range)*cH*0.8)-cH*0.1; // add 10% padding top/bottom
       return {x,y,val:g[key],month:g.month};
     });
   }
@@ -2613,19 +2660,19 @@ function GrowthDrawer({member, logs, onSave, onClose}){
             {[0,0.5,1].map(t=><line key={t}
               x1={padL} y1={padT+cH*(1-t)} x2={W-padR} y2={padT+cH*(1-t)}
               stroke={C.border} strokeWidth={1} strokeDasharray={t===0?"":"4,4"}/>)}
-            {/* Height line */}
+            {/* Height line or dot */}
             {hPts&&<>
-              <path d={buildD(hPts)} fill="none" stroke="#5B8FD4" strokeWidth={2.5}
-                strokeLinecap="round" strokeLinejoin="round"/>
+              {hPts.length>=2&&<path d={buildD(hPts)} fill="none" stroke="#5B8FD4" strokeWidth={2.5}
+                strokeLinecap="round" strokeLinejoin="round"/>}
               {hPts.map((p,i)=><g key={i}>
                 <circle cx={p.x} cy={p.y} r={4} fill="#5B8FD4" stroke="#fff" strokeWidth={2}/>
                 <text x={p.x} y={p.y-8} textAnchor="middle" fontSize={8} fill="#5B8FD4">{p.val}</text>
               </g>)}
             </>}
-            {/* Weight line */}
+            {/* Weight line or dot */}
             {wPts&&<>
-              <path d={buildD(wPts)} fill="none" stroke="#E8873A" strokeWidth={2.5}
-                strokeLinecap="round" strokeLinejoin="round"/>
+              {wPts.length>=2&&<path d={buildD(wPts)} fill="none" stroke="#E8873A" strokeWidth={2.5}
+                strokeLinecap="round" strokeLinejoin="round"/>}
               {wPts.map((p,i)=><g key={i}>
                 <circle cx={p.x} cy={p.y} r={4} fill="#E8873A" stroke="#fff" strokeWidth={2}/>
                 <text x={p.x} y={p.y-8} textAnchor="middle" fontSize={8} fill="#E8873A">{p.val}</text>
@@ -2633,8 +2680,10 @@ function GrowthDrawer({member, logs, onSave, onClose}){
             </>}
             {/* X axis labels */}
             {growthLogs.map((g,i)=>{
-              const xStep=cW/(growthLogs.length-1);
-              return <text key={g.month} x={padL+i*xStep} y={H-6}
+              const totalSlots = Math.max(growthLogs.length-1,1);
+              const xStep=cW/totalSlots;
+              const x = growthLogs.length===1 ? padL+cW/2 : padL+i*xStep;
+              return <text key={g.month} x={x} y={H-6}
                 textAnchor="middle" fontSize={8} fill={C.muted}>{monthLabel(g.month)}</text>;
             })}
           </svg>
@@ -3010,7 +3059,7 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
     const shields = shieldsUsed(logs,m.id,acts);
     const familyOverride = (m.alternating && acts.length>1) ? computeMemberLevelStats(m,logs) : {};
     const allEarned = new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,m.id,a.id),a.target,a.unit,familyOverride)));
-    const personalBadges = BADGES.filter(b=>!FAM_IDS.has(b.id));
+    const personalBadges = getMemberBadges(m);
     const volumes = acts.map(a=>{
       const al=getActivityLogs(logs,m.id,a.id);
       let total=0;
