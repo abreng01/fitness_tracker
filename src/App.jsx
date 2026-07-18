@@ -136,6 +136,16 @@ function computeGkBonus(logs, memberId){
   return {total:dailyBonus+weekendBonus, dailyBonus, weekendBonus, dailyCount:dailyEntries.length, weekendCount:weekendEntries.length};
 }
 
+// ── Bravery Points — parent-awarded, free-form reason + points, feeds same PP pool ──
+function getBraveryLog(logs, memberId){
+  return (logs[memberId] && logs[memberId].bravery) || [];
+}
+function computeBraveryBonus(logs, memberId){
+  const entries = getBraveryLog(logs, memberId);
+  const total = entries.reduce((s,e)=>s+(e.points||0),0);
+  return {total, count:entries.length};
+}
+
 // ── Streak ────────────────────────────────────────────────────────────────────
 function streakCount(al){
   let count=0;
@@ -512,10 +522,18 @@ function computePowerPoints(member, logs){
       gkWeekendByDate[w.date] = w.points||0;
     }
   }
+  // Bravery Points — multiple awards can land on the same date, so aggregate per date first
+  const braveryByDate = {}; // dateStr -> total bravery points that date
+  for(const entry of getBraveryLog(logs, member.id)){
+    if(entry.date && entry.date <= today && (!sd || entry.date >= sd) && entry.points>0){
+      allDates.add(entry.date);
+      braveryByDate[entry.date] = (braveryByDate[entry.date]||0) + entry.points;
+    }
+  }
   const sortedDates = [...allDates].sort();
 
   let totalPP = 100; // base starting points
-  let breakdown = {atTarget:0, aboveTarget:0, belowTarget:0, pb:0, shielded:0, skipped:0, streakBonus:0, streakBreak:0, mysteryDays:0, eggBonus:0, gkBonus:0};
+  let breakdown = {atTarget:0, aboveTarget:0, belowTarget:0, pb:0, shielded:0, skipped:0, streakBonus:0, streakBreak:0, mysteryDays:0, eggBonus:0, gkBonus:0, braveryBonus:0};
   let prevStreak = 0;
   let levelHistory = []; // [{level, title, icon, date}]
   let lastLevelSeen = 1;
@@ -673,7 +691,16 @@ function computePowerPoints(member, logs){
       dailyTags[dateStr].push("gkWeekend");
     }
 
-    dailyEarned[dateStr] = totalPP - ppBeforeDay; // net change this day, multiplier + eggs + GK included
+    // Add Bravery Points for this date inside the loop, same pattern as eggs/GK
+    const braveryPts = braveryByDate[dateStr]||0;
+    if(braveryPts>0){
+      totalPP += braveryPts;
+      breakdown.braveryBonus += braveryPts;
+      if(!dailyTags[dateStr]) dailyTags[dateStr]=[];
+      dailyTags[dateStr].push("bravery");
+    }
+
+    dailyEarned[dateStr] = totalPP - ppBeforeDay; // net change this day, multiplier + eggs + GK + Bravery included
 
     // Track level-up moments
     const dayLevel = getLevel(totalPP);
@@ -1752,6 +1779,7 @@ function PowerPointsPanel({member, logs, onClose}){
     below:{icon:"📉",label:"Below"}, shielded:{icon:"🛡️",label:"Shielded"}, skipped:{icon:"❌",label:"Skipped"},
     mystery:{icon:"🎁",label:"Mystery"}, egg:{icon:"🥚",label:"Egg"},
     gk:{icon:"🧠",label:"GK Quiz"}, gkWeekend:{icon:"🏆",label:"Weekly Review"},
+    bravery:{icon:"🦁",label:"Bravery"},
   };
 
   return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,
@@ -1852,6 +1880,7 @@ function PowerPointsPanel({member, logs, onClose}){
             {label:"Streak bonus",val:breakdown.streakBonus,show:breakdown.streakBonus>0},
             {label:"🥚 Eggs",val:breakdown.eggBonus,show:breakdown.eggBonus>0},
             {label:"🧠 GK Learning",val:breakdown.gkBonus,show:breakdown.gkBonus>0},
+            {label:"🦁 Bravery",val:breakdown.braveryBonus,show:breakdown.braveryBonus>0},
             {label:"Starting bonus",val:100,show:true},
             {label:"Skipped",val:breakdown.skipped,show:breakdown.skipped<0},
             {label:"Streak breaks",val:breakdown.streakBreak,show:breakdown.streakBreak<0},
@@ -2072,12 +2101,14 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
 }
 
 // ── Member Card ───────────────────────────────────────────────────────────────
-function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave}){
+function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onBraverySave}){
   const today=todayStr();
   const[showCal,setShowCal]=useState(true);
   const[showBadges,setShowBadges]=useState(false);
   const[showStats,setShowStats]=useState(false);
   const[showGrowth,setShowGrowth]=useState(false);
+  const[showGK,setShowGK]=useState(false);
+  const[showBravery,setShowBravery]=useState(false);
   const[showHeatmap,setShowHeatmap]=useState(false);
   const[mysteryReveal,setMysteryReveal]=useState(null); // {normalPP, bonusPP}
   const[modal,setModal]=useState(null);
@@ -2261,17 +2292,21 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
     </div>}
 
     {/* Badges + Stats footer */}
-    <div style={{borderTop:`1px solid ${C.border}`,marginTop:12,paddingTop:12,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+    <div style={{borderTop:`1px solid ${C.border}`,marginTop:12,paddingTop:12,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
       <span style={{fontSize:12,color:C.muted}}><span style={{fontWeight:700,color:C.text}}>{allEarned.size}</span> / {personalBadges.length} badges earned</span>
-      <div style={{display:"flex",gap:6}}>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
         <button onClick={()=>setShowStats(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:C.muted}}>📊 Stats</button>
         <button onClick={()=>setShowGrowth(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:C.muted}}>📏 Growth</button>
+        {member.gkEnabled&&<button onClick={()=>setShowGK(true)} style={{background:"none",border:"1px solid #7E57C2",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#7E57C2"}}>🧠 GK</button>}
+        {member.braveryEnabled&&<button onClick={()=>setShowBravery(true)} style={{background:"none",border:"1px solid #F57C00",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#F57C00"}}>🦁 Bravery</button>}
         <button onClick={()=>setShowBadges(true)} style={{background:member.color,color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12}}>🏆 Badges</button>
       </div>
     </div>
     {showBadges&&<BadgeDrawer member={member} allEarned={allEarned} acts={acts} logs={logs} onClose={()=>setShowBadges(false)}/>}
     {showStats&&<AllTimeStats member={member} logs={logs} onClose={()=>setShowStats(false)}/>}
     {showGrowth&&<GrowthDrawer member={member} logs={logs} onSave={onGrowthSave} onClose={()=>setShowGrowth(false)}/>}
+    {showGK&&<GKDrawer member={member} logs={logs} onGkSave={onGkSave} onClose={()=>setShowGK(false)}/>}
+    {showBravery&&<BraveryDrawer member={member} logs={logs} onBraverySave={onBraverySave} onClose={()=>setShowBravery(false)}/>}
     {mysteryReveal&&<MysteryBonusReveal normalPP={mysteryReveal.normalPP} bonusPP={mysteryReveal.bonusPP} onClose={()=>setMysteryReveal(null)}/>}
 
     {modal&&(member.alternating&&acts.length>1
@@ -2358,6 +2393,7 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
   const[alternating,setAlternating]=useState(member?.alternating??false);
   const[eggMeter,setEggMeter]=useState(member?.eggMeter??false);
   const[gkEnabled,setGkEnabled]=useState(member?.gkEnabled??false);
+  const[braveryEnabled,setBraveryEnabled]=useState(member?.braveryEnabled??false);
   const[startDate,setStartDate]=useState(member?.startDate??"");
   const[memberTheme,setMemberTheme]=useState(member?.memberTheme??"");
   const[memberPattern,setMemberPattern]=useState(member?.memberPattern??"");
@@ -2454,6 +2490,21 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
         </div>
       </div>
       <div style={{marginBottom:18}}>
+        <div onClick={()=>setBraveryEnabled(b=>!b)} style={{
+          display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+          background:braveryEnabled?"#FFF3E0":"#F7F5F0",border:`1.5px solid ${braveryEnabled?"#F57C00":C.border}`,
+          borderRadius:10,cursor:"pointer",userSelect:"none",
+        }}>
+          <div style={{width:36,height:20,borderRadius:99,background:braveryEnabled?"#F57C00":C.border,position:"relative",transition:"background 0.2s",flexShrink:0}}>
+            <div style={{position:"absolute",top:2,left:braveryEnabled?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+          </div>
+          <div>
+            <div style={{fontSize:13,fontWeight:600,color:braveryEnabled?"#E65100":C.text}}>🦁 Bravery Points</div>
+            <div style={{fontSize:11,color:C.muted}}>Award points for anything brave — you choose the reason & amount</div>
+          </div>
+        </div>
+      </div>
+      <div style={{marginBottom:18}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
           <label style={{...lStyle,marginBottom:0}}>Activities</label>
           <button onClick={addAct} style={{background:color,color:"#fff",border:"none",borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add</button>
@@ -2491,7 +2542,7 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
       <div style={{display:"flex",gap:8}}>
         {!isNew&&<button onClick={()=>{if(window.confirm("Remove?"))onDelete(member.id);}} style={{padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",cursor:"pointer",color:C.missed,fontWeight:600}}>Delete</button>}
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
+        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
       </div>
     </div>
   </div>;
@@ -2795,27 +2846,71 @@ function GrowthDrawer({member, logs, onSave, onClose}){
 
 // ── General Knowledge (GK) View ────────────────────────────────────────────────
 // ── General Knowledge (GK) View — simple verbal-quiz tracker ────────────────────
+// ── GK Drawer (wraps GKView in a slide-in panel) ─────────────────────────────
+function GKDrawer({member, logs, onGkSave, onClose}){
+  return <>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
+    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
+      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
+      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+      <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:26}}>{member.emoji}</span>
+            <div>
+              <div style={{fontWeight:800,fontSize:16}}>🧠 GK</div>
+              <div style={{fontSize:11,color:C.muted}}>{member.name}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,
+            borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px"}}>
+        {(()=>{
+          const gkBonus = computeGkBonus(logs, member.id);
+          return <>
+            <div style={{background:C.bg,borderRadius:12,padding:"12px 16px",marginBottom:14,
+              display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div>
+                <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5}}>🧠 GK CONTRIBUTED</div>
+                <div style={{fontSize:18,fontWeight:900,color:"#7E57C2"}}>{gkBonus.total.toLocaleString()} ⚡</div>
+              </div>
+              <div style={{fontSize:11,color:C.muted,textAlign:"right"}}>
+                {gkBonus.dailyCount>0&&<div>{gkBonus.dailyCount} {gkBonus.dailyCount===1?"day":"days"} done</div>}
+                {gkBonus.weekendCount>0&&<div>{gkBonus.weekendCount} {gkBonus.weekendCount===1?"week":"weeks"} done</div>}
+              </div>
+            </div>
+            <GKView member={member} logs={logs} onGkSave={onGkSave}/>
+          </>;
+        })()}
+      </div>
+    </div>
+  </>;
+}
+
 // ── General Knowledge (GK) View — verbal quiz tracker with tiered credit ────────
 function GKView({member, logs, onGkSave}){
   const today = todayStr();
   const now = new Date();
   const isWeekend = now.getDay()===0 || now.getDay()===6;
   const gk = getGkData(logs, member.id);
+  const[points, setPoints] = useState("");
 
-  const TierButtons = ({onPick, allPts, mostPts, somePts}) => (
-    <div style={{display:"flex",flexDirection:"column",gap:8}}>
-      <button onClick={()=>onPick(allPts)} style={{
-        background:"#7E57C2",color:"#fff",border:"none",borderRadius:10,
-        padding:"12px 20px",cursor:"pointer",fontWeight:700,fontSize:14,
-      }}>🌟 All correct <span style={{opacity:0.8,fontWeight:500}}>(+{allPts.toLocaleString()} ⚡)</span></button>
-      <button onClick={()=>onPick(mostPts)} style={{
-        background:"none",color:"#7E57C2",border:"1.5px solid #7E57C2",borderRadius:10,
-        padding:"11px 20px",cursor:"pointer",fontWeight:700,fontSize:13,
-      }}>👍 Mostly correct <span style={{opacity:0.7,fontWeight:500}}>(+{mostPts.toLocaleString()} ⚡)</span></button>
-      <button onClick={()=>onPick(somePts)} style={{
-        background:"none",color:C.muted,border:`1.5px solid ${C.border}`,borderRadius:10,
-        padding:"11px 20px",cursor:"pointer",fontWeight:600,fontSize:13,
-      }}>📖 Some correct <span style={{opacity:0.7,fontWeight:500}}>(+{somePts.toLocaleString()} ⚡)</span></button>
+  const PointsForm = ({onGive, placeholder}) => (
+    <div>
+      <input type="number" min={1} value={points} onChange={e=>setPoints(e.target.value)}
+        placeholder={placeholder} style={{width:"100%",padding:"11px 12px",borderRadius:8,
+        border:"1.5px solid #7E57C2",fontSize:16,fontWeight:700,outline:"none",
+        boxSizing:"border-box",marginBottom:10,background:"#fff",textAlign:"center"}}/>
+      <button disabled={!points||parseInt(points)<=0} onClick={()=>{
+        onGive(parseInt(points));
+        setPoints("");
+      }} style={{width:"100%",padding:"11px 0",borderRadius:10,border:"none",
+        background:(!points||parseInt(points)<=0)?"#D1C4E9":"#7E57C2",
+        color:"#fff",cursor:(!points||parseInt(points)<=0)?"not-allowed":"pointer",
+        fontWeight:700,fontSize:14}}>Give Points</button>
     </div>
   );
 
@@ -2836,11 +2931,9 @@ function GKView({member, logs, onGkSave}){
       <div style={{fontSize:36,marginBottom:8}}>🏆</div>
       <div style={{fontWeight:800,fontSize:16,marginBottom:6}}>Weekly Review Time!</div>
       <div style={{fontSize:13,color:C.muted,marginBottom:18}}>
-        Quiz {member.name} on everything learned this week — how did it go?
+        Quiz {member.name} on everything learned this week — how did it go? Enter the points to award.
       </div>
-      <TierButtons
-        onPick={(pts)=>onGkSave(member.id,{type:"weekend", weekKey, date:today, points:pts})}
-        allPts={2000} mostPts={1000} somePts={400}/>
+      <PointsForm placeholder="e.g. 2000" onGive={(pts)=>onGkSave(member.id,{type:"weekend", weekKey, date:today, points:pts})}/>
     </div>;
   }
 
@@ -2860,11 +2953,99 @@ function GKView({member, logs, onGkSave}){
     <div style={{fontSize:36,marginBottom:8}}>🧠</div>
     <div style={{fontWeight:800,fontSize:16,marginBottom:6}}>Today's GK Quiz</div>
     <div style={{fontSize:13,color:C.muted,marginBottom:18}}>
-      Ask {member.name} a few general knowledge questions — how did it go?
+      Ask {member.name} a few general knowledge questions — how did it go? Enter the points to award.
     </div>
-    <TierButtons
-      onPick={(pts)=>onGkSave(member.id,{type:"daily", date:today, points:pts})}
-      allPts={1000} mostPts={500} somePts={200}/>
+    <PointsForm placeholder="e.g. 1000" onGive={(pts)=>onGkSave(member.id,{type:"daily", date:today, points:pts})}/>
+  </div>;
+}
+
+// ── Bravery Drawer (wraps BraveryView in a slide-in panel) ───────────────────
+function BraveryDrawer({member, logs, onBraverySave, onClose}){
+  return <>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
+    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
+      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
+      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+      <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:26}}>{member.emoji}</span>
+            <div>
+              <div style={{fontWeight:800,fontSize:16}}>🦁 Bravery</div>
+              <div style={{fontSize:11,color:C.muted}}>{member.name}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,
+            borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px"}}>
+        <BraveryView member={member} logs={logs} onBraverySave={onBraverySave}/>
+      </div>
+    </div>
+  </>;
+}
+
+// ── Bravery Points View — parent picks reason + points, feeds same PP pool ──────
+function BraveryView({member, logs, onBraverySave}){
+  const today = todayStr();
+  const entries = getBraveryLog(logs, member.id);
+  const[reason, setReason] = useState("");
+  const[points, setPoints] = useState("");
+  const bonus = computeBraveryBonus(logs, member.id);
+
+  const sorted = [...entries].sort((a,b)=>b.date.localeCompare(a.date));
+
+  return <div style={{display:"flex",flexDirection:"column",gap:14}}>
+    <div style={{background:"linear-gradient(135deg,#FFF3E0,#FFE0B2)",border:"1.5px solid #F57C00",
+      borderRadius:16,padding:20,textAlign:"center"}}>
+      <div style={{fontSize:36,marginBottom:6}}>🦁</div>
+      <div style={{fontWeight:800,fontSize:16,color:"#E65100",marginBottom:2}}>Give Bravery Points</div>
+      <div style={{fontSize:12,color:"#F57C00",marginBottom:16}}>
+        Award {member.name} points for anything brave — you choose why and how much
+      </div>
+      <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="What did they do? (e.g. Tried a new food)"
+        style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #F57C00",
+        fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,background:"#fff"}}/>
+      <input type="number" min={1} value={points} onChange={e=>setPoints(e.target.value)} placeholder="Points (e.g. 500)"
+        style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #F57C00",
+        fontSize:16,fontWeight:700,outline:"none",boxSizing:"border-box",marginBottom:12,background:"#fff"}}/>
+      <button disabled={!reason.trim()||!points||parseInt(points)<=0} onClick={()=>{
+        onBraverySave(member.id, {date:today, reason:reason.trim(), points:parseInt(points)});
+        setReason(""); setPoints("");
+      }} style={{
+        width:"100%",padding:"11px 0",borderRadius:10,border:"none",
+        background:(!reason.trim()||!points||parseInt(points)<=0)?"#E0B080":"#F57C00",
+        color:"#fff",cursor:(!reason.trim()||!points||parseInt(points)<=0)?"not-allowed":"pointer",
+        fontWeight:700,fontSize:14,
+      }}>🦁 Give Bravery Points</button>
+    </div>
+
+    {bonus.total>0&&<div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:"14px 18px",
+      display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <div>
+        <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5}}>🦁 BRAVERY CONTRIBUTED</div>
+        <div style={{fontSize:20,fontWeight:900,color:"#F57C00"}}>{bonus.total.toLocaleString()} ⚡</div>
+      </div>
+      <div style={{fontSize:11,color:C.muted}}>{bonus.count} {bonus.count===1?"award":"awards"}</div>
+    </div>}
+
+    {sorted.length>0&&<div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:"14px 18px"}}>
+      <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>HISTORY</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {sorted.map((e,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+            padding:"8px 10px",background:"#FFF8F0",borderRadius:8}}>
+            <div>
+              <div style={{fontSize:12,fontWeight:600,color:C.text}}>{e.reason}</div>
+              <div style={{fontSize:10,color:C.muted}}>{new Date(e.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</div>
+            </div>
+            <span style={{fontSize:13,fontWeight:800,color:"#F57C00"}}>+{e.points.toLocaleString()} ⚡</span>
+          </div>
+        ))}
+      </div>
+    </div>}
   </div>;
 }
 
@@ -3591,7 +3772,6 @@ export default function App(){
   const[toasts,setToasts]=useState([]);
   const[activeTab,setActiveTab]=useState(null); // null = show all (family summary)
   const[ppPanelFor,setPpPanelFor]=useState(null); // memberId whose PP panel is open, or null
-  const[gkSelectedMemberId,setGkSelectedMemberId]=useState(null);
   const[theme,setTheme]=useState("forest");
   const[pattern,setPattern]=useState("topo");
   const mRef=useRef(members);const lRef=useRef(logs);
@@ -3674,6 +3854,15 @@ export default function App(){
     });
   },[]);
 
+  const handleBraverySave=useCallback((mid,entry)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const bravery=[...(next[mid].bravery||[]), entry];
+      next[mid].bravery=bravery;
+      return next;
+    });
+  },[]);
+
   const handleSave=useCallback((m)=>{
     setMembers(p=>{const ex=p.find(x=>x.id===m.id);return ex?p.map(x=>x.id===m.id?m:x):[...p,m];});
     setEditM(null);
@@ -3743,12 +3932,6 @@ export default function App(){
           fontSize:14,color:activeTab===null?currentTheme.accent:C.muted,
           whiteSpace:"nowrap",transition:"all 0.15s",
         }}>Family</button>
-        {members.some(m=>m.gkEnabled)&&<button onClick={()=>{setActiveTab("gk");setPpPanelFor(null);}} style={{
-          padding:"12px 20px",border:"none",borderBottom:`3px solid ${activeTab==="gk"?"#7E57C2":"transparent"}`,
-          background:"none",cursor:"pointer",fontWeight:activeTab==="gk"?700:500,
-          fontSize:14,color:activeTab==="gk"?"#7E57C2":C.muted,
-          whiteSpace:"nowrap",transition:"all 0.15s",
-        }}>🧠 GK</button>}
       </div>
     </div>}
 
@@ -3764,7 +3947,8 @@ export default function App(){
           <div style={{flex:"1 1 460px",maxWidth:860,minWidth:0}}>
             <MemberCard member={m} logs={logs} allMembers={members}
               onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}
-              onOpenPP={(id)=>setPpPanelFor(id)} onGrowthSave={handleGrowthSave}/>
+              onOpenPP={(id)=>setPpPanelFor(id)} onGrowthSave={handleGrowthSave}
+              onGkSave={handleGkSave} onBraverySave={handleBraverySave}/>
           </div>
           {ppPanelFor===m.id&&<div style={{flex:"1 1 320px",maxWidth:380,minWidth:280}}>
             <PowerPointsPanel member={m} logs={logs} onClose={()=>setPpPanelFor(null)}/>
@@ -3774,37 +3958,6 @@ export default function App(){
 
       {/* Family tab */}
       {activeTab===null&&members.length>0&&<FamilyDashboard members={members} logs={logs} yr={yr} mo={mo} MONTHS={MONTHS}/>}
-
-      {/* GK tab */}
-      {activeTab==="gk"&&(()=>{
-        const gkMembers = members.filter(m=>m.gkEnabled);
-        if(gkMembers.length===0) return null;
-        const selected = gkMembers.find(m=>m.id===gkSelectedMemberId) || gkMembers[0];
-        const gkBonus = computeGkBonus(logs, selected.id);
-        return <div style={{maxWidth:480,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
-          {gkMembers.length>1&&<div style={{display:"flex",gap:8,justifyContent:"center"}}>
-            {gkMembers.map(m=>(
-              <button key={m.id} onClick={()=>setGkSelectedMemberId(m.id)} style={{
-                padding:"6px 14px",borderRadius:99,border:`1.5px solid ${selected.id===m.id?"#7E57C2":C.border}`,
-                background:selected.id===m.id?"#7E57C2":"none",color:selected.id===m.id?"#fff":C.muted,
-                cursor:"pointer",fontWeight:600,fontSize:13,
-              }}>{m.emoji} {m.name}</button>
-            ))}
-          </div>}
-          <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:"14px 18px",
-            display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <div>
-              <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5}}>🧠 GK CONTRIBUTED</div>
-              <div style={{fontSize:20,fontWeight:900,color:"#7E57C2"}}>{gkBonus.total.toLocaleString()} ⚡</div>
-            </div>
-            <div style={{fontSize:11,color:C.muted,textAlign:"right"}}>
-              {gkBonus.dailyCount>0&&<div>{gkBonus.dailyCount} {gkBonus.dailyCount===1?"day":"days"} done</div>}
-              {gkBonus.weekendCount>0&&<div>{gkBonus.weekendCount} {gkBonus.weekendCount===1?"week":"weeks"} done</div>}
-            </div>
-          </div>
-          <GKView member={selected} logs={logs} onGkSave={handleGkSave}/>
-        </div>;
-      })()}
     </div>
 
     {celebration&&<CelebrationScreen badge={celebration} memberName={celebration.memberName} onClose={()=>setCelebration(null)}/>}
