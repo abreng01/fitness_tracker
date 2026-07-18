@@ -2017,12 +2017,104 @@ function MysteryBonusReveal({normalPP, bonusPP, onClose}){
 }
 
 // ── Egg-O-Meter (isolated bonus PP feature) ───────────────────────────────────
+// ── Egg History Drawer — calendar view + monthly total ──────────────────────
+function EggHistoryDrawer({member, logs, onClose}){
+  const now = new Date();
+  const[yr, setYr] = useState(now.getFullYear());
+  const[mo, setMo] = useState(now.getMonth());
+  const eggLogs = getEggLogs(logs, member.id);
+  const today = todayStr();
+  const isCurMo = yr===now.getFullYear() && mo===now.getMonth();
+
+  const prevMo = ()=>{ if(mo===0){setYr(y=>y-1);setMo(11);}else setMo(m=>m-1); };
+  const nextMo = ()=>{ if(mo===11){setYr(y=>y+1);setMo(0);}else setMo(m=>m+1); };
+
+  // Monthly total
+  const monthPrefix = `${yr}-${String(mo+1).padStart(2,"0")}`;
+  const monthTotal = Object.entries(eggLogs)
+    .filter(([d])=>d.startsWith(monthPrefix))
+    .reduce((s,[,c])=>s+(c||0), 0);
+
+  const dCount = daysInMonth(yr, mo);
+  const firstDay = firstDayOfMonth(yr, mo);
+  const cells = [];
+  for(let i=0;i<firstDay;i++) cells.push(null);
+  for(let d=1;d<=dCount;d++) cells.push(d);
+
+  return <>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
+    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
+      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
+      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+      <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:26}}>{member.emoji}</span>
+            <div>
+              <div style={{fontWeight:800,fontSize:16}}>🥚 Egg History</div>
+              <div style={{fontSize:11,color:C.muted}}>{member.name}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,
+            borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+        </div>
+      </div>
+
+      <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px"}}>
+        {/* Month nav + total */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+          <button onClick={prevMo} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,
+            padding:"4px 10px",cursor:"pointer",fontSize:14,color:C.text}}>‹</button>
+          <div style={{textAlign:"center"}}>
+            <div style={{fontWeight:700,fontSize:14}}>{MONTHS[mo]} {yr}</div>
+          </div>
+          <button onClick={nextMo} disabled={isCurMo} style={{background:"none",border:`1px solid ${C.border}`,
+            borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:14,color:C.text,opacity:isCurMo?0.3:1}}>›</button>
+        </div>
+
+        <div style={{background:"linear-gradient(135deg,#EBF2FC,#DCE9F9)",border:"1.5px solid #5B8FD4",
+          borderRadius:12,padding:"14px 16px",marginBottom:16,textAlign:"center"}}>
+          <div style={{fontSize:10,fontWeight:700,color:"#2C5FA8",letterSpacing:0.5,marginBottom:2}}>MONTHLY TOTAL</div>
+          <div style={{fontSize:24,fontWeight:900,color:"#2C5FA8"}}>{monthTotal} <span style={{fontSize:14}}>🥚</span></div>
+          <div style={{fontSize:11,color:"#4A6B94"}}>+{(monthTotal*1000).toLocaleString()} ⚡ this month</div>
+        </div>
+
+        {/* Calendar grid */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4,marginBottom:4}}>
+          {DAYS.map(d=><div key={d} style={{textAlign:"center",fontSize:10,color:C.muted,fontWeight:600,padding:"4px 0"}}>{d}</div>)}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
+          {cells.map((d,i)=>{
+            if(d===null) return <div key={`e${i}`}/>;
+            const dateStr = `${yr}-${String(mo+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+            const count = eggLogs[dateStr] || 0;
+            const isToday = dateStr===today;
+            const isFuture = dateStr>today;
+            return <div key={d} style={{
+              aspectRatio:"1",borderRadius:7,display:"flex",flexDirection:"column",
+              alignItems:"center",justifyContent:"center",gap:1,
+              background:count>0?"#5B8FD4":C.bg,
+              border:isToday?"2px solid #2C5FA8":`1px solid ${C.border}`,
+              opacity:isFuture?0.3:1,
+            }}>
+              <span style={{fontSize:10,fontWeight:600,color:count>0?"#fff":C.muted}}>{d}</span>
+              {count>0&&<span style={{fontSize:9,color:"#fff"}}>🥚{count>1?count:""}</span>}
+            </div>;
+          })}
+        </div>
+      </div>
+    </div>
+  </>;
+}
+
 function EggMeter({member, logs, onEggChange, onNewBadge}){
   const today = todayStr();
   const eggLogs = getEggLogs(logs, member.id);
   const todayCount = eggLogs[today] || 0;
   const totalCount = totalEggCount(logs, member.id);
   const[celebrate,setCelebrate]=useState(false);
+  const[showHistory,setShowHistory]=useState(false);
 
   function handleTap(delta){
     if(delta>0){
@@ -2047,7 +2139,8 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
     },100);
   }
 
-  return <div style={{
+  return <>
+  <div style={{
     background:"linear-gradient(135deg,#EBF2FC,#DCE9F9)",border:"1.5px solid #5B8FD4",
     borderRadius:12,padding:"12px 16px",marginBottom:12,position:"relative",overflow:"hidden",
     display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,
@@ -2088,6 +2181,10 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
       {todayCount>0&&<div style={{fontSize:11,color:"#4A6B94",marginTop:2}}>{todayCount} today</div>}
     </div>
     <div style={{display:"flex",alignItems:"center",gap:8}}>
+      <button onClick={()=>setShowHistory(true)} style={{
+        background:"none",border:"1.5px solid #5B8FD4",borderRadius:8,
+        width:32,height:32,cursor:"pointer",fontSize:14,color:"#2C5FA8",
+      }}>📅</button>
       {todayCount>0&&<button onClick={()=>handleTap(-1)} style={{
         background:"none",border:"1.5px solid #5B8FD4",borderRadius:8,
         width:32,height:32,cursor:"pointer",fontSize:16,color:"#2C5FA8",fontWeight:700,
@@ -2097,7 +2194,9 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
         padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13,whiteSpace:"nowrap",
       }}>🥚 +1 Egg</button>
     </div>
-  </div>;
+  </div>
+  {showHistory&&<EggHistoryDrawer member={member} logs={logs} onClose={()=>setShowHistory(false)}/>}
+  </>;
 }
 
 // ── Member Card ───────────────────────────────────────────────────────────────
