@@ -112,6 +112,30 @@ function totalEggCount(logs, memberId){
   return Object.values(eggs).reduce((sum,c)=>sum+(c||0), 0);
 }
 
+// ── General Knowledge (GK) — verbal quiz tracker, isolated, feeds into same PP pool ──
+// Parent asks questions verbally; tap the button once all answered correctly.
+function getGkData(logs, memberId){
+  return (logs[memberId] && logs[memberId].gk) || {dailyResults:{}, weekendResults:{}};
+}
+function getWeekKey(dateStr){
+  // Anchor to the Monday of the work-week this weekend follows, so Saturday
+  // and the very next Sunday both map to the SAME key (avoids double-awarding).
+  const d = new Date(dateStr+"T00:00:00");
+  const dow = d.getDay(); // 0=Sun,6=Sat
+  const daysSinceMonday = dow===0 ? 6 : dow-1;
+  const monday = new Date(d);
+  monday.setDate(d.getDate()-daysSinceMonday);
+  return monday.toISOString().slice(0,10); // e.g. "2026-07-13" — Monday's date as the unique key
+}
+function computeGkBonus(logs, memberId){
+  const gk = getGkData(logs, memberId);
+  const dailyEntries = Object.values(gk.dailyResults||{}).filter(v=>v>0);
+  const weekendEntries = Object.values(gk.weekendResults||{}).filter(w=>w?.points>0);
+  const dailyBonus = dailyEntries.reduce((s,v)=>s+v,0);
+  const weekendBonus = weekendEntries.reduce((s,w)=>s+w.points,0);
+  return {total:dailyBonus+weekendBonus, dailyBonus, weekendBonus, dailyCount:dailyEntries.length, weekendCount:weekendEntries.length};
+}
+
 // ── Streak ────────────────────────────────────────────────────────────────────
 function streakCount(al){
   let count=0;
@@ -476,10 +500,22 @@ function computePowerPoints(member, logs){
   // Also include egg log dates so level crossings driven by eggs are correctly dated
   const eggLogDates = getEggLogs(logs, member.id);
   for(const d of Object.keys(eggLogDates)) if(d <= today && (!sd || d >= sd)) allDates.add(d);
+  // Also include GK (verbal quiz) dates for the same reason
+  const gkData = getGkData(logs, member.id);
+  const gkDailyByDate = gkData.dailyResults || {};
+  for(const d of Object.keys(gkDailyByDate)) if(gkDailyByDate[d]>0 && d <= today && (!sd || d >= sd)) allDates.add(d);
+  // GK weekend review completions carry a completion date
+  const gkWeekendByDate = {}; // dateStr -> points earned that weekend review
+  for(const w of Object.values(gkData.weekendResults||{})){
+    if(w.date && w.date <= today && (!sd || w.date >= sd)){
+      allDates.add(w.date);
+      gkWeekendByDate[w.date] = w.points||0;
+    }
+  }
   const sortedDates = [...allDates].sort();
 
   let totalPP = 100; // base starting points
-  let breakdown = {atTarget:0, aboveTarget:0, belowTarget:0, pb:0, shielded:0, skipped:0, streakBonus:0, streakBreak:0, mysteryDays:0, eggBonus:0};
+  let breakdown = {atTarget:0, aboveTarget:0, belowTarget:0, pb:0, shielded:0, skipped:0, streakBonus:0, streakBreak:0, mysteryDays:0, eggBonus:0, gkBonus:0};
   let prevStreak = 0;
   let levelHistory = []; // [{level, title, icon, date}]
   let lastLevelSeen = 1;
@@ -621,7 +657,23 @@ function computePowerPoints(member, logs){
       dailyTags[dateStr].push("egg");
     }
 
-    dailyEarned[dateStr] = totalPP - ppBeforeDay; // net change this day, multiplier + eggs included
+    // Add GK (verbal quiz) PP for this date inside the loop, same pattern as eggs
+    const gkDailyPts = gkDailyByDate[dateStr]||0;
+    if(gkDailyPts>0){
+      totalPP += gkDailyPts;
+      breakdown.gkBonus += gkDailyPts;
+      if(!dailyTags[dateStr]) dailyTags[dateStr]=[];
+      dailyTags[dateStr].push("gk");
+    }
+    const gkWeekendPts = gkWeekendByDate[dateStr]||0;
+    if(gkWeekendPts>0){
+      totalPP += gkWeekendPts;
+      breakdown.gkBonus += gkWeekendPts;
+      if(!dailyTags[dateStr]) dailyTags[dateStr]=[];
+      dailyTags[dateStr].push("gkWeekend");
+    }
+
+    dailyEarned[dateStr] = totalPP - ppBeforeDay; // net change this day, multiplier + eggs + GK included
 
     // Track level-up moments
     const dayLevel = getLevel(totalPP);
@@ -1699,6 +1751,7 @@ function PowerPointsPanel({member, logs, onClose}){
     pb:{icon:"🌟",label:"PB"}, above:{icon:"💪",label:"Above"}, at:{icon:"✅",label:"At target"},
     below:{icon:"📉",label:"Below"}, shielded:{icon:"🛡️",label:"Shielded"}, skipped:{icon:"❌",label:"Skipped"},
     mystery:{icon:"🎁",label:"Mystery"}, egg:{icon:"🥚",label:"Egg"},
+    gk:{icon:"🧠",label:"GK Quiz"}, gkWeekend:{icon:"🏆",label:"Weekly Review"},
   };
 
   return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,
@@ -1798,6 +1851,7 @@ function PowerPointsPanel({member, logs, onClose}){
             {label:"Shielded",val:breakdown.shielded,show:breakdown.shielded>0},
             {label:"Streak bonus",val:breakdown.streakBonus,show:breakdown.streakBonus>0},
             {label:"🥚 Eggs",val:breakdown.eggBonus,show:breakdown.eggBonus>0},
+            {label:"🧠 GK Learning",val:breakdown.gkBonus,show:breakdown.gkBonus>0},
             {label:"Starting bonus",val:100,show:true},
             {label:"Skipped",val:breakdown.skipped,show:breakdown.skipped<0},
             {label:"Streak breaks",val:breakdown.streakBreak,show:breakdown.streakBreak<0},
@@ -2303,6 +2357,7 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
   const[acts,setActs]=useState(member?.activities??[{id:Date.now().toString(),name:"",unit:"min",target:30}]);
   const[alternating,setAlternating]=useState(member?.alternating??false);
   const[eggMeter,setEggMeter]=useState(member?.eggMeter??false);
+  const[gkEnabled,setGkEnabled]=useState(member?.gkEnabled??false);
   const[startDate,setStartDate]=useState(member?.startDate??"");
   const[memberTheme,setMemberTheme]=useState(member?.memberTheme??"");
   const[memberPattern,setMemberPattern]=useState(member?.memberPattern??"");
@@ -2384,6 +2439,21 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
         </div>
       </div>
       <div style={{marginBottom:18}}>
+        <div onClick={()=>setGkEnabled(g=>!g)} style={{
+          display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+          background:gkEnabled?"#EDE7F6":"#F7F5F0",border:`1.5px solid ${gkEnabled?"#7E57C2":C.border}`,
+          borderRadius:10,cursor:"pointer",userSelect:"none",
+        }}>
+          <div style={{width:36,height:20,borderRadius:99,background:gkEnabled?"#7E57C2":C.border,position:"relative",transition:"background 0.2s",flexShrink:0}}>
+            <div style={{position:"absolute",top:2,left:gkEnabled?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+          </div>
+          <div>
+            <div style={{fontSize:13,fontWeight:600,color:gkEnabled?"#5E35B1":C.text}}>🧠 General Knowledge</div>
+            <div style={{fontSize:11,color:C.muted}}>Ask questions verbally — tap when aced, earns Power Points</div>
+          </div>
+        </div>
+      </div>
+      <div style={{marginBottom:18}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
           <label style={{...lStyle,marginBottom:0}}>Activities</label>
           <button onClick={addAct} style={{background:color,color:"#fff",border:"none",borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add</button>
@@ -2421,7 +2491,7 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
       <div style={{display:"flex",gap:8}}>
         {!isNew&&<button onClick={()=>{if(window.confirm("Remove?"))onDelete(member.id);}} style={{padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",cursor:"pointer",color:C.missed,fontWeight:600}}>Delete</button>}
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
+        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
       </div>
     </div>
   </div>;
@@ -2721,6 +2791,81 @@ function GrowthDrawer({member, logs, onSave, onClose}){
     {showLogModal&&<GrowthLogModal member={member} existing={thisMonthEntry}
       onSave={entry=>onSave(member.id,entry)} onClose={()=>setShowLogModal(false)}/>}
   </>;
+}
+
+// ── General Knowledge (GK) View ────────────────────────────────────────────────
+// ── General Knowledge (GK) View — simple verbal-quiz tracker ────────────────────
+// ── General Knowledge (GK) View — verbal quiz tracker with tiered credit ────────
+function GKView({member, logs, onGkSave}){
+  const today = todayStr();
+  const now = new Date();
+  const isWeekend = now.getDay()===0 || now.getDay()===6;
+  const gk = getGkData(logs, member.id);
+
+  const TierButtons = ({onPick, allPts, mostPts, somePts}) => (
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      <button onClick={()=>onPick(allPts)} style={{
+        background:"#7E57C2",color:"#fff",border:"none",borderRadius:10,
+        padding:"12px 20px",cursor:"pointer",fontWeight:700,fontSize:14,
+      }}>🌟 All correct <span style={{opacity:0.8,fontWeight:500}}>(+{allPts.toLocaleString()} ⚡)</span></button>
+      <button onClick={()=>onPick(mostPts)} style={{
+        background:"none",color:"#7E57C2",border:"1.5px solid #7E57C2",borderRadius:10,
+        padding:"11px 20px",cursor:"pointer",fontWeight:700,fontSize:13,
+      }}>👍 Mostly correct <span style={{opacity:0.7,fontWeight:500}}>(+{mostPts.toLocaleString()} ⚡)</span></button>
+      <button onClick={()=>onPick(somePts)} style={{
+        background:"none",color:C.muted,border:`1.5px solid ${C.border}`,borderRadius:10,
+        padding:"11px 20px",cursor:"pointer",fontWeight:600,fontSize:13,
+      }}>📖 Some correct <span style={{opacity:0.7,fontWeight:500}}>(+{somePts.toLocaleString()} ⚡)</span></button>
+    </div>
+  );
+
+  if(isWeekend){
+    const weekKey = getWeekKey(today);
+    const existing = gk.weekendResults?.[weekKey];
+
+    if(existing){
+      return <div style={{background:"linear-gradient(135deg,#EDE7F6,#D1C4E9)",border:"1.5px solid #7E57C2",
+        borderRadius:16,padding:24,textAlign:"center"}}>
+        <div style={{fontSize:40,marginBottom:8}}>🏆</div>
+        <div style={{fontWeight:800,fontSize:16,color:"#4A148C"}}>Weekly Review Done!</div>
+        <div style={{fontSize:13,color:"#5E35B1",marginTop:4}}>+{existing.points.toLocaleString()} ⚡ earned this week.</div>
+      </div>;
+    }
+
+    return <div style={{background:C.surface,border:"1.5px solid #7E57C2",borderRadius:16,padding:24,textAlign:"center"}}>
+      <div style={{fontSize:36,marginBottom:8}}>🏆</div>
+      <div style={{fontWeight:800,fontSize:16,marginBottom:6}}>Weekly Review Time!</div>
+      <div style={{fontSize:13,color:C.muted,marginBottom:18}}>
+        Quiz {member.name} on everything learned this week — how did it go?
+      </div>
+      <TierButtons
+        onPick={(pts)=>onGkSave(member.id,{type:"weekend", weekKey, date:today, points:pts})}
+        allPts={2000} mostPts={1000} somePts={400}/>
+    </div>;
+  }
+
+  // Weekday mode
+  const todayPts = gk.dailyResults?.[today];
+
+  if(todayPts>0){
+    return <div style={{background:"linear-gradient(135deg,#EDE7F6,#D1C4E9)",border:"1.5px solid #7E57C2",
+      borderRadius:16,padding:24,textAlign:"center"}}>
+      <div style={{fontSize:36,marginBottom:8}}>🧠</div>
+      <div style={{fontWeight:800,fontSize:15,color:"#4A148C"}}>Today's quiz done!</div>
+      <div style={{fontSize:13,color:"#5E35B1",marginTop:4}}>+{todayPts.toLocaleString()} ⚡ earned. Come back tomorrow!</div>
+    </div>;
+  }
+
+  return <div style={{background:C.surface,border:"1.5px solid #7E57C2",borderRadius:16,padding:24,textAlign:"center"}}>
+    <div style={{fontSize:36,marginBottom:8}}>🧠</div>
+    <div style={{fontWeight:800,fontSize:16,marginBottom:6}}>Today's GK Quiz</div>
+    <div style={{fontSize:13,color:C.muted,marginBottom:18}}>
+      Ask {member.name} a few general knowledge questions — how did it go?
+    </div>
+    <TierButtons
+      onPick={(pts)=>onGkSave(member.id,{type:"daily", date:today, points:pts})}
+      allPts={1000} mostPts={500} somePts={200}/>
+  </div>;
 }
 
 function AllTimeStats({member,logs,onClose}){
@@ -3446,6 +3591,7 @@ export default function App(){
   const[toasts,setToasts]=useState([]);
   const[activeTab,setActiveTab]=useState(null); // null = show all (family summary)
   const[ppPanelFor,setPpPanelFor]=useState(null); // memberId whose PP panel is open, or null
+  const[gkSelectedMemberId,setGkSelectedMemberId]=useState(null);
   const[theme,setTheme]=useState("forest");
   const[pattern,setPattern]=useState("topo");
   const mRef=useRef(members);const lRef=useRef(logs);
@@ -3508,6 +3654,22 @@ export default function App(){
       const idx=growth.findIndex(g=>g.month===entry.month);
       if(idx>=0) growth[idx]=entry; else growth.push(entry);
       next[mid].growth=growth;
+      return next;
+    });
+  },[]);
+
+  const handleGkSave=useCallback((mid,result)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const gk={dailyResults:{}, weekendResults:{}, ...(next[mid].gk||{})};
+      const dailyResults={...gk.dailyResults};
+      const weekendResults={...gk.weekendResults};
+      if(result.type==="daily"){
+        dailyResults[result.date]=result.points;
+      } else if(result.type==="weekend"){
+        weekendResults[result.weekKey]={date:result.date, points:result.points};
+      }
+      next[mid].gk={dailyResults, weekendResults};
       return next;
     });
   },[]);
@@ -3581,6 +3743,12 @@ export default function App(){
           fontSize:14,color:activeTab===null?currentTheme.accent:C.muted,
           whiteSpace:"nowrap",transition:"all 0.15s",
         }}>Family</button>
+        {members.some(m=>m.gkEnabled)&&<button onClick={()=>{setActiveTab("gk");setPpPanelFor(null);}} style={{
+          padding:"12px 20px",border:"none",borderBottom:`3px solid ${activeTab==="gk"?"#7E57C2":"transparent"}`,
+          background:"none",cursor:"pointer",fontWeight:activeTab==="gk"?700:500,
+          fontSize:14,color:activeTab==="gk"?"#7E57C2":C.muted,
+          whiteSpace:"nowrap",transition:"all 0.15s",
+        }}>🧠 GK</button>}
       </div>
     </div>}
 
@@ -3606,6 +3774,37 @@ export default function App(){
 
       {/* Family tab */}
       {activeTab===null&&members.length>0&&<FamilyDashboard members={members} logs={logs} yr={yr} mo={mo} MONTHS={MONTHS}/>}
+
+      {/* GK tab */}
+      {activeTab==="gk"&&(()=>{
+        const gkMembers = members.filter(m=>m.gkEnabled);
+        if(gkMembers.length===0) return null;
+        const selected = gkMembers.find(m=>m.id===gkSelectedMemberId) || gkMembers[0];
+        const gkBonus = computeGkBonus(logs, selected.id);
+        return <div style={{maxWidth:480,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
+          {gkMembers.length>1&&<div style={{display:"flex",gap:8,justifyContent:"center"}}>
+            {gkMembers.map(m=>(
+              <button key={m.id} onClick={()=>setGkSelectedMemberId(m.id)} style={{
+                padding:"6px 14px",borderRadius:99,border:`1.5px solid ${selected.id===m.id?"#7E57C2":C.border}`,
+                background:selected.id===m.id?"#7E57C2":"none",color:selected.id===m.id?"#fff":C.muted,
+                cursor:"pointer",fontWeight:600,fontSize:13,
+              }}>{m.emoji} {m.name}</button>
+            ))}
+          </div>}
+          <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:"14px 18px",
+            display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5}}>🧠 GK CONTRIBUTED</div>
+              <div style={{fontSize:20,fontWeight:900,color:"#7E57C2"}}>{gkBonus.total.toLocaleString()} ⚡</div>
+            </div>
+            <div style={{fontSize:11,color:C.muted,textAlign:"right"}}>
+              {gkBonus.dailyCount>0&&<div>{gkBonus.dailyCount} {gkBonus.dailyCount===1?"day":"days"} done</div>}
+              {gkBonus.weekendCount>0&&<div>{gkBonus.weekendCount} {gkBonus.weekendCount===1?"week":"weeks"} done</div>}
+            </div>
+          </div>
+          <GKView member={selected} logs={logs} onGkSave={handleGkSave}/>
+        </div>;
+      })()}
     </div>
 
     {celebration&&<CelebrationScreen badge={celebration} memberName={celebration.memberName} onClose={()=>setCelebration(null)}/>}
