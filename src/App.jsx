@@ -1228,29 +1228,43 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
       actId:a.id,
       status:ex?.status??"done",
       value:ex?.value??a.target,
+      originalValue:ex?.value??0, // snapshot of what was logged before this edit — used for "add session"
+      mode:"replace", // 'add' = sum onto existing, 'replace' = overwrite (default for fresh entries)
       alreadySaved:!!alreadySaved,
       editing:false, // true when user taps edit on an already-saved activity
     };
   });
   const[entries,setEntries]=useState(init);
   const upd=(id,f,v)=>setEntries(p=>p.map(e=>e.actId===id?{...e,[f]:v}:e));
-  const startEdit=(id)=>setEntries(p=>p.map(e=>e.actId===id?{...e,editing:true}:e));
+  const startEdit=(id)=>setEntries(p=>p.map(e=>{
+    if(e.actId!==id) return e;
+    // Only offer "add session" for done activities with a real logged value — not skipped/shielded
+    const canAdd = e.status==="done" && e.originalValue>0;
+    return{...e, editing:true, mode:canAdd?"add":"replace", value:canAdd?0:e.originalValue};
+  }));
+  const switchMode=(id,mode)=>setEntries(p=>p.map(e=>{
+    if(e.actId!==id) return e;
+    return{...e, mode, value:mode==="replace"?e.originalValue:0};
+  }));
   const saveSingle=(actId)=>{
     // Save just this one activity, keeping others as-is
     const entry=entries.find(e=>e.actId===actId);
     if(!entry) return;
     const act=member.activities.find(a=>a.id===actId);
+    const finalValue = (entry.mode==="add" && entry.status==="done")
+      ? (entry.originalValue||0) + (entry.value||0)
+      : entry.value;
     // Build full entries array — for unsaved activities, pass their current logged value or skip
     const toSave=member.activities.map(a=>{
-      if(a.id===actId) return{actId:a.id,value:entry.value,status:entry.status,target:a.target};
+      if(a.id===actId) return{actId:a.id,value:finalValue,status:entry.status,target:a.target};
       // For other activities, use whatever is already logged (if anything)
       const ex=getActivityLogs(logs,member.id,a.id)[dateStr];
       if(ex) return{actId:a.id,value:ex.value,status:ex.status,target:a.target};
       return null; // not yet logged, don't touch
     }).filter(Boolean);
     onSaveAll(toSave);
-    // Mark as saved in local state
-    setEntries(p=>p.map(e=>e.actId===actId?{...e,alreadySaved:true,editing:false}:e));
+    // Mark as saved in local state, updating originalValue to the new total for any future "add"
+    setEntries(p=>p.map(e=>e.actId===actId?{...e,value:finalValue,originalValue:finalValue,alreadySaved:true,editing:false,mode:"replace"}:e));
   };
 
   const allSaved=entries.every(e=>e.alreadySaved);
@@ -1308,16 +1322,43 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
                     fontWeight:600,cursor:"pointer",fontSize:12}}>✗ Skip</button>
                 </div>
               </div>
-              {en.status==="done"&&<div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+
+              {/* Add-session vs replace-total mode toggle — only shown when there's an existing logged value */}
+              {en.status==="done"&&en.alreadySaved&&en.originalValue>0&&<div style={{display:"flex",gap:6,marginBottom:10}}>
+                <button onClick={()=>switchMode(act.id,"add")} style={{flex:1,padding:"6px 0",borderRadius:7,
+                  border:`1.5px solid ${en.mode==="add"?member.color:C.border}`,
+                  background:en.mode==="add"?member.color+"15":"none",
+                  color:en.mode==="add"?member.color:C.muted,cursor:"pointer",fontWeight:600,fontSize:11}}>
+                  ➕ Add Session
+                </button>
+                <button onClick={()=>switchMode(act.id,"replace")} style={{flex:1,padding:"6px 0",borderRadius:7,
+                  border:`1.5px solid ${en.mode==="replace"?member.color:C.border}`,
+                  background:en.mode==="replace"?member.color+"15":"none",
+                  color:en.mode==="replace"?member.color:C.muted,cursor:"pointer",fontWeight:600,fontSize:11}}>
+                  ✏️ Correct Total
+                </button>
+              </div>}
+
+              {en.status==="done"&&en.mode==="add"&&en.originalValue>0&&<div style={{fontSize:11,color:C.muted,marginBottom:6}}>
+                Already logged: <strong style={{color:C.text}}>{en.originalValue} {act.unit}</strong> today
+              </div>}
+
+              {en.status==="done"&&<div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
                 <input type="number" min={0} step={isDecimal(act.unit)?0.1:1}
                   value={en.value} onChange={e=>upd(act.id,"value",parseFloat(e.target.value)||0)}
+                  placeholder={en.mode==="add"?"e.g. this session's amount":undefined}
                   style={{flex:1,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,
                   fontSize:20,fontWeight:700,outline:"none",background:"#fff"}}/>
                 <span style={{fontSize:13,color:C.muted,fontWeight:600,minWidth:36}}>{act.unit}</span>
               </div>}
+
+              {en.status==="done"&&en.mode==="add"&&en.originalValue>0&&<div style={{fontSize:12,color:member.color,fontWeight:600,marginBottom:10}}>
+                New total: {(en.originalValue||0)+(en.value||0)} {act.unit}
+              </div>}
+
               <button onClick={()=>saveSingle(act.id)} style={{width:"100%",padding:"9px 0",borderRadius:8,
                 border:"none",background:member.color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13}}>
-                Save {act.name}
+                {en.mode==="add"&&en.originalValue>0?`➕ Add to ${act.name}`:`Save ${act.name}`}
               </button>
             </div>
           )}
@@ -1337,7 +1378,8 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
         </button>
         {!allSaved&&<button onClick={()=>onSaveAll(entries.map(e=>{
           const act=member.activities.find(a=>a.id===e.actId);
-          return{actId:e.actId,value:e.value,status:e.status,target:act?.target};
+          const finalValue = (e.mode==="add" && e.status==="done") ? (e.originalValue||0)+(e.value||0) : e.value;
+          return{actId:e.actId,value:finalValue,status:e.status,target:act?.target};
         }))} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",
           background:member.color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save all</button>}
       </div>
