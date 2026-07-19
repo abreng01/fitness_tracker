@@ -450,7 +450,17 @@ const PP_LEVELS = [
   {level:27, pp:180000, title:"Overlord",     icon:"🔱👑"},
   {level:28, pp:215000, title:"Eternal",      icon:"💫"},
   {level:29, pp:255000, title:"Transcendent", icon:"🌌✨"},
-  {level:30, pp:300000, title:"Immortal",     icon:"🌌"},
+  {level:30, pp:300000, title:"Celestial",    icon:"🌙"},
+  {level:31, pp:350000, title:"Astral",       icon:"⭐"},
+  {level:32, pp:410000, title:"Cosmic",       icon:"🌌"},
+  {level:33, pp:480000, title:"Nebula",       icon:"🌠"},
+  {level:34, pp:560000, title:"Galactic",     icon:"🪐"},
+  {level:35, pp:650000, title:"Universal",    icon:"🌐"},
+  {level:36, pp:750000, title:"Omnipotent",   icon:"🔮"},
+  {level:37, pp:860000, title:"Absolute",     icon:"💥"},
+  {level:38, pp:980000, title:"Supreme",      icon:"🏵️"},
+  {level:39, pp:1120000,title:"Infinite",     icon:"♾️"},
+  {level:40, pp:1300000,title:"Immortal",     icon:"🌌👑"},
 ];
 
 function getLevel(pp){
@@ -1140,10 +1150,11 @@ const MAJOR_MILESTONE_IDS = new Set([
   "month_3","month_6","month_12",
   "hang_36000","walk_500",
   "mon_30","fam_trio",
-  // PP level ups (levels 5+ get celebration, spread across all 30 levels)
+  // PP level ups (levels 5+ get celebration, spread across all 40 levels)
   "pp_level_5","pp_level_7","pp_level_9","pp_level_11","pp_level_13",
   "pp_level_15","pp_level_17","pp_level_19","pp_level_21","pp_level_23",
-  "pp_level_25","pp_level_27","pp_level_29","pp_level_30"
+  "pp_level_25","pp_level_27","pp_level_29","pp_level_31","pp_level_33",
+  "pp_level_35","pp_level_37","pp_level_39","pp_level_40"
 ]);
 
 function CelebrationScreen({badge, memberName, onClose}){
@@ -2239,7 +2250,7 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
         onNewBadge({id:`pp_level_${newLevel.level}`,e:newLevel.icon,
           label:`Level ${newLevel.level}: ${newLevel.title}!`,
           desc:`You reached ${newLevel.title}! Keep going!`,
-          tier:newLevel.level>=25?'gold':newLevel.level>=15?'silver':'bronze'}, member.name);
+          tier:newLevel.level>=33?'gold':newLevel.level>=20?'silver':'bronze'}, member.name);
       }
     },100);
   }
@@ -2554,7 +2565,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
               onNewBadge({id:`pp_level_${newLevel.level}`,e:newLevel.icon,
                 label:`Level ${newLevel.level}: ${newLevel.title}!`,
                 desc:`You reached ${newLevel.title}! Keep going!`,
-                tier:newLevel.level>=25?'gold':newLevel.level>=15?'silver':'bronze'},member.name);
+                tier:newLevel.level>=33?'gold':newLevel.level>=20?'silver':'bronze'},member.name);
             }
           },200);
         },50);
