@@ -186,7 +186,10 @@ function allTimeBest(al){
   let best=0;
   const today=todayStr();
   for(const[d,l]of Object.entries(al)){
-    if(d<=today&&l.status!=="skipped"&&l.value>best) best=l.value;
+    if(d<=today&&l.status!=="skipped"){
+      const sessionVals = l.sessions&&l.sessions.length>0 ? l.sessions : [l.value];
+      for(const v of sessionVals) if(v>best) best=v;
+    }
   }
   return best;
 }
@@ -533,7 +536,7 @@ function computePowerPoints(member, logs){
   const sortedDates = [...allDates].sort();
 
   let totalPP = 100; // base starting points
-  let breakdown = {atTarget:0, aboveTarget:0, belowTarget:0, pb:0, shielded:0, skipped:0, streakBonus:0, streakBreak:0, mysteryDays:0, eggBonus:0, gkBonus:0, braveryBonus:0};
+  let breakdown = {atTarget:0, aboveTarget:0, belowTarget:0, pb:0, shielded:0, skipped:0, streakBonus:0, streakBreak:0, mysteryDays:0, eggBonus:0, gkBonus:0, braveryBonus:0, extraSessionBonus:0};
   let prevStreak = 0;
   let levelHistory = []; // [{level, title, icon, date}]
   let lastLevelSeen = 1;
@@ -606,28 +609,36 @@ function computePowerPoints(member, logs){
       else if(doneActs.length > 0){
         // Use best activity for scoring
         let bestPts = 0;
+        let bestSessionCount = 1;
         for(const a of doneActs){
           const l = getActivityLogs(logs, member.id, a.id)[dateStr];
           const effectiveTarget = l.target || a.target;
-          const isPB = l.value > actBests[a.id] && l.value > effectiveTarget;
-          if(isPB) actBests[a.id] = l.value;
+          const sessionVals = l.sessions&&l.sessions.length>0 ? l.sessions : [l.value];
+          const maxSession = Math.max(...sessionVals);
+          const isPB = maxSession > actBests[a.id] && maxSession > effectiveTarget;
+          if(isPB) actBests[a.id] = maxSession;
           const basePts = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
-          if(basePts > bestPts) bestPts = basePts;
+          if(basePts > bestPts){ bestPts = basePts; bestSessionCount = sessionVals.length; }
         }
+        const extraPts = bestSessionCount>1 ? 100*(bestSessionCount-1) : 0;
         const mysteryMult = isMysteryBonusDay(member.id, dateStr) ? 2 : 1;
-        const earned = Math.round(bestPts * multiplier * mysteryMult);
-        const bonus = earned - bestPts;
+        const tierEarned = Math.round(bestPts * multiplier * mysteryMult);
+        const extraEarned = Math.round(extraPts * multiplier * mysteryMult);
+        const earned = tierEarned + extraEarned;
+        const bonus = (tierEarned-bestPts) + (extraEarned-extraPts);
         totalPP += earned;
-        if(bestPts === 250) breakdown.pb += earned;
-        else if(bestPts === 200) breakdown.aboveTarget += earned;
-        else if(bestPts === 100) breakdown.atTarget += earned;
-        else breakdown.belowTarget += earned;
+        if(bestPts === 250) breakdown.pb += tierEarned;
+        else if(bestPts === 200) breakdown.aboveTarget += tierEarned;
+        else if(bestPts === 100) breakdown.atTarget += tierEarned;
+        else breakdown.belowTarget += tierEarned;
+        if(extraEarned>0) breakdown.extraSessionBonus += extraEarned;
         breakdown.streakBonus += bonus;
         const tags=[];
         if(bestPts===250) tags.push("pb");
         else if(bestPts===200) tags.push("above");
         else if(bestPts===100) tags.push("at");
         else tags.push("below");
+        if(extraEarned>0) tags.push("extraSession");
         if(mysteryMult===2) tags.push("mystery");
         dailyTags[dateStr]=tags;
       }
@@ -641,23 +652,30 @@ function computePowerPoints(member, logs){
         if(l.status === "shielded"){ totalPP += 25; breakdown.shielded += 25; dailyTags[dateStr]=["shielded"]; }
         else if(l.status === "skipped"){ totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; dailyTags[dateStr]=["skipped"]; }
         else if(l.value > 0){
-          const isPB = l.value > actBests[a.id] && l.value > effectiveTarget;
-          if(isPB) actBests[a.id] = l.value;
+          const sessionVals = l.sessions&&l.sessions.length>0 ? l.sessions : [l.value];
+          const maxSession = Math.max(...sessionVals);
+          const isPB = maxSession > actBests[a.id] && maxSession > effectiveTarget;
+          if(isPB) actBests[a.id] = maxSession;
           const basePts = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
+          const extraPts = sessionVals.length>1 ? 100*(sessionVals.length-1) : 0; // credit for extra sessions beyond the first, even if not a new PB
           const mysteryMult = isMysteryBonusDay(member.id, dateStr) ? 2 : 1;
-          const earned = Math.round(basePts * multiplier * mysteryMult);
-          const bonus = earned - basePts;
+          const tierEarned = Math.round(basePts * multiplier * mysteryMult);
+          const extraEarned = Math.round(extraPts * multiplier * mysteryMult);
+          const earned = tierEarned + extraEarned;
+          const bonus = (tierEarned-basePts) + (extraEarned-extraPts);
           totalPP += earned;
-          if(basePts === 250) breakdown.pb += earned;
-          else if(basePts === 200) breakdown.aboveTarget += earned;
-          else if(basePts === 100) breakdown.atTarget += earned;
-          else breakdown.belowTarget += earned;
+          if(basePts === 250) breakdown.pb += tierEarned;
+          else if(basePts === 200) breakdown.aboveTarget += tierEarned;
+          else if(basePts === 100) breakdown.atTarget += tierEarned;
+          else breakdown.belowTarget += tierEarned;
+          if(extraEarned>0) breakdown.extraSessionBonus += extraEarned;
           breakdown.streakBonus += bonus;
           const tags=[];
           if(basePts===250) tags.push("pb");
           else if(basePts===200) tags.push("above");
           else if(basePts===100) tags.push("at");
           else tags.push("below");
+          if(extraEarned>0) tags.push("extraSession");
           if(mysteryMult===2) tags.push("mystery");
           dailyTags[dateStr]=tags;
         }
@@ -874,7 +892,12 @@ function computeStats(al,target){
   const today=todayStr();
   const entries=Object.entries(al).filter(([d])=>d<=today).sort(([a],[b])=>a.localeCompare(b));
   let totalDone=0,bestVal=0;
-  for(const[,l]of entries) if(l.status!=="skipped"&&l.status!=="shielded"&&l.value>0){totalDone++;if(l.value>bestVal)bestVal=l.value;}
+  for(const[,l]of entries) if(l.status!=="skipped"&&l.status!=="shielded"&&l.value>0){
+    totalDone++;
+    const sessionVals=l.sessions&&l.sessions.length>0?l.sessions:[l.value];
+    const maxSession=Math.max(...sessionVals);
+    if(maxSession>bestVal)bestVal=maxSession;
+  }
   const bestPct=target>0?Math.round((bestVal/target)*100):0;
   const streak=streakCount(al);
   let bestPerf=0,cp=0;
@@ -1229,6 +1252,7 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
       status:ex?.status??"done",
       value:ex?.value??a.target,
       originalValue:ex?.value??0, // snapshot of what was logged before this edit — used for "add session"
+      sessions:ex?.sessions||null, // individual session values, if this day has more than one
       mode:"replace", // 'add' = sum onto existing, 'replace' = overwrite (default for fresh entries)
       alreadySaved:!!alreadySaved,
       editing:false, // true when user taps edit on an already-saved activity
@@ -1251,20 +1275,45 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
     const entry=entries.find(e=>e.actId===actId);
     if(!entry) return;
     const act=member.activities.find(a=>a.id===actId);
-    const finalValue = (entry.mode==="add" && entry.status==="done")
-      ? (entry.originalValue||0) + (entry.value||0)
-      : entry.value;
+    const isAdding = entry.mode==="add" && entry.status==="done";
+    const finalValue = isAdding ? (entry.originalValue||0) + (entry.value||0) : entry.value;
+    // Track individual sessions so PB detection can tell "170 total" apart from "a genuine 110 single session"
+    let sessions;
+    if(isAdding){
+      const ex=getActivityLogs(logs,member.id,actId)[dateStr];
+      const priorSessions = ex?.sessions || (ex?.value>0 ? [ex.value] : []);
+      sessions = [...priorSessions, entry.value||0];
+    } else if(entry.status==="done"){
+      sessions = undefined; // "Correct Total" resets to a clean single authoritative value
+    }
     // Build full entries array — for unsaved activities, pass their current logged value or skip
     const toSave=member.activities.map(a=>{
-      if(a.id===actId) return{actId:a.id,value:finalValue,status:entry.status,target:a.target};
+      if(a.id===actId) return{actId:a.id,value:finalValue,status:entry.status,target:a.target,sessions};
       // For other activities, use whatever is already logged (if anything)
       const ex=getActivityLogs(logs,member.id,a.id)[dateStr];
-      if(ex) return{actId:a.id,value:ex.value,status:ex.status,target:a.target};
+      if(ex) return{actId:a.id,value:ex.value,status:ex.status,target:a.target,sessions:ex.sessions};
       return null; // not yet logged, don't touch
     }).filter(Boolean);
     onSaveAll(toSave);
     // Mark as saved in local state, updating originalValue to the new total for any future "add"
-    setEntries(p=>p.map(e=>e.actId===actId?{...e,value:finalValue,originalValue:finalValue,alreadySaved:true,editing:false,mode:"replace"}:e));
+    setEntries(p=>p.map(e=>e.actId===actId?{...e,value:finalValue,originalValue:finalValue,sessions:sessions||null,alreadySaved:true,editing:false,mode:"replace"}:e));
+  };
+
+  const deleteSession=(actId,sessionIdx)=>{
+    const entry=entries.find(e=>e.actId===actId);
+    if(!entry||!entry.sessions) return;
+    const act=member.activities.find(a=>a.id===actId);
+    const newSessions=entry.sessions.filter((_,i)=>i!==sessionIdx);
+    const newValue=newSessions.reduce((s,v)=>s+v,0);
+    const finalSessions=newSessions.length>1?newSessions:undefined; // collapse back to plain value if only one left
+    const toSave=member.activities.map(a=>{
+      if(a.id===actId) return{actId:a.id,value:newValue,status:newValue>0?"done":"skipped",target:a.target,sessions:finalSessions};
+      const ex=getActivityLogs(logs,member.id,a.id)[dateStr];
+      if(ex) return{actId:a.id,value:ex.value,status:ex.status,target:a.target,sessions:ex.sessions};
+      return null;
+    }).filter(Boolean);
+    onSaveAll(toSave);
+    setEntries(p=>p.map(e=>e.actId===actId?{...e,value:newValue,originalValue:newValue,sessions:finalSessions||null,status:newValue>0?"done":"skipped"}:e));
   };
 
   const allSaved=entries.every(e=>e.alreadySaved);
@@ -1285,23 +1334,34 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
         return <div key={act.id}>
           {/* Already saved — show as greyed summary with Edit button */}
           {!isActive ? (
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
-              padding:"10px 12px",background:C.bg,borderRadius:10,marginBottom:4}}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span style={{fontSize:16,color:en.status==="skipped"?C.missed:C.done}}>
-                  {en.status==="skipped"?"✗":"✓"}
-                </span>
-                <div>
-                  <div style={{fontWeight:600,fontSize:13,color:C.text}}>{act.name}</div>
-                  <div style={{fontSize:11,color:C.muted}}>
-                    {en.status==="skipped"?"Skipped":en.status==="shielded"?"Shielded":`${en.value} ${act.unit}`}
+            <div style={{padding:"10px 12px",background:C.bg,borderRadius:10,marginBottom:4}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:16,color:en.status==="skipped"?C.missed:C.done}}>
+                    {en.status==="skipped"?"✗":"✓"}
+                  </span>
+                  <div>
+                    <div style={{fontWeight:600,fontSize:13,color:C.text}}>{act.name}</div>
+                    <div style={{fontSize:11,color:C.muted}}>
+                      {en.status==="skipped"?"Skipped":en.status==="shielded"?"Shielded":`${en.value} ${act.unit}${en.sessions&&en.sessions.length>1?` (${en.sessions.length} sessions)`:""}`}
+                    </div>
                   </div>
                 </div>
+                <button onClick={()=>startEdit(act.id)} style={{background:"none",border:`1px solid ${C.border}`,
+                  borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:11,fontWeight:600,color:C.muted}}>
+                  Edit
+                </button>
               </div>
-              <button onClick={()=>startEdit(act.id)} style={{background:"none",border:`1px solid ${C.border}`,
-                borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:11,fontWeight:600,color:C.muted}}>
-                Edit
-              </button>
+              {/* Session breakdown with per-session delete */}
+              {en.sessions&&en.sessions.length>1&&<div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:4}}>
+                {en.sessions.map((sv,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:11,color:C.muted}}>
+                    <span>Session {i+1}: <strong style={{color:C.text}}>{sv} {act.unit}</strong></span>
+                    <button onClick={()=>deleteSession(act.id,i)} style={{background:"none",border:"none",
+                      color:C.missed,cursor:"pointer",fontSize:11,fontWeight:600,padding:"2px 6px"}}>Remove</button>
+                  </div>
+                ))}
+              </div>}
             </div>
           ) : (
             /* Active — show full input */
@@ -1533,10 +1593,12 @@ function CalCell({dateStr,member,logs,isToday,onClick,ppByDate}){
           aboveTarget=true;
           if(acts.length===1) displayVal=`${l.value}${a.unit}`;
         }
+        const sessionVals=l.sessions&&l.sessions.length>0?l.sessions:[l.value];
+        const maxSessionToday=Math.max(...sessionVals);
         const best=allTimeBest(al);
-        if(l.value===best&&l.value>effectiveTarget){
+        if(maxSessionToday===best&&maxSessionToday>effectiveTarget){
           isPB=true;
-          tooltipLines.push(`🏆 PB: ${l.value}${a.unit} (${a.name})`);
+          tooltipLines.push(`🏆 PB: ${maxSessionToday}${a.unit} (${a.name})`);
         } else {
           tooltipLines.push(`${a.name}: ${l.value}${a.unit}`);
         }
@@ -1821,7 +1883,7 @@ function PowerPointsPanel({member, logs, onClose}){
     below:{icon:"📉",label:"Below"}, shielded:{icon:"🛡️",label:"Shielded"}, skipped:{icon:"❌",label:"Skipped"},
     mystery:{icon:"🎁",label:"Mystery"}, egg:{icon:"🥚",label:"Egg"},
     gk:{icon:"🧠",label:"GK Quiz"}, gkWeekend:{icon:"🏆",label:"Weekly Review"},
-    bravery:{icon:"🦁",label:"Bravery"},
+    bravery:{icon:"🦁",label:"Bravery"}, extraSession:{icon:"➕",label:"Extra Session"},
   };
 
   return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,
@@ -1923,6 +1985,7 @@ function PowerPointsPanel({member, logs, onClose}){
             {label:"🥚 Eggs",val:breakdown.eggBonus,show:breakdown.eggBonus>0},
             {label:"🧠 GK Learning",val:breakdown.gkBonus,show:breakdown.gkBonus>0},
             {label:"🦁 Bravery",val:breakdown.braveryBonus,show:breakdown.braveryBonus>0},
+            {label:"➕ Extra sessions",val:breakdown.extraSessionBonus,show:breakdown.extraSessionBonus>0},
             {label:"Starting bonus",val:100,show:true},
             {label:"Skipped",val:breakdown.skipped,show:breakdown.skipped<0},
             {label:"Streak breaks",val:breakdown.streakBreak,show:breakdown.streakBreak<0},
@@ -2374,8 +2437,10 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
         const entries=Object.entries(al).filter(([d])=>d<=today);
         let bestVal=0,bestDate=null;
         for(const[d,l]of entries){
-          if(l.status!=="skipped"&&l.status!=="shielded"&&l.value>bestVal){
-            bestVal=l.value;bestDate=d;
+          if(l.status!=="skipped"&&l.status!=="shielded"&&l.value>0){
+            const sessionVals=l.sessions&&l.sessions.length>0?l.sessions:[l.value];
+            const maxSession=Math.max(...sessionVals);
+            if(maxSession>bestVal){bestVal=maxSession;bestDate=d;}
           }
         }
         return bestVal>0?{act:a,val:bestVal,date:bestDate}:null;
@@ -2703,7 +2768,9 @@ function FamilyFeed({members,logs}){
       for(const[d,l]of Object.entries(al)){
         if(d>today) continue;
         if(l.status==="shielded") continue;
-        entries.push({date:d,member:m,activity:a,log:l,isPB:l.value===best&&l.value>a.target,isAbove:l.value>a.target});
+        const sessionVals=l.sessions&&l.sessions.length>0?l.sessions:[l.value];
+        const maxSession=Math.max(...sessionVals);
+        entries.push({date:d,member:m,activity:a,log:l,isPB:maxSession===best&&maxSession>a.target,isAbove:l.value>a.target});
       }
     }
   }
@@ -3199,8 +3266,14 @@ function AllTimeStats({member,logs,onClose}){
     const entries=Object.entries(al).filter(([d])=>d<=today).sort(([x],[y])=>x.localeCompare(y));
     const done=entries.filter(([,l])=>l.status!=="skipped"&&l.status!=="shielded"&&l.value>0);
     const totalVol=done.reduce((s,[,l])=>s+l.value,0);
-    const best=done.reduce((b,[,l])=>Math.max(b,l.value),0);
-    const bestDay=done.find(([,l])=>l.value===best)?.[0];
+    const best=done.reduce((b,[,l])=>{
+      const sessionVals=l.sessions&&l.sessions.length>0?l.sessions:[l.value];
+      return Math.max(b,...sessionVals);
+    },0);
+    const bestDay=done.find(([,l])=>{
+      const sessionVals=l.sessions&&l.sessions.length>0?l.sessions:[l.value];
+      return Math.max(...sessionVals)===best;
+    })?.[0];
     const bestStrk=()=>{let b=0,r=0;for(const[,l]of entries){if(l.status!=="skipped"&&l.status!=="shielded"&&l.value>0){r++;b=Math.max(b,r);}else r=0;}return b;};
     // Best month
     const mons=[...new Set(done.map(([d])=>d.slice(0,7)))];
@@ -3951,8 +4024,12 @@ export default function App(){
   const handleLogAll=useCallback((mid,dateStr,entries)=>{
     setLogs(prev=>{
       const next={...prev,[mid]:{...prev[mid]}};
-      for(const{actId,value,status}of entries)
-        next[mid][actId]={...next[mid]?.[actId],[dateStr]:{value,status}};
+      for(const{actId,value,status,target,sessions}of entries){
+        const entry={value,status};
+        if(target!==undefined) entry.target=target;
+        if(sessions&&sessions.length>0) entry.sessions=sessions;
+        next[mid][actId]={...next[mid]?.[actId],[dateStr]:entry};
+      }
       return next;
     });
   },[]);
