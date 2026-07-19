@@ -616,6 +616,41 @@ function computePowerPoints(member, logs){
 
       if(anyShielded){ totalPP += 25; breakdown.shielded += 25; dailyTags[dateStr]=["shielded"]; }
       else if(anySkipped){ totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; dailyTags[dateStr]=["skipped"]; }
+      else if(doneActs.length > 0 && member.stackPoints){
+        // Stack Points mode: score EVERY done activity independently and sum (like non-alternating),
+        // while day-completion still only needs any-one (handled elsewhere) — best of both worlds.
+        const tags=[];
+        let dayEarned=0;
+        for(const a of doneActs){
+          const l = getActivityLogs(logs, member.id, a.id)[dateStr];
+          const effectiveTarget = l.target || a.target;
+          const sessionVals = l.sessions&&l.sessions.length>0 ? l.sessions : [l.value];
+          const maxSession = Math.max(...sessionVals);
+          const isPB = maxSession > actBests[a.id] && maxSession > effectiveTarget;
+          if(isPB) actBests[a.id] = maxSession;
+          const basePts = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
+          const extraPts = sessionVals.length>1 ? 100*(sessionVals.length-1) : 0;
+          const mysteryMult = isMysteryBonusDay(member.id, dateStr) ? 2 : 1;
+          const tierEarned = Math.round(basePts * multiplier * mysteryMult);
+          const extraEarned = Math.round(extraPts * multiplier * mysteryMult);
+          const earned = tierEarned + extraEarned;
+          dayEarned += earned;
+          if(basePts === 250) breakdown.pb += tierEarned;
+          else if(basePts === 200) breakdown.aboveTarget += tierEarned;
+          else if(basePts === 100) breakdown.atTarget += tierEarned;
+          else breakdown.belowTarget += tierEarned;
+          if(extraEarned>0) breakdown.extraSessionBonus += extraEarned;
+          breakdown.streakBonus += (tierEarned-basePts)+(extraEarned-extraPts);
+          if(basePts===250) tags.push("pb");
+          else if(basePts===200) tags.push("above");
+          else if(basePts===100) tags.push("at");
+          else tags.push("below");
+          if(extraEarned>0) tags.push("extraSession");
+          if(mysteryMult===2) tags.push("mystery");
+        }
+        totalPP += dayEarned;
+        dailyTags[dateStr]=tags;
+      }
       else if(doneActs.length > 0){
         // Use best activity for scoring
         let bestPts = 0;
@@ -2608,6 +2643,7 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
   const[color,setColor]=useState(member?.color??"#5B8FD4");
   const[acts,setActs]=useState(member?.activities??[{id:Date.now().toString(),name:"",unit:"min",target:30}]);
   const[alternating,setAlternating]=useState(member?.alternating??false);
+  const[stackPoints,setStackPoints]=useState(member?.stackPoints??false);
   const[eggMeter,setEggMeter]=useState(member?.eggMeter??false);
   const[gkEnabled,setGkEnabled]=useState(member?.gkEnabled??false);
   const[braveryEnabled,setBraveryEnabled]=useState(member?.braveryEnabled??false);
@@ -2739,6 +2775,19 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
             <div style={{fontSize:11,color:C.muted}}>Do at least one per day — not all required</div>
           </div>
         </div>}
+        {acts.length>1&&alternating&&<div onClick={()=>setStackPoints(s=>!s)} style={{
+          display:"flex",alignItems:"center",gap:10,padding:"10px 12px",marginBottom:10,
+          background:stackPoints?"#E3F2FD":"#F7F5F0",border:`1.5px solid ${stackPoints?"#1976D2":C.border}`,
+          borderRadius:10,cursor:"pointer",userSelect:"none",
+        }}>
+          <div style={{width:36,height:20,borderRadius:99,background:stackPoints?"#1976D2":C.border,position:"relative",transition:"background 0.2s",flexShrink:0}}>
+            <div style={{position:"absolute",top:2,left:stackPoints?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+          </div>
+          <div>
+            <div style={{fontSize:13,fontWeight:600,color:stackPoints?"#1565C0":C.text}}>⚡ Stack Points</div>
+            <div style={{fontSize:11,color:C.muted}}>Earn PP for every activity done that day, not just the best one</div>
+          </div>
+        </div>}
         {acts.map((a,i)=><div key={a.id} style={{background:C.bg,borderRadius:10,padding:12,marginBottom:8,border:`1px solid ${C.border}`}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
             <span style={{fontSize:12,fontWeight:700,color:C.muted}}>Activity {i+1}</span>
@@ -2759,7 +2808,7 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
       <div style={{display:"flex",gap:8}}>
         {!isNew&&<button onClick={()=>{if(window.confirm("Remove?"))onDelete(member.id);}} style={{padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",cursor:"pointer",color:C.missed,fontWeight:600}}>Delete</button>}
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
+        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,stackPoints})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
       </div>
     </div>
   </div>;
