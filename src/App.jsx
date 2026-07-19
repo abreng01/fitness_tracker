@@ -3159,6 +3159,27 @@ function GKDrawer({member, logs, onGkSave, onClose}){
 }
 
 // ── General Knowledge (GK) View — verbal quiz tracker with tiered credit ────────
+// ── Points Form (used by GKView) — top-level so it never remounts on keystroke ──
+function GkPointsForm({points, setPoints, reason, setReason, onGive, placeholder, reasonPlaceholder}){
+  return <div>
+    <input value={reason} onChange={e=>setReason(e.target.value)}
+      placeholder={reasonPlaceholder} style={{width:"100%",padding:"10px 12px",borderRadius:8,
+      border:"1.5px solid #7E57C2",fontSize:13,outline:"none",
+      boxSizing:"border-box",marginBottom:10,background:"#fff"}}/>
+    <input type="number" min={1} value={points} onChange={e=>setPoints(e.target.value)}
+      placeholder={placeholder} style={{width:"100%",padding:"11px 12px",borderRadius:8,
+      border:"1.5px solid #7E57C2",fontSize:16,fontWeight:700,outline:"none",
+      boxSizing:"border-box",marginBottom:10,background:"#fff",textAlign:"center"}}/>
+    <button disabled={!points||parseInt(points)<=0||!reason.trim()} onClick={()=>{
+      onGive(parseInt(points), reason.trim());
+      setPoints(""); setReason("");
+    }} style={{width:"100%",padding:"11px 0",borderRadius:10,border:"none",
+      background:(!points||parseInt(points)<=0||!reason.trim())?"#D1C4E9":"#7E57C2",
+      color:"#fff",cursor:(!points||parseInt(points)<=0||!reason.trim())?"not-allowed":"pointer",
+      fontWeight:700,fontSize:14}}>Give Points</button>
+  </div>;
+}
+
 function GKView({member, logs, onGkSave}){
   const today = todayStr();
   const now = new Date();
@@ -3166,26 +3187,6 @@ function GKView({member, logs, onGkSave}){
   const gk = getGkData(logs, member.id);
   const[points, setPoints] = useState("");
   const[reason, setReason] = useState("");
-
-  const PointsForm = ({onGive, placeholder, reasonPlaceholder}) => (
-    <div>
-      <input value={reason} onChange={e=>setReason(e.target.value)}
-        placeholder={reasonPlaceholder} style={{width:"100%",padding:"10px 12px",borderRadius:8,
-        border:"1.5px solid #7E57C2",fontSize:13,outline:"none",
-        boxSizing:"border-box",marginBottom:10,background:"#fff"}}/>
-      <input type="number" min={1} value={points} onChange={e=>setPoints(e.target.value)}
-        placeholder={placeholder} style={{width:"100%",padding:"11px 12px",borderRadius:8,
-        border:"1.5px solid #7E57C2",fontSize:16,fontWeight:700,outline:"none",
-        boxSizing:"border-box",marginBottom:10,background:"#fff",textAlign:"center"}}/>
-      <button disabled={!points||parseInt(points)<=0||!reason.trim()} onClick={()=>{
-        onGive(parseInt(points), reason.trim());
-        setPoints(""); setReason("");
-      }} style={{width:"100%",padding:"11px 0",borderRadius:10,border:"none",
-        background:(!points||parseInt(points)<=0||!reason.trim())?"#D1C4E9":"#7E57C2",
-        color:"#fff",cursor:(!points||parseInt(points)<=0||!reason.trim())?"not-allowed":"pointer",
-        fontWeight:700,fontSize:14}}>Give Points</button>
-    </div>
-  );
 
   if(isWeekend){
     const weekKey = getWeekKey(today);
@@ -3207,7 +3208,8 @@ function GKView({member, logs, onGkSave}){
       <div style={{fontSize:13,color:C.muted,marginBottom:18}}>
         Quiz {member.name} on everything learned this week — how did it go? Enter what you quizzed and the points to award.
       </div>
-      <PointsForm placeholder="e.g. 2000" reasonPlaceholder="What topic? (e.g. Indian state capitals)"
+      <GkPointsForm points={points} setPoints={setPoints} reason={reason} setReason={setReason}
+        placeholder="e.g. 2000" reasonPlaceholder="What topic? (e.g. Indian state capitals)"
         onGive={(pts,rsn)=>onGkSave(member.id,{type:"weekend", weekKey, date:today, points:pts, reason:rsn})}/>
     </div>;
   }
@@ -3231,7 +3233,8 @@ function GKView({member, logs, onGkSave}){
     <div style={{fontSize:13,color:C.muted,marginBottom:18}}>
       Ask {member.name} a few general knowledge questions — how did it go? Enter what you quizzed and the points to award.
     </div>
-    <PointsForm placeholder="e.g. 1000" reasonPlaceholder="What topic? (e.g. Indian state capitals)"
+    <GkPointsForm points={points} setPoints={setPoints} reason={reason} setReason={setReason}
+      placeholder="e.g. 1000" reasonPlaceholder="What topic? (e.g. Indian state capitals)"
       onGive={(pts,rsn)=>onGkSave(member.id,{type:"daily", date:today, points:pts, reason:rsn})}/>
   </div>;
 }
