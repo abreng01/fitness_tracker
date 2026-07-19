@@ -129,9 +129,9 @@ function getWeekKey(dateStr){
 }
 function computeGkBonus(logs, memberId){
   const gk = getGkData(logs, memberId);
-  const dailyEntries = Object.values(gk.dailyResults||{}).filter(v=>v>0);
+  const dailyEntries = Object.values(gk.dailyResults||{}).filter(v=>v?.points>0);
   const weekendEntries = Object.values(gk.weekendResults||{}).filter(w=>w?.points>0);
-  const dailyBonus = dailyEntries.reduce((s,v)=>s+v,0);
+  const dailyBonus = dailyEntries.reduce((s,v)=>s+v.points,0);
   const weekendBonus = weekendEntries.reduce((s,w)=>s+w.points,0);
   return {total:dailyBonus+weekendBonus, dailyBonus, weekendBonus, dailyCount:dailyEntries.length, weekendCount:weekendEntries.length};
 }
@@ -516,7 +516,7 @@ function computePowerPoints(member, logs){
   // Also include GK (verbal quiz) dates for the same reason
   const gkData = getGkData(logs, member.id);
   const gkDailyByDate = gkData.dailyResults || {};
-  for(const d of Object.keys(gkDailyByDate)) if(gkDailyByDate[d]>0 && d <= today && (!sd || d >= sd)) allDates.add(d);
+  for(const d of Object.keys(gkDailyByDate)) if(gkDailyByDate[d]?.points>0 && d <= today && (!sd || d >= sd)) allDates.add(d);
   // GK weekend review completions carry a completion date
   const gkWeekendByDate = {}; // dateStr -> points earned that weekend review
   for(const w of Object.values(gkData.weekendResults||{})){
@@ -694,7 +694,7 @@ function computePowerPoints(member, logs){
     }
 
     // Add GK (verbal quiz) PP for this date inside the loop, same pattern as eggs
-    const gkDailyPts = gkDailyByDate[dateStr]||0;
+    const gkDailyPts = gkDailyByDate[dateStr]?.points||0;
     if(gkDailyPts>0){
       totalPP += gkDailyPts;
       breakdown.gkBonus += gkDailyPts;
@@ -3105,19 +3105,24 @@ function GKView({member, logs, onGkSave}){
   const isWeekend = now.getDay()===0 || now.getDay()===6;
   const gk = getGkData(logs, member.id);
   const[points, setPoints] = useState("");
+  const[reason, setReason] = useState("");
 
-  const PointsForm = ({onGive, placeholder}) => (
+  const PointsForm = ({onGive, placeholder, reasonPlaceholder}) => (
     <div>
+      <input value={reason} onChange={e=>setReason(e.target.value)}
+        placeholder={reasonPlaceholder} style={{width:"100%",padding:"10px 12px",borderRadius:8,
+        border:"1.5px solid #7E57C2",fontSize:13,outline:"none",
+        boxSizing:"border-box",marginBottom:10,background:"#fff"}}/>
       <input type="number" min={1} value={points} onChange={e=>setPoints(e.target.value)}
         placeholder={placeholder} style={{width:"100%",padding:"11px 12px",borderRadius:8,
         border:"1.5px solid #7E57C2",fontSize:16,fontWeight:700,outline:"none",
         boxSizing:"border-box",marginBottom:10,background:"#fff",textAlign:"center"}}/>
-      <button disabled={!points||parseInt(points)<=0} onClick={()=>{
-        onGive(parseInt(points));
-        setPoints("");
+      <button disabled={!points||parseInt(points)<=0||!reason.trim()} onClick={()=>{
+        onGive(parseInt(points), reason.trim());
+        setPoints(""); setReason("");
       }} style={{width:"100%",padding:"11px 0",borderRadius:10,border:"none",
-        background:(!points||parseInt(points)<=0)?"#D1C4E9":"#7E57C2",
-        color:"#fff",cursor:(!points||parseInt(points)<=0)?"not-allowed":"pointer",
+        background:(!points||parseInt(points)<=0||!reason.trim())?"#D1C4E9":"#7E57C2",
+        color:"#fff",cursor:(!points||parseInt(points)<=0||!reason.trim())?"not-allowed":"pointer",
         fontWeight:700,fontSize:14}}>Give Points</button>
     </div>
   );
@@ -3132,6 +3137,7 @@ function GKView({member, logs, onGkSave}){
         <div style={{fontSize:40,marginBottom:8}}>🏆</div>
         <div style={{fontWeight:800,fontSize:16,color:"#4A148C"}}>Weekly Review Done!</div>
         <div style={{fontSize:13,color:"#5E35B1",marginTop:4}}>+{existing.points.toLocaleString()} ⚡ earned this week.</div>
+        {existing.reason&&<div style={{fontSize:12,color:"#7E57C2",marginTop:6,fontStyle:"italic"}}>"{existing.reason}"</div>}
       </div>;
     }
 
@@ -3139,21 +3145,23 @@ function GKView({member, logs, onGkSave}){
       <div style={{fontSize:36,marginBottom:8}}>🏆</div>
       <div style={{fontWeight:800,fontSize:16,marginBottom:6}}>Weekly Review Time!</div>
       <div style={{fontSize:13,color:C.muted,marginBottom:18}}>
-        Quiz {member.name} on everything learned this week — how did it go? Enter the points to award.
+        Quiz {member.name} on everything learned this week — how did it go? Enter what you quizzed and the points to award.
       </div>
-      <PointsForm placeholder="e.g. 2000" onGive={(pts)=>onGkSave(member.id,{type:"weekend", weekKey, date:today, points:pts})}/>
+      <PointsForm placeholder="e.g. 2000" reasonPlaceholder="What topic? (e.g. Indian state capitals)"
+        onGive={(pts,rsn)=>onGkSave(member.id,{type:"weekend", weekKey, date:today, points:pts, reason:rsn})}/>
     </div>;
   }
 
   // Weekday mode
-  const todayPts = gk.dailyResults?.[today];
+  const todayEntry = gk.dailyResults?.[today];
 
-  if(todayPts>0){
+  if(todayEntry?.points>0){
     return <div style={{background:"linear-gradient(135deg,#EDE7F6,#D1C4E9)",border:"1.5px solid #7E57C2",
       borderRadius:16,padding:24,textAlign:"center"}}>
       <div style={{fontSize:36,marginBottom:8}}>🧠</div>
       <div style={{fontWeight:800,fontSize:15,color:"#4A148C"}}>Today's quiz done!</div>
-      <div style={{fontSize:13,color:"#5E35B1",marginTop:4}}>+{todayPts.toLocaleString()} ⚡ earned. Come back tomorrow!</div>
+      <div style={{fontSize:13,color:"#5E35B1",marginTop:4}}>+{todayEntry.points.toLocaleString()} ⚡ earned. Come back tomorrow!</div>
+      {todayEntry.reason&&<div style={{fontSize:12,color:"#7E57C2",marginTop:6,fontStyle:"italic"}}>"{todayEntry.reason}"</div>}
     </div>;
   }
 
@@ -3161,9 +3169,10 @@ function GKView({member, logs, onGkSave}){
     <div style={{fontSize:36,marginBottom:8}}>🧠</div>
     <div style={{fontWeight:800,fontSize:16,marginBottom:6}}>Today's GK Quiz</div>
     <div style={{fontSize:13,color:C.muted,marginBottom:18}}>
-      Ask {member.name} a few general knowledge questions — how did it go? Enter the points to award.
+      Ask {member.name} a few general knowledge questions — how did it go? Enter what you quizzed and the points to award.
     </div>
-    <PointsForm placeholder="e.g. 1000" onGive={(pts)=>onGkSave(member.id,{type:"daily", date:today, points:pts})}/>
+    <PointsForm placeholder="e.g. 1000" reasonPlaceholder="What topic? (e.g. Indian state capitals)"
+      onGive={(pts,rsn)=>onGkSave(member.id,{type:"daily", date:today, points:pts, reason:rsn})}/>
   </div>;
 }
 
@@ -4063,9 +4072,9 @@ export default function App(){
       const dailyResults={...gk.dailyResults};
       const weekendResults={...gk.weekendResults};
       if(result.type==="daily"){
-        dailyResults[result.date]=result.points;
+        dailyResults[result.date]={points:result.points, reason:result.reason||""};
       } else if(result.type==="weekend"){
-        weekendResults[result.weekKey]={date:result.date, points:result.points};
+        weekendResults[result.weekKey]={date:result.date, points:result.points, reason:result.reason||""};
       }
       next[mid].gk={dailyResults, weekendResults};
       return next;
