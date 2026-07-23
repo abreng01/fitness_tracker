@@ -1514,7 +1514,16 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}
   // Build initial state
   const init=acts.map(a=>{
     const ex=getActivityLogs(logs,member.id,a.id)[dateStr];
-    return{actId:a.id,selected:ex&&ex.status!=="skipped"&&ex.status!=="shielded",status:ex?.status??"none",value:ex?.value??a.target};
+    const alreadyLogged = ex&&ex.status==="done"&&ex.value>0;
+    return{
+      actId:a.id,
+      selected:ex&&ex.status!=="skipped"&&ex.status!=="shielded",
+      status:ex?.status??"none",
+      value:ex?.value??a.target,
+      originalValue:ex?.value??0, // snapshot for "add session"
+      alreadyLogged:!!alreadyLogged,
+      mode:"replace", // 'add' sums onto existing, 'replace' overwrites (default, matches pre-filled value)
+    };
   });
   const[entries,setEntries]=useState(init);
   const[isRest,setIsRest]=useState(init.every(e=>e.status==="skipped"));
@@ -1524,6 +1533,10 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}
     setEntries(p=>p.map(e=>e.actId===actId?{...e,selected:!e.selected,status:!e.selected?"done":"none"}:e));
   };
   const updVal=(actId,val)=>setEntries(p=>p.map(e=>e.actId===actId?{...e,value:val}:e));
+  const switchMode=(actId,mode)=>setEntries(p=>p.map(e=>{
+    if(e.actId!==actId) return e;
+    return{...e, mode, value:mode==="add"?0:e.originalValue};
+  }));
   const isDecimal=(u)=>["km","miles","kg","hrs"].includes(u);
   const anySelected=entries.some(e=>e.selected);
 
@@ -1531,7 +1544,17 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}
     const result=acts.map(a=>{
       const en=entries.find(e=>e.actId===a.id);
       if(isRest) return{actId:a.id,value:0,status:"skipped",target:a.target};
-      if(en?.selected) return{actId:a.id,value:en.value,status:"done",target:a.target};
+      if(en?.selected){
+        const isAdding = en.mode==="add" && en.alreadyLogged;
+        const finalValue = isAdding ? (en.originalValue||0)+(en.value||0) : en.value;
+        let sessions;
+        if(isAdding){
+          const ex=getActivityLogs(logs,member.id,a.id)[dateStr];
+          const priorSessions = ex?.sessions || (ex?.value>0 ? [ex.value] : []);
+          sessions = [...priorSessions, en.value||0];
+        }
+        return{actId:a.id,value:finalValue,status:"done",target:a.target,sessions};
+      }
       return{actId:a.id,value:0,status:"skipped",target:a.target};
     });
     onSaveAll(result);
@@ -1571,11 +1594,34 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}
               </div>
             </div>
             {/* Value input when selected */}
-            {selected&&<div style={{display:"flex",alignItems:"center",gap:10,background:member.color+"0D",borderRadius:"0 0 10px 10px",padding:"10px 14px",marginTop:-4}}>
-              <input type="number" min={0} step={isDecimal(a.unit)?0.1:1}
-                value={en.value} onChange={e=>updVal(a.id,parseFloat(e.target.value)||0)}
-                style={{flex:1,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,fontSize:20,fontWeight:700,outline:"none",background:"#fff"}}/>
-              <span style={{fontSize:13,color:C.muted,fontWeight:600,minWidth:28}}>{a.unit}</span>
+            {selected&&<div style={{background:member.color+"0D",borderRadius:"0 0 10px 10px",padding:"10px 14px",marginTop:-4}}>
+              {/* Add Session / Correct Total toggle — only when this activity was already logged today */}
+              {en.alreadyLogged&&en.originalValue>0&&<div style={{display:"flex",gap:6,marginBottom:8}}>
+                <button onClick={()=>switchMode(a.id,"add")} style={{flex:1,padding:"6px 0",borderRadius:7,
+                  border:`1.5px solid ${en.mode==="add"?member.color:C.border}`,
+                  background:en.mode==="add"?member.color+"15":"none",
+                  color:en.mode==="add"?member.color:C.muted,cursor:"pointer",fontWeight:600,fontSize:11}}>
+                  ➕ Add Session
+                </button>
+                <button onClick={()=>switchMode(a.id,"replace")} style={{flex:1,padding:"6px 0",borderRadius:7,
+                  border:`1.5px solid ${en.mode==="replace"?member.color:C.border}`,
+                  background:en.mode==="replace"?member.color+"15":"none",
+                  color:en.mode==="replace"?member.color:C.muted,cursor:"pointer",fontWeight:600,fontSize:11}}>
+                  ✏️ Correct Total
+                </button>
+              </div>}
+              {en.alreadyLogged&&en.mode==="add"&&en.originalValue>0&&<div style={{fontSize:11,color:C.muted,marginBottom:6}}>
+                Already logged: <strong style={{color:C.text}}>{en.originalValue} {a.unit}</strong> today
+              </div>}
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <input type="number" min={0} step={isDecimal(a.unit)?0.1:1}
+                  value={en.value} onChange={e=>updVal(a.id,parseFloat(e.target.value)||0)}
+                  style={{flex:1,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,fontSize:20,fontWeight:700,outline:"none",background:"#fff"}}/>
+                <span style={{fontSize:13,color:C.muted,fontWeight:600,minWidth:28}}>{a.unit}</span>
+              </div>
+              {en.alreadyLogged&&en.mode==="add"&&en.originalValue>0&&<div style={{fontSize:12,color:member.color,fontWeight:600,marginTop:6}}>
+                New total: {(en.originalValue||0)+(en.value||0)} {a.unit}
+              </div>}
             </div>}
           </div>;
         })}
