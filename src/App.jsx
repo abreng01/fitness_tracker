@@ -459,8 +459,23 @@ const PP_LEVELS = [
   {level:36, pp:750000, title:"Omnipotent",   icon:"🔮"},
   {level:37, pp:860000, title:"Absolute",     icon:"💥"},
   {level:38, pp:980000, title:"Supreme",      icon:"🏵️"},
-  {level:39, pp:1120000,title:"Infinite",     icon:"♾️"},
-  {level:40, pp:1300000,title:"Immortal",     icon:"🌌👑"},
+  {level:39, pp:1120000,title:"Peerless",     icon:"🥇"},
+  {level:40, pp:1300000,title:"Ultimate",     icon:"🌌"},
+  {level:41, pp:1420000,title:"Sovereign",    icon:"👑"},
+  {level:42, pp:1560000,title:"Zenith",       icon:"🌅"},
+  {level:43, pp:1700000,title:"Radiant",      icon:"🔆"},
+  {level:44, pp:1860000,title:"Luminous",     icon:"💡"},
+  {level:45, pp:2040000,title:"Paramount",    icon:"🏔️"},
+  {level:46, pp:2230000,title:"Empyrean",     icon:"🌌🔥"},
+  {level:47, pp:2440000,title:"Divine",       icon:"🕊️"},
+  {level:48, pp:2670000,title:"Colossal",     icon:"🗿"},
+  {level:49, pp:2920000,title:"Everlasting",  icon:"⏳"},
+  {level:50, pp:3190000,title:"Boundless",    icon:"🌊"},
+  {level:51, pp:3490000,title:"Primordial",   icon:"🌋"},
+  {level:52, pp:3820000,title:"Genesis",      icon:"🌱"},
+  {level:53, pp:4180000,title:"Apex",         icon:"🏔️👑"},
+  {level:54, pp:4570000,title:"Infinite",     icon:"♾️"},
+  {level:55, pp:5000000,title:"Immortal",     icon:"🌌👑"},
 ];
 
 function getLevel(pp){
@@ -1185,11 +1200,12 @@ const MAJOR_MILESTONE_IDS = new Set([
   "month_3","month_6","month_12",
   "hang_36000","walk_500",
   "mon_30","fam_trio",
-  // PP level ups (levels 5+ get celebration, spread across all 40 levels)
+  // PP level ups (levels 5+ get celebration, spread across all 55 levels)
   "pp_level_5","pp_level_7","pp_level_9","pp_level_11","pp_level_13",
   "pp_level_15","pp_level_17","pp_level_19","pp_level_21","pp_level_23",
   "pp_level_25","pp_level_27","pp_level_29","pp_level_31","pp_level_33",
-  "pp_level_35","pp_level_37","pp_level_39","pp_level_40"
+  "pp_level_35","pp_level_37","pp_level_39","pp_level_41","pp_level_43",
+  "pp_level_45","pp_level_47","pp_level_49","pp_level_51","pp_level_53","pp_level_55"
 ]);
 
 function CelebrationScreen({badge, memberName, onClose}){
@@ -2331,7 +2347,7 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
         onNewBadge({id:`pp_level_${newLevel.level}`,e:newLevel.icon,
           label:`Level ${newLevel.level}: ${newLevel.title}!`,
           desc:`You reached ${newLevel.title}! Keep going!`,
-          tier:newLevel.level>=33?'gold':newLevel.level>=20?'silver':'bronze'}, member.name);
+          tier:newLevel.level>=45?'gold':newLevel.level>=27?'silver':'bronze'}, member.name);
       }
     },100);
   }
@@ -2646,7 +2662,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
               onNewBadge({id:`pp_level_${newLevel.level}`,e:newLevel.icon,
                 label:`Level ${newLevel.level}: ${newLevel.title}!`,
                 desc:`You reached ${newLevel.title}! Keep going!`,
-                tier:newLevel.level>=33?'gold':newLevel.level>=20?'silver':'bronze'},member.name);
+                tier:newLevel.level>=45?'gold':newLevel.level>=27?'silver':'bronze'},member.name);
             }
           },200);
         },50);
