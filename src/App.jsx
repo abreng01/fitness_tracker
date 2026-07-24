@@ -2106,6 +2106,57 @@ function PowerPointsPanel({member, logs, onClose}){
           ))}
         </div>
 
+        {(()=>{
+          const chartLevels = earnedLevels.filter(l=>completeLevelDates[l.level]||l.level===1);
+          if(chartLevels.length<2) return null;
+          const points = chartLevels.map(l=>({
+            level: l.level,
+            date: completeLevelDates[l.level] || todayStr(),
+          })).sort((a,b)=>a.date.localeCompare(b.date));
+
+          const W=320, H=110, padL=28, padR=12, padT=10, padB=20;
+          const cW=W-padL-padR, cH=H-padT-padB;
+          const firstDate = new Date(points[0].date+"T00:00:00");
+          const lastDate = new Date(points[points.length-1].date+"T00:00:00");
+          const totalDays = Math.max(1,(lastDate-firstDate)/86400000);
+          const maxLevel = points[points.length-1].level;
+          const minLevel = points[0].level;
+          const levelRange = Math.max(1, maxLevel-minLevel);
+
+          function xPos(dateStr){
+            const d = new Date(dateStr+"T00:00:00");
+            return padL + ((d-firstDate)/86400000/totalDays)*cW;
+          }
+          function yPos(lvl){
+            return padT + cH - ((lvl-minLevel)/levelRange)*cH;
+          }
+          const pathD = points.map((p,i)=>{
+            const x=xPos(p.date), y=yPos(p.level);
+            return i===0?`M${x},${y}`:`L${x},${y}`;
+          }).join(" ");
+
+          return <>
+            <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>LEVEL PROGRESSION</div>
+            <div style={{marginBottom:16,background:C.bg,borderRadius:10,padding:"10px 12px"}}>
+              <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto"}}>
+                {[minLevel,Math.round((minLevel+maxLevel)/2),maxLevel].map(lv=>(
+                  <g key={lv}>
+                    <line x1={padL} y1={yPos(lv)} x2={W-padR} y2={yPos(lv)} stroke={C.border} strokeWidth={1} strokeDasharray="3,3"/>
+                    <text x={padL-4} y={yPos(lv)+3} textAnchor="end" fontSize={8} fill={C.muted}>{lv}</text>
+                  </g>
+                ))}
+                <path d={pathD} fill="none" stroke="#FFD700" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+                {points.map((p,i)=>(
+                  <circle key={i} cx={xPos(p.date)} cy={yPos(p.level)} r={i===points.length-1?4:2.5}
+                    fill={i===points.length-1?"#FFD700":"#1a1a2e"} stroke="#fff" strokeWidth={1}/>
+                ))}
+                <text x={padL} y={H-4} fontSize={8} fill={C.muted}>{firstDate.toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</text>
+                <text x={W-padR} y={H-4} textAnchor="end" fontSize={8} fill={C.muted}>{lastDate.toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</text>
+              </svg>
+            </div>
+          </>;
+        })()}
+
         <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>LEVELS UNLOCKED ({earnedLevels.length}/{PP_LEVELS.length})</div>
         <div style={{display:"flex",flexDirection:"column",gap:5}}>
           {[...earnedLevels].reverse().slice(0,5).map(l=>{
