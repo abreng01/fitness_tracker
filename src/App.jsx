@@ -3474,7 +3474,20 @@ function AllTimeStats({member,logs,onClose}){
     let volStr=`${totalVol}${a.unit}`;
     if(a.unit==="sec"&&totalVol>=3600) volStr=`${(totalVol/3600).toFixed(1)}hrs (${totalVol}sec)`;
     else if(a.unit==="sec"&&totalVol>=60) volStr=`${Math.floor(totalVol/60)}min ${totalVol%60}sec`;
-    return{a,totalDays:done.length,totalVol,volStr,best,bestDay,bestStreak:bestStrk(),bestMon};
+    // PB timeline — walk chronologically, record every time a new all-time single-session record was set
+    const pbTimeline=[];
+    let runningBest=0;
+    for(const[d,l]of done){
+      const effectiveTarget=l.target||a.target;
+      const sessionVals=l.sessions&&l.sessions.length>0?l.sessions:[l.value];
+      for(const v of sessionVals){
+        if(v>runningBest&&v>effectiveTarget){
+          runningBest=v;
+          pbTimeline.push({date:d,value:v});
+        }
+      }
+    }
+    return{a,totalDays:done.length,totalVol,volStr,best,bestDay,bestStreak:bestStrk(),bestMon,pbTimeline};
   });
 
   const overallStreak=memberStreakCount(member,logs);
@@ -3534,6 +3547,21 @@ function AllTimeStats({member,logs,onClose}){
               </div>
             </div>;
           })()}
+          {s.pbTimeline.length>0&&<div style={{marginTop:10,background:"#FFFDE7",border:"1px solid #F9A825",borderRadius:12,padding:"10px 14px"}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#F57F17",letterSpacing:0.5,marginBottom:8}}>👑 PB TIMELINE</div>
+            <div style={{display:"flex",flexDirection:"column",gap:5}}>
+              {[...s.pbTimeline].reverse().map((p,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:12}}>
+                  <span style={{fontWeight:700,color:i===0?"#F57F17":C.text}}>
+                    {i===0&&"🏆 "}{p.value} {s.a.unit}
+                  </span>
+                  <span style={{color:C.muted,fontSize:11}}>
+                    {new Date(p.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>}
         </div>)}
       </div>
     </div>
