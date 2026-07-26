@@ -474,8 +474,13 @@ const PP_LEVELS = [
   {level:51, pp:681500, title:"Primordial",   icon:"🌋"},
   {level:52, pp:711500, title:"Genesis",      icon:"🌱"},
   {level:53, pp:741500, title:"Apex",         icon:"🏔️👑"},
-  {level:54, pp:771500, title:"Infinite",     icon:"♾️"},
-  {level:55, pp:900000, title:"Immortal",     icon:"🌌👑"},
+  {level:54, pp:771500, title:"Unbound",     icon:"🔓"},
+  {level:55, pp:800000, title:"Ethereal",    icon:"🌫️"},
+  {level:56, pp:840000, title:"Exalted",     icon:"⚜️"},
+  {level:57, pp:880000, title:"Resplendent", icon:"🎇"},
+  {level:58, pp:920000, title:"Majestic",    icon:"🦅"},
+  {level:59, pp:960000, title:"Infinite",    icon:"♾️"},
+  {level:60, pp:1000000,title:"Immortal",    icon:"🌌👑"},
 ];
 
 function getLevel(pp){
@@ -1205,7 +1210,8 @@ const MAJOR_MILESTONE_IDS = new Set([
   "pp_level_15","pp_level_17","pp_level_19","pp_level_21","pp_level_23",
   "pp_level_25","pp_level_27","pp_level_29","pp_level_31","pp_level_33",
   "pp_level_35","pp_level_37","pp_level_39","pp_level_41","pp_level_43",
-  "pp_level_45","pp_level_47","pp_level_49","pp_level_51","pp_level_53","pp_level_55"
+  "pp_level_45","pp_level_47","pp_level_49","pp_level_51","pp_level_53","pp_level_55",
+  "pp_level_57","pp_level_59","pp_level_60"
 ]);
 
 function CelebrationScreen({badge, memberName, onClose}){
@@ -2398,7 +2404,7 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
         onNewBadge({id:`pp_level_${newLevel.level}`,e:newLevel.icon,
           label:`Level ${newLevel.level}: ${newLevel.title}!`,
           desc:`You reached ${newLevel.title}! Keep going!`,
-          tier:newLevel.level>=45?'gold':newLevel.level>=27?'silver':'bronze'}, member.name);
+          tier:newLevel.level>=49?'gold':newLevel.level>=29?'silver':'bronze'}, member.name);
       }
     },100);
   }
@@ -2713,7 +2719,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
               onNewBadge({id:`pp_level_${newLevel.level}`,e:newLevel.icon,
                 label:`Level ${newLevel.level}: ${newLevel.title}!`,
                 desc:`You reached ${newLevel.title}! Keep going!`,
-                tier:newLevel.level>=45?'gold':newLevel.level>=27?'silver':'bronze'},member.name);
+                tier:newLevel.level>=49?'gold':newLevel.level>=29?'silver':'bronze'},member.name);
             }
           },200);
         },50);
