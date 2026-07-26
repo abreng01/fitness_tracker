@@ -3516,6 +3516,24 @@ function AllTimeStats({member,logs,onClose}){
               <div style={{fontSize:11,color:C.muted,marginTop:3}}>{stat.label}</div>
             </div>)}
           </div>
+          {(()=>{
+            const history = (logs[member.id]?.targetHistory?.[s.a.id])||[];
+            if(history.length===0) return null;
+            const sorted = [...history].sort((a,b)=>b.date.localeCompare(a.date));
+            return <div style={{marginTop:10,background:C.bg,borderRadius:12,padding:"10px 14px"}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>🎯 TARGET HISTORY</div>
+              <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                {sorted.map((h,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:12}}>
+                    <span style={{fontWeight:700,color:C.text}}>{h.target} {s.a.unit}</span>
+                    <span style={{color:C.muted,fontSize:11}}>
+                      {i===0?"since":"from"} {new Date(h.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>;
+          })()}
         </div>)}
       </div>
     </div>
@@ -4272,10 +4290,33 @@ export default function App(){
     });
   },[]);
 
+  const handleTargetChange=useCallback((mid,actId,target,date)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const th={...(next[mid].targetHistory||{})};
+      const list=[...(th[actId]||[])];
+      // Avoid duplicate consecutive entries (e.g. saving profile without actually changing target)
+      if(list.length===0||list[list.length-1].target!==target) list.push({date,target});
+      th[actId]=list;
+      next[mid].targetHistory=th;
+      return next;
+    });
+  },[]);
+
   const handleSave=useCallback((m)=>{
+    // Detect target changes vs the member as it was before this edit, and record them
+    if(editM&&editM!=="new"){
+      const today=todayStr();
+      for(const newAct of (m.activities||[])){
+        const oldAct=(editM.activities||[]).find(a=>a.id===newAct.id);
+        if(oldAct&&oldAct.target!==newAct.target){
+          handleTargetChange(m.id,newAct.id,newAct.target,today);
+        }
+      }
+    }
     setMembers(p=>{const ex=p.find(x=>x.id===m.id);return ex?p.map(x=>x.id===m.id?m:x):[...p,m];});
     setEditM(null);
-  },[]);
+  },[editM,handleTargetChange]);
   const handleDel=useCallback((id)=>{setMembers(p=>p.filter(m=>m.id!==id));setEditM(null);},[]);
   const[celebration,setCelebration]=useState(null);
   const handleBadge=useCallback((b,memberName)=>{
