@@ -1323,7 +1323,7 @@ function Toast({badge,onDismiss}){
 }
 
 // ── Multi-activity Log Modal ──────────────────────────────────────────────────
-function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
+function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDeleteEntry,onClose}){
   const displayDate=new Date(dateStr+"T00:00:00").toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"short"});
   const isDecimal=(u)=>["km","miles","kg","hrs"].includes(u);
 
@@ -1398,6 +1398,16 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
     }).filter(Boolean);
     onSaveAll(toSave);
     setEntries(p=>p.map(e=>e.actId===actId?{...e,value:newValue,originalValue:newValue,sessions:finalSessions||null,status:newValue>0?"done":"skipped"}:e));
+  };
+
+  const deleteThisEntry=(actId)=>{
+    if(!window.confirm("Delete this entry completely? This cannot be undone.")) return;
+    onDeleteEntry(member.id, actId, dateStr);
+    const act=member.activities.find(a=>a.id===actId);
+    setEntries(p=>p.map(e=>e.actId===actId?{
+      ...e, status:"done", value:act?.target??0, originalValue:0, sessions:null,
+      alreadySaved:false, editing:false, mode:"replace",
+    }:e));
   };
 
   const allSaved=entries.every(e=>e.alreadySaved);
@@ -1483,6 +1493,11 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
                 </button>
               </div>}
 
+              {en.alreadySaved&&<button onClick={()=>deleteThisEntry(act.id)} style={{
+                background:"none",border:"none",color:C.missed,cursor:"pointer",
+                fontSize:11,fontWeight:600,padding:"4px 0",marginBottom:8,textDecoration:"underline",
+              }}>🗑️ Delete this entry</button>}
+
               {en.status==="done"&&en.mode==="add"&&en.originalValue>0&&<div style={{fontSize:11,color:C.muted,marginBottom:6}}>
                 Already logged: <strong style={{color:C.text}}>{en.originalValue} {act.unit}</strong> today
               </div>}
@@ -1545,7 +1560,7 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
 }
 
 // ── Alternating Log Modal (pick one or more activities) ──────────────────────
-function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
+function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDeleteEntry,onClose}){
   const displayDate=new Date(dateStr+"T00:00:00").toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"short"});
   const acts=member.activities||[];
 
@@ -1575,6 +1590,15 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}
     if(e.actId!==actId) return e;
     return{...e, mode, value:mode==="add"?0:e.originalValue};
   }));
+  const deleteThisEntry=(actId)=>{
+    if(!window.confirm("Delete this entry completely? This cannot be undone.")) return;
+    onDeleteEntry(member.id, actId, dateStr);
+    const act=acts.find(a=>a.id===actId);
+    setEntries(p=>p.map(e=>e.actId===actId?{
+      ...e, selected:false, status:"none", value:act?.target??0,
+      originalValue:0, alreadyLogged:false, mode:"replace",
+    }:e));
+  };
   const isDecimal=(u)=>["km","miles","kg","hrs"].includes(u);
   const anySelected=entries.some(e=>e.selected);
 
@@ -1648,6 +1672,10 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}
                   ✏️ Correct Total
                 </button>
               </div>}
+              {en.alreadyLogged&&<button onClick={()=>deleteThisEntry(a.id)} style={{
+                background:"none",border:"none",color:C.missed,cursor:"pointer",
+                fontSize:11,fontWeight:600,padding:"4px 0",marginBottom:8,textDecoration:"underline",
+              }}>🗑️ Delete this entry</button>}
               {en.alreadyLogged&&en.mode==="add"&&en.originalValue>0&&<div style={{fontSize:11,color:C.muted,marginBottom:6}}>
                 Already logged: <strong style={{color:C.text}}>{en.originalValue} {a.unit}</strong> today
               </div>}
@@ -2487,7 +2515,7 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
 }
 
 // ── Member Card ───────────────────────────────────────────────────────────────
-function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onBraverySave}){
+function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onBraverySave,onDeleteEntry}){
   const today=todayStr();
   const[showCal,setShowCal]=useState(true);
   const[showBadges,setShowBadges]=useState(false);
@@ -2699,6 +2727,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
 
     {modal&&(member.alternating&&acts.length>1
       ?<AlternatingLogModal dateStr={modal} member={member} logs={logs} shieldsLeft={4-shieldsUsed(logs,member.id,acts)}
+      onDeleteEntry={onDeleteEntry}
       onSaveAll={entries=>{
         // Stamp current target onto each entry so history is preserved
         const stampedEntries=entries.map(e=>{
@@ -2744,6 +2773,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
       }}
       onClose={()=>setModal(null)}/>
       :<LogModal dateStr={modal} member={member} logs={logs} shieldsLeft={4-shieldsUsed(logs,member.id,acts)}
+        onDeleteEntry={onDeleteEntry}
         onSaveAll={entries=>{
           const stampedEntries=entries.map(e=>{const act=acts.find(a=>a.id===e.actId);return act?{...e,target:act.target}:e;});
           const prev=new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,member.id,a.id),a.target,a.unit)));
@@ -4298,6 +4328,17 @@ export default function App(){
     });
   },[]);
 
+  const handleDeleteEntry=useCallback((mid,actId,dateStr)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...prev[mid]}};
+      if(!next[mid][actId]) return prev;
+      const actLogs={...next[mid][actId]};
+      delete actLogs[dateStr];
+      next[mid][actId]=actLogs;
+      return next;
+    });
+  },[]);
+
   const handleEggChange=useCallback((mid,dateStr,delta)=>{
     setLogs(prev=>{
       const next={...prev,[mid]:{...(prev[mid]||{})}};
@@ -4453,7 +4494,7 @@ export default function App(){
             <MemberCard member={m} logs={logs} allMembers={members}
               onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}
               onOpenPP={(id)=>setPpPanelFor(id)} onGrowthSave={handleGrowthSave}
-              onGkSave={handleGkSave} onBraverySave={handleBraverySave}/>
+              onGkSave={handleGkSave} onBraverySave={handleBraverySave} onDeleteEntry={handleDeleteEntry}/>
           </div>
           {ppPanelFor===m.id&&<div style={{flex:"1 1 320px",maxWidth:380,minWidth:280}}>
             <PowerPointsPanel member={m} logs={logs} onClose={()=>setPpPanelFor(null)}/>
