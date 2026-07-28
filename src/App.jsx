@@ -3742,38 +3742,22 @@ function ConsistencyTrend({members, logs}){
     if(es && (!globalStart || es < globalStart)) globalStart = es;
   }
 
-  // Size the window dynamically: from the earliest activity to now, capped at 12 weeks
-  let weekCount = 8;
-  if(globalStart){
-    const daysSinceStart = Math.round((today - new Date(globalStart+"T00:00:00")) / 86400000);
-    weekCount = Math.min(12, Math.max(1, Math.ceil((daysSinceStart+1)/7)));
-  }
+  // Range selector — weekly buckets for the short view, monthly for longer spans
+  const[range,setRange] = useState("12w");
 
-  // Build weeks of data
-  const weeks = [];
-  for(let w=weekCount-1; w>=0; w--){
-    const weekEnd = new Date(today);
-    weekEnd.setDate(today.getDate() - w*7);
-    const weekStart = new Date(weekEnd);
-    weekStart.setDate(weekEnd.getDate() - 6);
+  // % of applicable days completed for a member within [startDate, endDate]
+  function memberPctForRange(m, startDate, endDate){
+    const acts = m.activities||[];
+    const sd = effectiveStarts[m.id];
+    if(!sd) return null; // member has no data at all — no line
+    const endStr = endDate.toISOString().slice(0,10);
+    if(endStr < sd) return null; // bucket ends before this member's real start
 
-    const label = weekEnd.toLocaleDateString("en-IN",{day:"numeric",month:"short"});
-
-    const memberPcts = members.map(m=>{
-      const acts = m.activities||[];
-      const sd = effectiveStarts[m.id];
-      if(!sd) return null; // member has no data at all — no line
-      // If this entire week ends before the member's start, no point for this week
-      const weekEndStr = weekEnd.toISOString().slice(0,10);
-      if(weekEndStr < sd) return null;
-
-      let done=0, app=0;
-      for(let d=0; d<7; d++){
-        const dt = new Date(weekStart);
-        dt.setDate(weekStart.getDate()+d);
-        const k = dt.toISOString().slice(0,10);
-        if(k > todayStr()) continue;
-        if(k < sd) continue; // before this member's real start
+    let done=0, app=0;
+    const cur = new Date(startDate);
+    while(cur <= endDate){
+      const k = cur.toISOString().slice(0,10);
+      if(k <= todayStr() && k >= sd){
         app++;
         if(m.alternating){
           const anyDone = acts.some(a=>{
@@ -3793,16 +3777,60 @@ function ConsistencyTrend({members, logs}){
           if(anyDone) done++;
         }
       }
-      return app===0 ? null : Math.round((done/app)*100);
-    });
-    weeks.push({label, memberPcts});
+      cur.setDate(cur.getDate()+1);
+    }
+    return app===0 ? null : Math.round((done/app)*100);
+  }
+
+  // Build buckets
+  const weeks = [];
+  let rangeLabel = "";
+  if(range==="12w"){
+    let weekCount = 8;
+    if(globalStart){
+      const daysSinceStart = Math.round((today - new Date(globalStart+"T00:00:00")) / 86400000);
+      weekCount = Math.min(12, Math.max(1, Math.ceil((daysSinceStart+1)/7)));
+    }
+    rangeLabel = `LAST ${weekCount} ${weekCount===1?"WEEK":"WEEKS"}`;
+    for(let w=weekCount-1; w>=0; w--){
+      const weekEnd = new Date(today);
+      weekEnd.setDate(today.getDate() - w*7);
+      const weekStart = new Date(weekEnd);
+      weekStart.setDate(weekEnd.getDate() - 6);
+      weeks.push({
+        label: weekEnd.toLocaleDateString("en-IN",{day:"numeric",month:"short"}),
+        memberPcts: members.map(m=>memberPctForRange(m, weekStart, weekEnd)),
+      });
+    }
+  } else {
+    // Monthly buckets — keeps long spans readable instead of cramming 30+ weekly points
+    let firstMonth;
+    if(range==="6m"){
+      firstMonth = new Date(today.getFullYear(), today.getMonth()-5, 1);
+      rangeLabel = "LAST 6 MONTHS";
+    } else {
+      const gs = globalStart ? new Date(globalStart+"T00:00:00") : today;
+      firstMonth = new Date(gs.getFullYear(), gs.getMonth(), 1);
+      rangeLabel = "ALL TIME";
+    }
+    const cursor = new Date(firstMonth);
+    while(cursor <= today){
+      const mStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+      let mEnd = new Date(cursor.getFullYear(), cursor.getMonth()+1, 0);
+      if(mEnd > today) mEnd = new Date(today);
+      weeks.push({
+        label: mStart.toLocaleDateString("en-IN",{month:"short",year:"2-digit"}),
+        memberPcts: members.map(m=>memberPctForRange(m, mStart, mEnd)),
+      });
+      cursor.setMonth(cursor.getMonth()+1);
+    }
   }
 
   // SVG dimensions
   const W=560, H=180, padL=32, padR=16, padT=16, padB=32;
   const chartW=W-padL-padR;
   const chartH=H-padT-padB;
-  const xStep = chartW/(weeks.length-1);
+  const xStep = weeks.length>1 ? chartW/(weeks.length-1) : 0;
 
   // Y gridlines at 0, 25, 50, 75, 100
   const gridLines=[0,25,50,75,100];
@@ -3827,7 +3855,19 @@ function ConsistencyTrend({members, logs}){
   }
 
   return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
-    <div style={{fontWeight:700,fontSize:14,color:C.muted,letterSpacing:0.5,marginBottom:4}}>📈 CONSISTENCY TREND · LAST {weekCount} {weekCount===1?"WEEK":"WEEKS"}</div>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:4}}>
+      <div style={{fontWeight:700,fontSize:14,color:C.muted,letterSpacing:0.5}}>📈 CONSISTENCY TREND · {rangeLabel}</div>
+      <div style={{display:"flex",gap:4}}>
+        {[{id:"12w",label:"12W"},{id:"6m",label:"6M"},{id:"all",label:"All"}].map(r=>(
+          <button key={r.id} onClick={()=>setRange(r.id)} style={{
+            padding:"4px 10px",borderRadius:7,fontSize:11,fontWeight:600,cursor:"pointer",
+            border:`1.5px solid ${range===r.id?C.text:C.border}`,
+            background:range===r.id?C.text:"none",
+            color:range===r.id?"#fff":C.muted,
+          }}>{r.label}</button>
+        ))}
+      </div>
+    </div>
     <div style={{display:"flex",gap:16,marginBottom:16,flexWrap:"wrap"}}>
       {members.map(m=><div key={m.id} style={{display:"flex",alignItems:"center",gap:6}}>
         <div style={{width:20,height:3,borderRadius:99,background:m.color}}/>
@@ -3858,9 +3898,16 @@ function ConsistencyTrend({members, logs}){
         })}
 
         {/* X axis labels */}
-        {weeks.map((w,i)=><text key={i} x={xPos(i)} y={H-6} textAnchor="middle" fontSize={9} fill={C.muted}>
-          {i===weeks.length-1?"Now":w.label}
-        </text>)}
+        {(()=>{
+          const step = Math.ceil(weeks.length/13); // keep labels readable on long ranges
+          return weeks.map((w,i)=>{
+            const isLast = i===weeks.length-1;
+            if(!isLast && i%step!==0) return null;
+            return <text key={i} x={xPos(i)} y={H-6} textAnchor="middle" fontSize={9} fill={C.muted}>
+              {isLast?"Now":w.label}
+            </text>;
+          });
+        })()}
       </svg>
     </div>
   </div>;
