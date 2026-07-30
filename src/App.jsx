@@ -169,12 +169,13 @@ function shieldsUsed(logs, memberId, activities){
   const today=todayStr();
   const ym=today.slice(0,7); // YYYY-MM
   let used=0;
-  const counted=new Set(); // count per date not per activity
+  const counted=new Set(); // count per (date, activityId) — each shielded activity consumes its own shield
   for(const a of(activities||[])){
     const al=getActivityLogs(logs,memberId,a.id);
     for(const[d,l]of Object.entries(al)){
-      if(d.startsWith(ym)&&l.status==="shielded"&&!counted.has(d)){
-        counted.add(d);used++;
+      const key=`${d}__${a.id}`;
+      if(d.startsWith(ym)&&l.status==="shielded"&&!counted.has(key)){
+        counted.add(key);used++;
       }
     }
   }
@@ -1474,8 +1475,17 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDeleteEntry,onClo
                     style={{padding:"5px 10px",borderRadius:8,border:`1.5px solid ${en.status==="skipped"?C.missed:C.border}`,
                     background:en.status==="skipped"?C.missed:"transparent",color:en.status==="skipped"?"#fff":C.muted,
                     fontWeight:600,cursor:"pointer",fontSize:12}}>✗ Skip</button>
+                  {(shieldsLeft>0||en.status==="shielded")&&<button onClick={()=>{upd(act.id,"status","shielded");upd(act.id,"value",0);}}
+                    style={{padding:"5px 10px",borderRadius:8,border:`1.5px solid ${en.status==="shielded"?"#1976D2":C.border}`,
+                    background:en.status==="shielded"?"#1976D2":"transparent",color:en.status==="shielded"?"#fff":C.muted,
+                    fontWeight:600,cursor:"pointer",fontSize:12}}>🛡️ Shield</button>}
                 </div>
               </div>
+
+              {en.status==="shielded"&&<div style={{fontSize:11,color:"#1976D2",background:"#E3F2FD",
+                border:"1px solid #90CAF9",borderRadius:8,padding:"8px 10px",marginBottom:10}}>
+                🛡️ This will protect just <strong>{act.name}</strong>'s streak today — {shieldsLeft} of 4 shields left this month.
+              </div>}
 
               {/* Add-session vs replace-total mode toggle — only shown when there's an existing logged value */}
               {en.status==="done"&&en.alreadySaved&&en.originalValue>0&&<div style={{display:"flex",gap:6,marginBottom:10}}>
@@ -1542,19 +1552,6 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDeleteEntry,onClo
         }))} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",
           background:member.color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save all</button>}
       </div>
-
-      {/* Shield option */}
-      {shieldsLeft>0&&!allSaved&&<div style={{marginTop:10,padding:"10px 14px",background:"#E3F2FD",
-        border:"1.5px solid #90CAF9",borderRadius:10,display:"flex",alignItems:"center",
-        justifyContent:"space-between",gap:10}}>
-        <div>
-          <div style={{fontWeight:700,fontSize:13,color:"#1565C0"}}>🛡️ Use a shield</div>
-          <div style={{fontSize:11,color:"#1976D2"}}>{shieldsLeft} of 4 remaining this month · Protects your streak</div>
-        </div>
-        <button onClick={()=>onSaveAll(entries.map(e=>({...e,status:"shielded",value:0})))}
-          style={{background:"#1976D2",color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",
-          cursor:"pointer",fontWeight:700,fontSize:12,whiteSpace:"nowrap"}}>Use shield</button>
-      </div>}
     </div>
   </div>;
 }
@@ -1585,6 +1582,11 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
     setIsRest(false);
     setEntries(p=>p.map(e=>e.actId===actId?{...e,selected:!e.selected,status:!e.selected?"done":"none"}:e));
   };
+  const toggleShield=(actId)=>setEntries(p=>p.map(e=>{
+    if(e.actId!==actId) return e;
+    const isShielded = e.status==="shielded";
+    return{...e, selected:false, status:isShielded?"none":"shielded"};
+  }));
   const updVal=(actId,val)=>setEntries(p=>p.map(e=>e.actId===actId?{...e,value:val}:e));
   const switchMode=(actId,mode)=>setEntries(p=>p.map(e=>{
     if(e.actId!==actId) return e;
@@ -1606,6 +1608,9 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
     const result=acts.map(a=>{
       const en=entries.find(e=>e.actId===a.id);
       if(isRest) return{actId:a.id,value:0,status:"skipped",target:a.target};
+      if(en?.status==="shielded"){
+        return{actId:a.id,value:0,status:"shielded",target:a.target};
+      }
       if(en?.selected){
         const isAdding = en.mode==="add" && en.alreadyLogged;
         const finalValue = isAdding ? (en.originalValue||0)+(en.value||0) : en.value;
@@ -1636,25 +1641,38 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
         {acts.map(a=>{
           const en=entries.find(e=>e.actId===a.id);
           const selected=en?.selected&&!isRest;
+          const isShielded=en?.status==="shielded"&&!isRest;
           return <div key={a.id}>
-            <div onClick={()=>toggleAct(a.id)} style={{
+            <div style={{
               display:"flex",alignItems:"center",gap:12,padding:"12px 14px",
-              borderRadius:10,border:`2px solid ${selected?member.color:C.border}`,
-              background:selected?member.color+"0F":"transparent",cursor:"pointer",
+              borderRadius:isShielded?"10px 10px 0 0":10,
+              border:`2px solid ${selected?member.color:isShielded?"#1976D2":C.border}`,
+              background:selected?member.color+"0F":isShielded?"#E3F2FD":"transparent",
               transition:"all 0.15s",
             }}>
-              <div style={{
-                width:22,height:22,borderRadius:"50%",flexShrink:0,
-                background:selected?member.color:C.border,
+              <div onClick={()=>toggleAct(a.id)} style={{
+                width:22,height:22,borderRadius:"50%",flexShrink:0,cursor:"pointer",
+                background:selected?member.color:isShielded?"#1976D2":C.border,
                 display:"flex",alignItems:"center",justifyContent:"center",
               }}>
                 {selected&&<span style={{color:"#fff",fontSize:13,fontWeight:700}}>✓</span>}
+                {isShielded&&<span style={{fontSize:12}}>🛡️</span>}
               </div>
-              <div style={{flex:1}}>
+              <div onClick={()=>toggleAct(a.id)} style={{flex:1,cursor:"pointer"}}>
                 <div style={{fontWeight:600,fontSize:14,color:C.text}}>{a.name}</div>
                 <div style={{fontSize:11,color:C.muted}}>Target: {a.target} {a.unit}</div>
               </div>
+              {!selected&&(shieldsLeft>0||isShielded)&&!isRest&&<button onClick={()=>toggleShield(a.id)} style={{
+                background:isShielded?"#1976D2":"none",color:isShielded?"#fff":"#1976D2",
+                border:"1.5px solid #1976D2",borderRadius:8,padding:"5px 9px",
+                cursor:"pointer",fontWeight:600,fontSize:11,whiteSpace:"nowrap",
+              }}>{isShielded?"🛡️ Shielded":"🛡️ Shield"}</button>}
             </div>
+            {isShielded&&<div style={{fontSize:11,color:"#1976D2",background:"#E3F2FD",
+              border:"1.5px solid #90CAF9",borderTop:"none",borderRadius:"0 0 10px 10px",
+              padding:"8px 14px",marginTop:-2}}>
+              Protects just <strong>{a.name}</strong>'s streak today — {shieldsLeft} of 4 shields left this month.
+            </div>}
             {/* Value input when selected */}
             {selected&&<div style={{background:member.color+"0D",borderRadius:"0 0 10px 10px",padding:"10px 14px",marginTop:-4}}>
               {/* Add Session / Correct Total toggle — only when this activity was already logged today */}
@@ -1711,21 +1729,12 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
       {/* Footer */}
       <div style={{display:"flex",gap:8}}>
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={handleSave} disabled={!anySelected&&!isRest} style={{
+        <button onClick={handleSave} disabled={!anySelected&&!isRest&&!entries.some(e=>e.status==="shielded")} style={{
           flex:2,padding:"10px 0",borderRadius:8,border:"none",
-          background:(!anySelected&&!isRest)?C.border:member.color,
-          color:"#fff",cursor:(!anySelected&&!isRest)?"not-allowed":"pointer",fontWeight:700,fontSize:14,
+          background:(!anySelected&&!isRest&&!entries.some(e=>e.status==="shielded"))?C.border:member.color,
+          color:"#fff",cursor:(!anySelected&&!isRest&&!entries.some(e=>e.status==="shielded"))?"not-allowed":"pointer",fontWeight:700,fontSize:14,
         }}>Save</button>
       </div>
-
-      {/* Shield option */}
-      {shieldsLeft>0&&<div style={{marginTop:10,padding:"10px 14px",background:"#E3F2FD",border:"1.5px solid #90CAF9",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
-        <div>
-          <div style={{fontWeight:700,fontSize:13,color:"#1565C0"}}>🛡️ Use a shield</div>
-          <div style={{fontSize:11,color:"#1976D2"}}>{shieldsLeft} of 4 remaining · Protects your streak</div>
-        </div>
-        <button onClick={()=>onSaveAll(acts.map(a=>({actId:a.id,value:0,status:"shielded",target:a.target})))} style={{background:"#1976D2",color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12,whiteSpace:"nowrap"}}>Use shield</button>
-      </div>}
     </div>
   </div>;
 }
