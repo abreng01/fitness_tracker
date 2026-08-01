@@ -650,102 +650,100 @@ function computePowerPoints(member, logs){
 
     // For alternating members — day is one unit
     if(member.alternating && acts.length > 1){
-      const anyShielded = acts.some(a => {
+      const shieldedActs = acts.filter(a => {
         const l = getActivityLogs(logs, member.id, a.id)[dateStr];
         return l && l.status === "shielded";
-      });
-      const anySkipped = acts.every(a => {
-        const l = getActivityLogs(logs, member.id, a.id)[dateStr];
-        return !l || l.status === "skipped";
       });
       const doneActs = acts.filter(a => {
         const l = getActivityLogs(logs, member.id, a.id)[dateStr];
         return l && l.status !== "skipped" && l.status !== "shielded" && l.value > 0;
       });
+      const nothingHappened = shieldedActs.length===0 && doneActs.length===0;
 
-      if(anyShielded){ totalPP += 25; breakdown.shielded += 25; dailyTags[dateStr]=["shielded"]; }
-      else if(anySkipped){ totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; dailyTags[dateStr]=["skipped"]; }
-      else if(doneActs.length > 0 && member.stackPoints){
-        // Stack Points mode: score EVERY done activity independently and sum (like non-alternating),
-        // while day-completion still only needs any-one (handled elsewhere) — best of both worlds.
+      if(nothingHappened){
+        totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; dailyTags[dateStr]=["skipped"];
+      } else {
         const tags=[];
         let dayEarned=0;
-        for(const a of doneActs){
-          const l = getActivityLogs(logs, member.id, a.id)[dateStr];
-          const effectiveTarget = getHistoricalTarget(l, a.id, a.target, logs, member.id, dateStr);
-          const sessionVals = l.sessions&&l.sessions.length>0 ? l.sessions : [l.value];
-          const maxSession = Math.max(...sessionVals);
-          const isPB = maxSession > actBests[a.id] && maxSession > effectiveTarget;
-          if(isPB) actBests[a.id] = maxSession;
-          const rawTier = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
-          const basePts = rawTier * (a.ppMultiplier ?? 1);
-          const extraPts = sessionVals.length>1 ? 100*(sessionVals.length-1) : 0;
-          const distancePts = Math.max(0, l.value - effectiveTarget) * (a.distanceBonusRate ?? 0);
+        // Shielded activities each contribute their own flat bonus — doesn't wipe out other activities done that day
+        for(const a of shieldedActs){
+          dayEarned += 25;
+          breakdown.shielded += 25;
+          tags.push("shielded");
+        }
+        // Done activities score via Stack Points (sum all) or best-of, same as before
+        if(doneActs.length > 0 && member.stackPoints){
+          for(const a of doneActs){
+            const l = getActivityLogs(logs, member.id, a.id)[dateStr];
+            const effectiveTarget = getHistoricalTarget(l, a.id, a.target, logs, member.id, dateStr);
+            const sessionVals = l.sessions&&l.sessions.length>0 ? l.sessions : [l.value];
+            const maxSession = Math.max(...sessionVals);
+            const isPB = maxSession > actBests[a.id] && maxSession > effectiveTarget;
+            if(isPB) actBests[a.id] = maxSession;
+            const rawTier = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
+            const basePts = rawTier * (a.ppMultiplier ?? 1);
+            const extraPts = sessionVals.length>1 ? 100*(sessionVals.length-1) : 0;
+            const distancePts = Math.max(0, l.value - effectiveTarget) * (a.distanceBonusRate ?? 0);
+            const mysteryMult = isMysteryBonusDay(member.id, dateStr) ? 2 : 1;
+            const tierEarned = Math.round(basePts * multiplier * mysteryMult);
+            const extraEarned = Math.round(extraPts * multiplier * mysteryMult);
+            const distanceEarned = Math.round(distancePts * multiplier * mysteryMult);
+            dayEarned += tierEarned + extraEarned + distanceEarned;
+            if(rawTier === 250) breakdown.pb += tierEarned;
+            else if(rawTier === 200) breakdown.aboveTarget += tierEarned;
+            else if(rawTier === 100) breakdown.atTarget += tierEarned;
+            else breakdown.belowTarget += tierEarned;
+            if(extraEarned>0) breakdown.extraSessionBonus += extraEarned;
+            if(distanceEarned>0) breakdown.distanceBonus += distanceEarned;
+            breakdown.streakBonus += (tierEarned-basePts)+(extraEarned-extraPts)+(distanceEarned-distancePts);
+            if(rawTier===250) tags.push("pb");
+            else if(rawTier===200) tags.push("above");
+            else if(rawTier===100) tags.push("at");
+            else tags.push("below");
+            if(extraEarned>0) tags.push("extraSession");
+            if(mysteryMult===2) tags.push("mystery");
+          }
+        } else if(doneActs.length > 0){
+          // Use best activity for scoring
+          let bestPts = 0;
+          let bestRawTier = 0;
+          let bestSessionCount = 1;
+          let bestDistancePts = 0;
+          for(const a of doneActs){
+            const l = getActivityLogs(logs, member.id, a.id)[dateStr];
+            const effectiveTarget = getHistoricalTarget(l, a.id, a.target, logs, member.id, dateStr);
+            const sessionVals = l.sessions&&l.sessions.length>0 ? l.sessions : [l.value];
+            const maxSession = Math.max(...sessionVals);
+            const isPB = maxSession > actBests[a.id] && maxSession > effectiveTarget;
+            if(isPB) actBests[a.id] = maxSession;
+            const rawTier = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
+            const basePts = rawTier * (a.ppMultiplier ?? 1);
+            if(basePts > bestPts){
+              bestPts = basePts; bestRawTier = rawTier; bestSessionCount = sessionVals.length;
+              bestDistancePts = Math.max(0, l.value - effectiveTarget) * (a.distanceBonusRate ?? 0);
+            }
+          }
+          const extraPts = bestSessionCount>1 ? 100*(bestSessionCount-1) : 0;
           const mysteryMult = isMysteryBonusDay(member.id, dateStr) ? 2 : 1;
-          const tierEarned = Math.round(basePts * multiplier * mysteryMult);
+          const tierEarned = Math.round(bestPts * multiplier * mysteryMult);
           const extraEarned = Math.round(extraPts * multiplier * mysteryMult);
-          const distanceEarned = Math.round(distancePts * multiplier * mysteryMult);
-          const earned = tierEarned + extraEarned + distanceEarned;
-          dayEarned += earned;
-          if(rawTier === 250) breakdown.pb += tierEarned;
-          else if(rawTier === 200) breakdown.aboveTarget += tierEarned;
-          else if(rawTier === 100) breakdown.atTarget += tierEarned;
+          const distanceEarned = Math.round(bestDistancePts * multiplier * mysteryMult);
+          dayEarned += tierEarned + extraEarned + distanceEarned;
+          if(bestRawTier === 250) breakdown.pb += tierEarned;
+          else if(bestRawTier === 200) breakdown.aboveTarget += tierEarned;
+          else if(bestRawTier === 100) breakdown.atTarget += tierEarned;
           else breakdown.belowTarget += tierEarned;
           if(extraEarned>0) breakdown.extraSessionBonus += extraEarned;
           if(distanceEarned>0) breakdown.distanceBonus += distanceEarned;
-          breakdown.streakBonus += (tierEarned-basePts)+(extraEarned-extraPts)+(distanceEarned-distancePts);
-          if(rawTier===250) tags.push("pb");
-          else if(rawTier===200) tags.push("above");
-          else if(rawTier===100) tags.push("at");
+          breakdown.streakBonus += (tierEarned-bestPts) + (extraEarned-extraPts) + (distanceEarned-bestDistancePts);
+          if(bestRawTier===250) tags.push("pb");
+          else if(bestRawTier===200) tags.push("above");
+          else if(bestRawTier===100) tags.push("at");
           else tags.push("below");
           if(extraEarned>0) tags.push("extraSession");
           if(mysteryMult===2) tags.push("mystery");
         }
         totalPP += dayEarned;
-        dailyTags[dateStr]=tags;
-      }
-      else if(doneActs.length > 0){
-        // Use best activity for scoring
-        let bestPts = 0;
-        let bestRawTier = 0;
-        let bestSessionCount = 1;
-        let bestDistancePts = 0;
-        for(const a of doneActs){
-          const l = getActivityLogs(logs, member.id, a.id)[dateStr];
-          const effectiveTarget = getHistoricalTarget(l, a.id, a.target, logs, member.id, dateStr);
-          const sessionVals = l.sessions&&l.sessions.length>0 ? l.sessions : [l.value];
-          const maxSession = Math.max(...sessionVals);
-          const isPB = maxSession > actBests[a.id] && maxSession > effectiveTarget;
-          if(isPB) actBests[a.id] = maxSession;
-          const rawTier = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
-          const basePts = rawTier * (a.ppMultiplier ?? 1);
-          if(basePts > bestPts){
-            bestPts = basePts; bestRawTier = rawTier; bestSessionCount = sessionVals.length;
-            bestDistancePts = Math.max(0, l.value - effectiveTarget) * (a.distanceBonusRate ?? 0);
-          }
-        }
-        const extraPts = bestSessionCount>1 ? 100*(bestSessionCount-1) : 0;
-        const mysteryMult = isMysteryBonusDay(member.id, dateStr) ? 2 : 1;
-        const tierEarned = Math.round(bestPts * multiplier * mysteryMult);
-        const extraEarned = Math.round(extraPts * multiplier * mysteryMult);
-        const distanceEarned = Math.round(bestDistancePts * multiplier * mysteryMult);
-        const earned = tierEarned + extraEarned + distanceEarned;
-        const bonus = (tierEarned-bestPts) + (extraEarned-extraPts) + (distanceEarned-bestDistancePts);
-        totalPP += earned;
-        if(bestRawTier === 250) breakdown.pb += tierEarned;
-        else if(bestRawTier === 200) breakdown.aboveTarget += tierEarned;
-        else if(bestRawTier === 100) breakdown.atTarget += tierEarned;
-        else breakdown.belowTarget += tierEarned;
-        if(extraEarned>0) breakdown.extraSessionBonus += extraEarned;
-        if(distanceEarned>0) breakdown.distanceBonus += distanceEarned;
-        breakdown.streakBonus += bonus;
-        const tags=[];
-        if(bestRawTier===250) tags.push("pb");
-        else if(bestRawTier===200) tags.push("above");
-        else if(bestRawTier===100) tags.push("at");
-        else tags.push("below");
-        if(extraEarned>0) tags.push("extraSession");
-        if(mysteryMult===2) tags.push("mystery");
         dailyTags[dateStr]=tags;
       }
     } else {
@@ -2766,10 +2764,17 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
       ?<AlternatingLogModal dateStr={modal} member={member} logs={logs} shieldsLeft={4-shieldsUsed(logs,member.id,acts)}
       onDeleteEntry={onDeleteEntry}
       onSaveAll={entries=>{
-        // Stamp current target onto each entry so history is preserved
+        // Preserve the correct historical target if this entry already existed (so editing/adding a
+        // session on an old date never gets silently re-stamped with today's current target).
+        // Only stamp today's current target for entries that never existed before.
         const stampedEntries=entries.map(e=>{
           const act=acts.find(a=>a.id===e.actId);
-          return act?{...e,target:act.target}:e;
+          if(!act) return e;
+          const existing=getActivityLogs(logs,member.id,e.actId)[modal];
+          const preservedTarget = existing
+            ? getHistoricalTarget(existing, e.actId, act.target, logs, member.id, modal)
+            : act.target;
+          return{...e,target:preservedTarget};
         });
         const prev=new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,member.id,a.id),a.target,a.unit,computeMemberLevelStats(member,logs))));
         onLogAll(member.id,modal,stampedEntries);
@@ -2812,7 +2817,15 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
       :<LogModal dateStr={modal} member={member} logs={logs} shieldsLeft={4-shieldsUsed(logs,member.id,acts)}
         onDeleteEntry={onDeleteEntry}
         onSaveAll={entries=>{
-          const stampedEntries=entries.map(e=>{const act=acts.find(a=>a.id===e.actId);return act?{...e,target:act.target}:e;});
+          const stampedEntries=entries.map(e=>{
+            const act=acts.find(a=>a.id===e.actId);
+            if(!act) return e;
+            const existing=getActivityLogs(logs,member.id,e.actId)[modal];
+            const preservedTarget = existing
+              ? getHistoricalTarget(existing, e.actId, act.target, logs, member.id, modal)
+              : act.target;
+            return{...e,target:preservedTarget};
+          });
           const prev=new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,member.id,a.id),a.target,a.unit)));
           onLogAll(member.id,modal,stampedEntries);
           setTimeout(()=>{
