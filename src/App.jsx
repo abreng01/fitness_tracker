@@ -104,6 +104,34 @@ function getActivityLogs(logs, memberId, activityId){
 }
 
 // ── Egg-O-Meter helpers (isolated from activity/badge/streak system) ─────────
+// ── Historical target resolution ──────────────────────────────────────────────
+// Returns the correct target for a given activity on a given date, using:
+//  1. The stamped target on the log entry itself (most accurate — set at save time)
+//  2. The targetHistory log (finds what target was active on that date)
+//  3. The current activity target (last resort, only correct if no changes ever made)
+function getHistoricalTarget(logEntry, activityId, currentTarget, logs, memberId, dateStr){
+  // First: use stamped target if present — always set for logs saved after we added stamping
+  if(logEntry&&logEntry.target) return logEntry.target;
+  // Second: look up targetHistory for what the target was on that date
+  if(logs&&memberId&&activityId&&dateStr){
+    const history = (logs[memberId]?.targetHistory?.[activityId])||[];
+    if(history.length>0){
+      const sorted=[...history].sort((a,b)=>a.date.localeCompare(b.date));
+      // Find the most recent change ON or BEFORE the queried date
+      let historicalTarget=null;
+      for(const h of sorted){
+        if(h.date<=dateStr) historicalTarget=h.target;
+      }
+      if(historicalTarget!==null) return historicalTarget;
+      // All history entries are AFTER this date — the date predates the first recorded change.
+      // Use prevTarget from the oldest entry (what the target WAS before it was changed)
+      if(sorted[0].prevTarget!=null) return sorted[0].prevTarget;
+    }
+  }
+  // Third: no history at all — current target has always been the target
+  return currentTarget;
+}
+
 function getEggLogs(logs, memberId){
   return (logs[memberId] && logs[memberId].eggs) || {};
 }
@@ -644,7 +672,7 @@ function computePowerPoints(member, logs){
         let dayEarned=0;
         for(const a of doneActs){
           const l = getActivityLogs(logs, member.id, a.id)[dateStr];
-          const effectiveTarget = l.target || a.target;
+          const effectiveTarget = getHistoricalTarget(l, a.id, a.target, logs, member.id, dateStr);
           const sessionVals = l.sessions&&l.sessions.length>0 ? l.sessions : [l.value];
           const maxSession = Math.max(...sessionVals);
           const isPB = maxSession > actBests[a.id] && maxSession > effectiveTarget;
@@ -684,7 +712,7 @@ function computePowerPoints(member, logs){
         let bestDistancePts = 0;
         for(const a of doneActs){
           const l = getActivityLogs(logs, member.id, a.id)[dateStr];
-          const effectiveTarget = l.target || a.target;
+          const effectiveTarget = getHistoricalTarget(l, a.id, a.target, logs, member.id, dateStr);
           const sessionVals = l.sessions&&l.sessions.length>0 ? l.sessions : [l.value];
           const maxSession = Math.max(...sessionVals);
           const isPB = maxSession > actBests[a.id] && maxSession > effectiveTarget;
@@ -726,7 +754,7 @@ function computePowerPoints(member, logs){
         const al = getActivityLogs(logs, member.id, a.id);
         const l = al[dateStr];
         if(!l) continue;
-        const effectiveTarget = l.target || a.target;
+        const effectiveTarget = getHistoricalTarget(l, a.id, a.target, logs, member.id, dateStr);
         if(l.status === "shielded"){ totalPP += 25; breakdown.shielded += 25; dailyTags[dateStr]=["shielded"]; }
         else if(l.status === "skipped"){ totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; dailyTags[dateStr]=["skipped"]; }
         else if(l.value > 0){
@@ -1755,7 +1783,7 @@ function CalCell({dateStr,member,logs,isToday,onClick,ppByDate}){
       const al=getActivityLogs(logs,member.id,a.id);
       const l=al[dateStr];
       if(l&&l.status!=="skipped"&&l.value>0){
-        const effectiveTarget=l.target||a.target;
+        const effectiveTarget=getHistoricalTarget(l, a.id, a.target, logs, member.id, dateStr);
         if(l.value>effectiveTarget){
           aboveTarget=true;
           if(acts.length===1) displayVal=`${l.value}${a.unit}`;
@@ -3544,7 +3572,7 @@ function AllTimeStats({member,logs,onClose}){
     const pbTimeline=[];
     let runningBest=0;
     for(const[d,l]of done){
-      const effectiveTarget=l.target||a.target;
+      const effectiveTarget=getHistoricalTarget(l, a.id, a.target, logs, member.id, d);
       const sessionVals=l.sessions&&l.sessions.length>0?l.sessions:[l.value];
       for(const v of sessionVals){
         if(v>runningBest&&v>effectiveTarget){
@@ -4442,13 +4470,15 @@ export default function App(){
     });
   },[]);
 
-  const handleTargetChange=useCallback((mid,actId,target,date)=>{
+  const handleTargetChange=useCallback((mid,actId,target,date,prevTarget)=>{
     setLogs(prev=>{
       const next={...prev,[mid]:{...(prev[mid]||{})}};
       const th={...(next[mid].targetHistory||{})};
       const list=[...(th[actId]||[])];
-      // Avoid duplicate consecutive entries (e.g. saving profile without actually changing target)
-      if(list.length===0||list[list.length-1].target!==target) list.push({date,target});
+      // Avoid duplicate consecutive entries
+      if(list.length===0||list[list.length-1].target!==target){
+        list.push({date,target,prevTarget:prevTarget??null});
+      }
       th[actId]=list;
       next[mid].targetHistory=th;
       return next;
@@ -4462,7 +4492,7 @@ export default function App(){
       for(const newAct of (m.activities||[])){
         const oldAct=(editM.activities||[]).find(a=>a.id===newAct.id);
         if(oldAct&&oldAct.target!==newAct.target){
-          handleTargetChange(m.id,newAct.id,newAct.target,today);
+          handleTargetChange(m.id,newAct.id,newAct.target,today,oldAct.target);
         }
       }
     }
