@@ -2853,10 +2853,15 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
 }
 
 // ── Edit Member Modal ─────────────────────────────────────────────────────────
-function EditModal({member,isNew,onSave,onDelete,onClose}){
+function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
   const[name,setName]=useState(member?.name??"");
   const[emoji,setEmoji]=useState(member?.emoji??"🏃");
-  const[color,setColor]=useState(member?.color??"#5B8FD4");
+  const cOpts=["#5B8FD4","#D47B9E","#3D9E6E","#E8A838","#9B6FD4","#E05C5C","#5BC4C4","#E8873A"];
+  const defaultColor=()=>{
+    const usedColors=new Set((allMembers||[]).map(m=>m.color));
+    return cOpts.find(c=>!usedColors.has(c)) ?? cOpts[0]; // fall back to first if all taken
+  };
+  const[color,setColor]=useState(member?.color ?? defaultColor());
   const[acts,setActs]=useState(member?.activities??[{id:Date.now().toString(),name:"",unit:"min",target:30}]);
   const[alternating,setAlternating]=useState(member?.alternating??false);
   const[stackPoints,setStackPoints]=useState(member?.stackPoints??false);
@@ -2867,7 +2872,6 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
   const[memberTheme,setMemberTheme]=useState(member?.memberTheme??"");
   const[memberPattern,setMemberPattern]=useState(member?.memberPattern??"");
   const eOpts=["🧗","🚶","🏃","🚴","🏋️","🤸","🧘","🏊","⚽","🏓","🎯","💪","🧒","👩","👨"];
-  const cOpts=["#5B8FD4","#D47B9E","#3D9E6E","#E8A838","#9B6FD4","#E05C5C","#5BC4C4","#E8873A"];
   const addAct=()=>setActs(a=>[...a,{id:Date.now().toString(),name:"",unit:"reps",target:10}]);
   const remAct=id=>setActs(a=>a.filter(x=>x.id!==id));
   const updAct=(id,f,v)=>setActs(a=>a.map(x=>x.id===id?{...x,[f]:v}:x));
@@ -3780,6 +3784,16 @@ function getEffectiveStart(member, logs){
   return earliest; // null if member has no data at all yet
 }
 
+// Distinguish members that happen to share the same color with different dash patterns,
+// so lines are never visually indistinguishable on multi-member charts.
+function getLineDash(member, allMembers){
+  const sameColorMembers = allMembers.filter(m=>m.color===member.color);
+  if(sameColorMembers.length<=1) return undefined; // no collision, solid line
+  const idx = sameColorMembers.findIndex(m=>m.id===member.id);
+  const patterns = [undefined, "7,4", "2,3", "10,3,2,3"];
+  return patterns[idx % patterns.length];
+}
+
 function ConsistencyTrend({members, logs}){
   const today = new Date(todayStr());
 
@@ -3919,10 +3933,13 @@ function ConsistencyTrend({members, logs}){
       </div>
     </div>
     <div style={{display:"flex",gap:16,marginBottom:16,flexWrap:"wrap"}}>
-      {members.map(m=><div key={m.id} style={{display:"flex",alignItems:"center",gap:6}}>
-        <div style={{width:20,height:3,borderRadius:99,background:m.color}}/>
-        <span style={{fontSize:12,color:C.muted}}>{m.name}</span>
-      </div>)}
+      {members.map(m=>{
+        const dashArr=getLineDash(m,members);
+        return <div key={m.id} style={{display:"flex",alignItems:"center",gap:6}}>
+          <svg width={20} height={3}><line x1={0} y1={1.5} x2={20} y2={1.5} stroke={m.color} strokeWidth={3} strokeDasharray={dashArr}/></svg>
+          <span style={{fontSize:12,color:C.muted}}>{m.name}</span>
+        </div>;
+      })}
     </div>
     <div style={{overflowX:"auto"}}>
       <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",minWidth:320,height:"auto"}}>
@@ -3935,9 +3952,10 @@ function ConsistencyTrend({members, logs}){
         {/* Member lines */}
         {members.map((m,mi)=>{
           const {d,points} = buildPath(mi);
+          const dashArr=getLineDash(m,members);
           return <g key={m.id}>
             {/* Line */}
-            {d&&<path d={d} fill="none" stroke={m.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"/>}
+            {d&&<path d={d} fill="none" stroke={m.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={dashArr}/>}
             {/* Dots */}
             {points.map((p,i)=>p&&<g key={i}>
               <circle cx={p.x} cy={p.y} r={4} fill={m.color} stroke="#fff" strokeWidth={2}/>
@@ -4607,6 +4625,6 @@ export default function App(){
 
     {celebration&&<CelebrationScreen badge={celebration} memberName={celebration.memberName} onClose={()=>setCelebration(null)}/>}
     {toasts.length>0&&<Toast badge={toasts[0]} onDismiss={()=>setToasts(q=>q.slice(1))}/>}
-    {editM&&<EditModal member={editM==="new"?null:editM} isNew={editM==="new"} onSave={handleSave} onDelete={handleDel} onClose={()=>setEditM(null)}/>}
+    {editM&&<EditModal member={editM==="new"?null:editM} isNew={editM==="new"} allMembers={members} onSave={handleSave} onDelete={handleDel} onClose={()=>setEditM(null)}/>}
   </div>;
 }
