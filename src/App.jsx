@@ -3786,6 +3786,16 @@ function getEffectiveStart(member, logs){
 
 // Distinguish members that happen to share the same color with different dash patterns,
 // so lines are never visually indistinguishable on multi-member charts.
+// Small positional offset for dots when a member shares a color with another member,
+// so their dots fan out slightly instead of perfectly overlapping and hiding one another.
+function getDotOffset(member, allMembers){
+  const sameColorMembers = allMembers.filter(m=>m.color===member.color);
+  if(sameColorMembers.length<=1) return {dx:0,dy:0};
+  const idx = sameColorMembers.findIndex(m=>m.id===member.id);
+  const offsets=[{dx:0,dy:0},{dx:5,dy:-5},{dx:-5,dy:5},{dx:5,dy:5}];
+  return offsets[idx % offsets.length];
+}
+
 function getLineDash(member, allMembers){
   const sameColorMembers = allMembers.filter(m=>m.color===member.color);
   if(sameColorMembers.length<=1) return undefined; // no collision, solid line
@@ -3953,12 +3963,13 @@ function ConsistencyTrend({members, logs}){
         {members.map((m,mi)=>{
           const {d,points} = buildPath(mi);
           const dashArr=getLineDash(m,members);
+          const dotOffset=getDotOffset(m,members);
           return <g key={m.id}>
             {/* Line */}
             {d&&<path d={d} fill="none" stroke={m.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={dashArr}/>}
-            {/* Dots */}
+            {/* Dots — offset slightly if this member shares a color with another, so overlapping dots stay visible */}
             {points.map((p,i)=>p&&<g key={i}>
-              <circle cx={p.x} cy={p.y} r={4} fill={m.color} stroke="#fff" strokeWidth={2}/>
+              <circle cx={p.x+dotOffset.dx} cy={p.y+dotOffset.dy} r={4} fill={m.color} stroke="#fff" strokeWidth={2}/>
               {/* Value label on hover via title */}
               <title>{m.name}: {p.pct}%</title>
             </g>)}
