@@ -608,25 +608,21 @@ function computePowerPoints(member, logs){
 
   for(const dateStr of sortedDates){
     const ppBeforeDay = totalPP;
-    // Compute streak up to this day
+    // Compute streak up to this day — uses the SAME criteria as memberStreakCount (card display)
+    // so the multiplier tier always matches what the streak badge shows. Previously this required
+    // l.value > 0 in addition to status !== "skipped", which silently broke the multiplier whenever
+    // a day was protected by a shield, or had any other "not skipped" entry with no positive value —
+    // even though the card correctly counted those days as keeping the streak alive.
     let streakOnDay = 0;
     const d = new Date(dateStr + "T00:00:00");
     const checkD = new Date(d);
     while(true){
       const k = checkD.toISOString().slice(0,10);
       if(k > dateStr) { checkD.setDate(checkD.getDate()-1); continue; }
-      let anyLogged = false;
-      if(member.alternating && acts.length > 1){
-        anyLogged = acts.some(a => {
-          const l = getActivityLogs(logs, member.id, a.id)[k];
-          return l && l.status !== "skipped" && l.value > 0;
-        });
-      } else {
-        anyLogged = acts.some(a => {
-          const l = getActivityLogs(logs, member.id, a.id)[k];
-          return l && l.status !== "skipped" && l.value > 0;
-        });
-      }
+      const anyLogged = acts.some(a => {
+        const l = getActivityLogs(logs, member.id, a.id)[k];
+        return l && l.status !== "skipped";
+      });
       if(!anyLogged) break;
       streakOnDay++;
       checkD.setDate(checkD.getDate()-1);
