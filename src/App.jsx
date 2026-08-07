@@ -615,18 +615,14 @@ function computePowerPoints(member, logs){
     while(true){
       const k = checkD.toISOString().slice(0,10);
       if(k > dateStr) { checkD.setDate(checkD.getDate()-1); continue; }
-      let anyLogged = false;
-      if(member.alternating && acts.length > 1){
-        anyLogged = acts.some(a => {
-          const l = getActivityLogs(logs, member.id, a.id)[k];
-          return l && l.status !== "skipped" && l.value > 0;
-        });
-      } else {
-        anyLogged = acts.some(a => {
-          const l = getActivityLogs(logs, member.id, a.id)[k];
-          return l && l.status !== "skipped" && l.value > 0;
-        });
-      }
+      // A shield explicitly protects the streak — treat it the same as a done day here,
+      // matching memberStreakCount's card-display logic. Without this, using a shield
+      // silently breaks the streak multiplier even though it correctly keeps the card's
+      // displayed streak count alive.
+      const anyLogged = acts.some(a => {
+        const l = getActivityLogs(logs, member.id, a.id)[k];
+        return l && l.status !== "skipped" && (l.status === "shielded" || l.value > 0);
+      });
       if(!anyLogged) break;
       streakOnDay++;
       checkD.setDate(checkD.getDate()-1);
