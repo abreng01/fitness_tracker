@@ -81,6 +81,12 @@ function todayStr(){
   const d=new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
+// Timezone-safe date formatter — use this instead of d.toISOString().slice(0,10) for ANY date
+// arithmetic. toISOString() converts to UTC, which silently shifts the date backward by a day
+// for anyone in a timezone ahead of UTC (e.g. India, UTC+5:30) — this caused streak/PP miscalculations.
+function toLocalDateStr(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
 function isFuture(ds){return ds>todayStr();}
 function daysInMonth(y,m){return new Date(y,m+1,0).getDate();}
 function firstDayOfMonth(y,m){return new Date(y,m,1).getDay();}
@@ -153,7 +159,7 @@ function getWeekKey(dateStr){
   const daysSinceMonday = dow===0 ? 6 : dow-1;
   const monday = new Date(d);
   monday.setDate(d.getDate()-daysSinceMonday);
-  return monday.toISOString().slice(0,10); // e.g. "2026-07-13" — Monday's date as the unique key
+  return toLocalDateStr(monday); // e.g. "2026-07-13" — Monday's date as the unique key
 }
 function computeGkBonus(logs, memberId){
   const gk = getGkData(logs, memberId);
@@ -613,7 +619,7 @@ function computePowerPoints(member, logs){
     const d = new Date(dateStr + "T00:00:00");
     const checkD = new Date(d);
     while(true){
-      const k = checkD.toISOString().slice(0,10);
+      const k = toLocalDateStr(checkD);
       if(k > dateStr) { checkD.setDate(checkD.getDate()-1); continue; }
       let anyLogged = false;
       if(member.alternating && acts.length > 1){
@@ -841,7 +847,7 @@ function computePowerPoints(member, logs){
   // This week's PP — sum of actual net daily earnings (multiplier + mystery bonus + eggs already applied)
   const weekStart = new Date(today);
   weekStart.setDate(weekStart.getDate() - 6);
-  const weekStartStr = weekStart.toISOString().slice(0,10);
+  const weekStartStr = toLocalDateStr(weekStart);
   let weekPP = 0;
   for(const dateStr of sortedDates){
     if(dateStr < weekStartStr) continue;
@@ -1023,7 +1029,7 @@ function computeStats(al,target){
     if(l.status==="skipped"||!l.value) continue;
     const d=new Date(ds+"T00:00:00");const dow=(d.getDay()+6)%7;
     const mon=new Date(d);mon.setDate(d.getDate()-dow);
-    const wk=mon.toISOString().slice(0,10);
+    const wk=toLocalDateStr(mon);
     wm[wk]=(wm[wk]||0)+1;
   }
   const wvals=Object.values(wm);const bestWeek=wvals.length?Math.max(...wvals):0;
@@ -1060,7 +1066,7 @@ function computeStats(al,target){
     const d=new Date(ds+"T00:00:00");const dow=d.getDay();
     if(dow!==0&&dow!==6) continue;
     const sat=new Date(d);sat.setDate(d.getDate()-(dow===0?1:0));
-    const wk=sat.toISOString().slice(0,10);
+    const wk=toLocalDateStr(sat);
     if(!wem[wk])wem[wk]=new Set();wem[wk].add(dow);
   }
   const perfWknd=Object.values(wem).filter(s=>s.size===2).length;
@@ -1164,7 +1170,7 @@ function computeFamStats(members,logs){
         if(ds>today||l.status==="skipped"||!l.value) continue;
         const d=new Date(ds+"T00:00:00");const dow=(d.getDay()+6)%7;
         const mon=new Date(d);mon.setDate(d.getDate()-dow);
-        const wk=mon.toISOString().slice(0,10);
+        const wk=toLocalDateStr(mon);
         if(!wm[wk])wm[wk]={};if(!wm[wk][m.id])wm[wk][m.id]=new Set();
         wm[wk][m.id].add(ds);
       }
@@ -1884,7 +1890,7 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
         if(l.status==="skipped"||!l.value) continue;
         const d=new Date(ds+"T00:00:00"); const dow=(d.getDay()+6)%7;
         const mon=new Date(d); mon.setDate(d.getDate()-dow);
-        const wk=mon.toISOString().slice(0,10);
+        const wk=toLocalDateStr(mon);
         wm[wk]=(wm[wk]||0)+1;
       }
       const wv=Object.values(wm); if(wv.length&&Math.max(...wv)>curWeek) curWeek=Math.max(...wv);
@@ -3824,13 +3830,13 @@ function ConsistencyTrend({members, logs}){
     const acts = m.activities||[];
     const sd = effectiveStarts[m.id];
     if(!sd) return null; // member has no data at all — no line
-    const endStr = endDate.toISOString().slice(0,10);
+    const endStr = toLocalDateStr(endDate);
     if(endStr < sd) return null; // bucket ends before this member's real start
 
     let done=0, app=0;
     const cur = new Date(startDate);
     while(cur <= endDate){
-      const k = cur.toISOString().slice(0,10);
+      const k = toLocalDateStr(cur);
       if(k <= todayStr() && k >= sd){
         app++;
         if(m.alternating){
