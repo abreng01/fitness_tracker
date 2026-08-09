@@ -3999,6 +3999,57 @@ function ConsistencyTrend({members, logs}){
 }
 
 // ── Family Dashboard (Family Tab) ────────────────────────────────────────────
+// ── Family Pulse — PP-based insights: level proximity and gaps between members ──
+function computeFamilyPulse(members, logs){
+  if(members.length<2) return [];
+  const today = todayStr();
+  const sevenDaysAgoDate = new Date(today+"T00:00:00");
+  sevenDaysAgoDate.setDate(sevenDaysAgoDate.getDate()-7);
+  const sevenDaysAgo = toLocalDateStr(sevenDaysAgoDate);
+
+  const stats = members.map(m=>{
+    const {total, dailyEarned} = computePowerPoints(m, logs);
+    const nextLevel = getNextLevel(total);
+    const ppToNext = nextLevel ? nextLevel.pp - total : null;
+    let recentEarned = 0;
+    for(const [date, pp] of Object.entries(dailyEarned)){
+      if(date > sevenDaysAgo && date <= today) recentEarned += (pp||0);
+    }
+    return {member:m, total, ppToNext, nextLevelTitle:nextLevel?.title, totalWeekAgo: total-recentEarned};
+  });
+
+  const insights=[];
+
+  // 1. Level proximity — anyone within striking distance of their next level
+  for(const s of stats){
+    if(s.ppToNext!==null && s.ppToNext>0 && s.ppToNext<=500){
+      insights.push({priority:1, text:`🎯 ${s.member.name} is just ${s.ppToNext.toLocaleString()} PP from ${s.nextLevelTitle}!`});
+    }
+  }
+
+  // 2. Pairwise gaps — catching up, pulling ahead, or neck-and-neck
+  for(let i=0;i<stats.length;i++){
+    for(let j=i+1;j<stats.length;j++){
+      const a=stats[i], b=stats[j];
+      const gapNow = Math.abs(a.total-b.total);
+      const gapBefore = Math.abs(a.totalWeekAgo-b.totalWeekAgo);
+      const leader = a.total>=b.total ? a : b;
+      const trailer = a.total>=b.total ? b : a;
+
+      if(gapNow<1000 && gapNow>0){
+        insights.push({priority:1, text:`⚡ ${a.member.name} and ${b.member.name} are neck-and-neck — just ${gapNow.toLocaleString()} PP apart!`});
+      } else if(gapBefore-gapNow>=500){
+        insights.push({priority:2, text:`🏃 ${trailer.member.name} is catching up to ${leader.member.name} — now ${gapNow.toLocaleString()} PP behind (was ${gapBefore.toLocaleString()})`});
+      } else if(gapNow-gapBefore>=500){
+        insights.push({priority:3, text:`🚀 ${leader.member.name} is pulling ahead of ${trailer.member.name} — gap now ${gapNow.toLocaleString()} PP`});
+      }
+    }
+  }
+
+  insights.sort((x,y)=>x.priority-y.priority);
+  return insights.slice(0,2);
+}
+
 function FamilyDashboard({members, logs, yr, mo, MONTHS}){
   const now = new Date();
   const[scoreYr, setScoreYr] = useState(yr);
@@ -4046,8 +4097,19 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
   const fb = earnedFamBadges(members,logs);
   const famBadgeDefs = BADGES.filter(b=>FAM_IDS.has(b.id));
   const fbIds = new Set(fb.map(b=>b.id));
+  const pulse = computeFamilyPulse(members, logs);
 
   return <div style={{display:"flex",flexDirection:"column",gap:16}}>
+
+    {/* ── Family Pulse — level proximity & PP gaps ── */}
+    {pulse.length>0&&<div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:"14px 20px",boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
+      <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>💫 FAMILY PULSE</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {pulse.map((p,i)=>(
+          <div key={i} style={{fontSize:13,fontWeight:600,color:C.text}}>{p.text}</div>
+        ))}
+      </div>
+    </div>}
 
     {/* ── Month selector + rank chips ── */}
     <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:"16px 20px",boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
