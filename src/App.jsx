@@ -3823,7 +3823,7 @@ function ConsistencyTrend({members, logs}){
   }
 
   // Range selector — weekly buckets for the short view, monthly for longer spans
-  const[range,setRange] = useState("12w");
+  const[range,setRange] = useState("4w");
 
   // % of applicable days completed for a member within [startDate, endDate]
   function memberPctForRange(m, startDate, endDate){
@@ -3865,11 +3865,12 @@ function ConsistencyTrend({members, logs}){
   // Build buckets
   const weeks = [];
   let rangeLabel = "";
-  if(range==="12w"){
-    let weekCount = 8;
+  if(range==="4w" || range==="12w"){
+    const maxWeeks = range==="4w" ? 4 : 12;
+    let weekCount = Math.min(maxWeeks, 8);
     if(globalStart){
       const daysSinceStart = Math.round((today - new Date(globalStart+"T00:00:00")) / 86400000);
-      weekCount = Math.min(12, Math.max(1, Math.ceil((daysSinceStart+1)/7)));
+      weekCount = Math.min(maxWeeks, Math.max(1, Math.ceil((daysSinceStart+1)/7)));
     }
     rangeLabel = `LAST ${weekCount} ${weekCount===1?"WEEK":"WEEKS"}`;
     for(let w=weekCount-1; w>=0; w--){
@@ -3938,7 +3939,7 @@ function ConsistencyTrend({members, logs}){
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:4}}>
       <div style={{fontWeight:700,fontSize:14,color:C.muted,letterSpacing:0.5}}>📈 CONSISTENCY TREND · {rangeLabel}</div>
       <div style={{display:"flex",gap:4}}>
-        {[{id:"12w",label:"12W"},{id:"6m",label:"6M"},{id:"all",label:"All"}].map(r=>(
+        {[{id:"4w",label:"4W"},{id:"12w",label:"12W"},{id:"6m",label:"6M"},{id:"all",label:"All"}].map(r=>(
           <button key={r.id} onClick={()=>setRange(r.id)} style={{
             padding:"4px 10px",borderRadius:7,fontSize:11,fontWeight:600,cursor:"pointer",
             border:`1.5px solid ${range===r.id?C.text:C.border}`,
