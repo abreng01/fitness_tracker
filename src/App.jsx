@@ -641,11 +641,14 @@ function computePowerPoints(member, logs){
 
     const multiplier = getStreakMultiplier(streakOnDay);
 
-    // Streak break penalty
+    // Streak break penalty — only for days that are genuinely over (past days), or where the
+    // person explicitly tapped Skip. A day that just hasn't been logged yet (today, still pending)
+    // should never be treated as a confirmed miss — that's not what happened, it just hasn't happened yet.
     if(prevStreak >= 7){
       const allSkipped = acts.every(a => {
         const l = getActivityLogs(logs, member.id, a.id)[dateStr];
-        return !l || l.status === "skipped";
+        if(!l) return dateStr < today;
+        return l.status === "skipped";
       });
       if(allSkipped && streakOnDay === 0){
         totalPP = Math.max(0, totalPP - 100);
@@ -664,7 +667,13 @@ function computePowerPoints(member, logs){
         const l = getActivityLogs(logs, member.id, a.id)[dateStr];
         return l && l.status !== "skipped" && l.status !== "shielded" && l.value > 0;
       });
-      const nothingHappened = shieldedActs.length===0 && doneActs.length===0;
+      const hasExplicitSkip = acts.some(a => {
+        const l = getActivityLogs(logs, member.id, a.id)[dateStr];
+        return l && l.status === "skipped";
+      });
+      // Same principle as above: don't treat "nothing logged yet today" as a miss unless the day
+      // is actually over, or the person explicitly marked it skipped.
+      const nothingHappened = shieldedActs.length===0 && doneActs.length===0 && (dateStr < today || hasExplicitSkip);
 
       if(nothingHappened){
         totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; dailyTags[dateStr]=["skipped"];
