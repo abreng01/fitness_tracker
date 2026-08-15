@@ -174,6 +174,9 @@ function computeGkBonus(logs, memberId){
 function getBraveryLog(logs, memberId){
   return (logs[memberId] && logs[memberId].bravery) || [];
 }
+function getIllnessLog(logs, memberId){
+  return (logs[memberId] && logs[memberId].illness) || {};
+}
 function computeBraveryBonus(logs, memberId){
   const entries = getBraveryLog(logs, memberId);
   const total = entries.reduce((s,e)=>s+(e.points||0),0);
@@ -607,6 +610,7 @@ function computePowerPoints(member, logs){
   let lastLevelSeen = 1;
   let dailyEarned = {}; // dateStr -> net PP change that day (for accurate weekPP/pace)
   let dailyTags = {}; // dateStr -> array of tag strings (pb/above/at/below/shielded/skipped/mystery)
+  let dailyBreakdown = {}; // dateStr -> array of per-activity detail objects, for the detailed day view
 
   // Track all-time best per activity for PB detection
   const actBests = {};
@@ -685,6 +689,10 @@ function computePowerPoints(member, logs){
           dayEarned += 25;
           breakdown.shielded += 25;
           tags.push("shielded");
+          if(!dailyBreakdown[dateStr]) dailyBreakdown[dateStr]=[];
+          dailyBreakdown[dateStr].push({
+            activityName: a.name, activityUnit: a.unit, shielded: true, total: 25,
+          });
         }
         // Done activities score via Stack Points (sum all) or best-of, same as before
         if(doneActs.length > 0 && member.stackPoints){
@@ -711,6 +719,15 @@ function computePowerPoints(member, logs){
             if(extraEarned>0) breakdown.extraSessionBonus += extraEarned;
             if(distanceEarned>0) breakdown.distanceBonus += distanceEarned;
             breakdown.streakBonus += (tierEarned-basePts)+(extraEarned-extraPts)+(distanceEarned-distancePts);
+            if(!dailyBreakdown[dateStr]) dailyBreakdown[dateStr]=[];
+            dailyBreakdown[dateStr].push({
+              activityName: a.name, activityUnit: a.unit, value: l.value, target: effectiveTarget,
+              tierLabel: rawTier===250?"pb":rawTier===200?"above":rawTier===100?"at":"below",
+              rawTier, ppMultiplier: a.ppMultiplier ?? 1, basePts,
+              streakMultiplier: multiplier, mysteryMultiplier: mysteryMult,
+              tierEarned, extraSessions: sessionVals.length>1?sessionVals.length:0, extraEarned,
+              distanceEarned, total: tierEarned+extraEarned+distanceEarned,
+            });
             if(rawTier===250) tags.push("pb");
             else if(rawTier===200) tags.push("above");
             else if(rawTier===100) tags.push("at");
@@ -724,6 +741,7 @@ function computePowerPoints(member, logs){
           let bestRawTier = 0;
           let bestSessionCount = 1;
           let bestDistancePts = 0;
+          let bestActivity = null;
           for(const a of doneActs){
             const l = getActivityLogs(logs, member.id, a.id)[dateStr];
             const effectiveTarget = getHistoricalTarget(l, a.id, a.target, logs, member.id, dateStr);
@@ -736,6 +754,7 @@ function computePowerPoints(member, logs){
             if(basePts > bestPts){
               bestPts = basePts; bestRawTier = rawTier; bestSessionCount = sessionVals.length;
               bestDistancePts = Math.max(0, l.value - effectiveTarget) * (a.distanceBonusRate ?? 0);
+              bestActivity = {a, l, effectiveTarget};
             }
           }
           const extraPts = bestSessionCount>1 ? 100*(bestSessionCount-1) : 0;
@@ -744,6 +763,19 @@ function computePowerPoints(member, logs){
           const extraEarned = Math.round(extraPts * multiplier * mysteryMult);
           const distanceEarned = Math.round(bestDistancePts * multiplier * mysteryMult);
           dayEarned += tierEarned + extraEarned + distanceEarned;
+          if(bestActivity){
+            if(!dailyBreakdown[dateStr]) dailyBreakdown[dateStr]=[];
+            dailyBreakdown[dateStr].push({
+              activityName: bestActivity.a.name, activityUnit: bestActivity.a.unit,
+              value: bestActivity.l.value, target: bestActivity.effectiveTarget,
+              tierLabel: bestRawTier===250?"pb":bestRawTier===200?"above":bestRawTier===100?"at":"below",
+              rawTier: bestRawTier, ppMultiplier: bestActivity.a.ppMultiplier ?? 1, basePts: bestPts,
+              streakMultiplier: multiplier, mysteryMultiplier: mysteryMult,
+              tierEarned, extraSessions: bestSessionCount>1?bestSessionCount:0, extraEarned,
+              distanceEarned, total: tierEarned+extraEarned+distanceEarned,
+              note: doneActs.length>1 ? "Best of " + doneActs.length + " activities today" : null,
+            });
+          }
           if(bestRawTier === 250) breakdown.pb += tierEarned;
           else if(bestRawTier === 200) breakdown.aboveTarget += tierEarned;
           else if(bestRawTier === 100) breakdown.atTarget += tierEarned;
@@ -768,7 +800,11 @@ function computePowerPoints(member, logs){
         const l = al[dateStr];
         if(!l) continue;
         const effectiveTarget = getHistoricalTarget(l, a.id, a.target, logs, member.id, dateStr);
-        if(l.status === "shielded"){ totalPP += 25; breakdown.shielded += 25; dailyTags[dateStr]=["shielded"]; }
+        if(l.status === "shielded"){
+          totalPP += 25; breakdown.shielded += 25; dailyTags[dateStr]=["shielded"];
+          if(!dailyBreakdown[dateStr]) dailyBreakdown[dateStr]=[];
+          dailyBreakdown[dateStr].push({activityName: a.name, activityUnit: a.unit, shielded: true, total: 25});
+        }
         else if(l.status === "skipped"){ totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; dailyTags[dateStr]=["skipped"]; }
         else if(l.value > 0){
           const sessionVals = l.sessions&&l.sessions.length>0 ? l.sessions : [l.value];
@@ -793,6 +829,15 @@ function computePowerPoints(member, logs){
           if(extraEarned>0) breakdown.extraSessionBonus += extraEarned;
           if(distanceEarned>0) breakdown.distanceBonus += distanceEarned;
           breakdown.streakBonus += bonus;
+          if(!dailyBreakdown[dateStr]) dailyBreakdown[dateStr]=[];
+          dailyBreakdown[dateStr].push({
+            activityName: a.name, activityUnit: a.unit, value: l.value, target: effectiveTarget,
+            tierLabel: rawTier===250?"pb":rawTier===200?"above":rawTier===100?"at":"below",
+            rawTier, ppMultiplier: a.ppMultiplier ?? 1, basePts,
+            streakMultiplier: multiplier, mysteryMultiplier: mysteryMult,
+            tierEarned, extraSessions: sessionVals.length>1?sessionVals.length:0, extraEarned,
+            distanceEarned, total: earned,
+          });
           const tags=[];
           if(rawTier===250) tags.push("pb");
           else if(rawTier===200) tags.push("above");
@@ -863,7 +908,7 @@ function computePowerPoints(member, logs){
     weekPP += Math.max(0, dailyEarned[dateStr] || 0);
   }
 
-  return { total: Math.round(totalPP), breakdown, weekPP, levelHistory, dailyEarned, dailyTags };
+  return { total: Math.round(totalPP), breakdown, weekPP, levelHistory, dailyEarned, dailyTags, dailyBreakdown };
 }
 
 // ── PP Pace Projection ────────────────────────────────────────────────────────
@@ -1785,6 +1830,7 @@ function CalCell({dateStr,member,logs,isToday,onClick,ppByDate}){
   const future=isFuture(dateStr)||(member.startDate&&dateStr<member.startDate);
   const status=future?"future":dayStatus(member,logs,dateStr);
   const bg={future:"transparent",empty:C.empty,skipped:C.missed,done:C.done,shielded:"#BBDEFB"}[status]||C.empty;
+  const illnessEntry = !future ? getIllnessLog(logs, member.id)[dateStr] : null;
 
   const acts=member.activities||[];
   let aboveTarget=false;
@@ -1815,15 +1861,16 @@ function CalCell({dateStr,member,logs,isToday,onClick,ppByDate}){
   }
   if(status==="skipped") tooltipLines.push("❌ Skipped");
   if(status==="shielded") tooltipLines.push("🛡️ Shielded");
+  if(illnessEntry) tooltipLines.push(`🤒 Sick: ${illnessEntry.reason}`);
   const dayPP = ppByDate&&ppByDate[dateStr];
   if(dayPP!==undefined&&dayPP!==0){
     const isMystery = isMysteryBonusDay(member.id, dateStr);
     tooltipLines.push(`⚡ ${dayPP>0?"+":""}${dayPP.toLocaleString()} PP${isMystery?" 🎁 2x Mystery!":""}`);
   }
 
-  const borderColor = aboveTarget?"#C9A800":isToday?member.color:C.border;
-  const borderWidth = aboveTarget||isToday?"2px":"1px";
-  const bgColor = aboveTarget?"#2E8B57":bg;
+  const borderColor = illnessEntry?"#8E5FA8":aboveTarget?"#C9A800":isToday?member.color:C.border;
+  const borderWidth = illnessEntry||aboveTarget||isToday?"2px":"1px";
+  const bgColor = illnessEntry?"#F3E5F5":aboveTarget?"#2E8B57":bg;
 
   const[showTip,setShowTip]=useState(false);
 
@@ -1836,10 +1883,11 @@ function CalCell({dateStr,member,logs,isToday,onClick,ppByDate}){
   }}
   onMouseEnter={e=>{if(!future){e.currentTarget.style.transform="scale(1.07)";setShowTip(true);}}}
   onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)";setShowTip(false);}}>
-    {status==="shielded"&&<span style={{fontSize:16}}>🛡️</span>}
+    {status==="shielded"&&!illnessEntry&&<span style={{fontSize:16}}>🛡️</span>}
+    {illnessEntry&&<span style={{fontSize:16}}>🤒</span>}
     {isPB&&<span style={{position:"absolute",top:1,right:2,fontSize:9,lineHeight:1}}>👑</span>}
     {!isPB&&aboveTarget&&<span style={{position:"absolute",top:2,right:3,fontSize:8,lineHeight:1}}>⭐</span>}
-    <span style={{fontSize:10,color:status==="empty"||future?C.muted:"#fff",fontWeight:600}}>
+    <span style={{fontSize:10,color:(status==="empty"||future||illnessEntry)?C.muted:"#fff",fontWeight:600}}>
       {new Date(dateStr+"T00:00:00").getDate()}
     </span>
     {(isPB||displayVal)&&<span style={{fontSize:8,color:"rgba(255,255,255,0.9)",fontWeight:700,lineHeight:1}}>
@@ -2055,13 +2103,14 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
 // ── Power Points Drawer ──────────────────────────────────────────────────────
 // ── Power Points Panel (in-flow, tabbed — sits beside the card via flexbox, never fixed/floating) ──
 function PowerPointsPanel({member, logs, onClose}){
-  const {total, breakdown, weekPP, levelHistory, dailyEarned, dailyTags} = computePowerPoints(member, logs);
+  const {total, breakdown, weekPP, levelHistory, dailyEarned, dailyTags, dailyBreakdown} = computePowerPoints(member, logs);
   const projection = projectNextLevel(member, logs);
   const level = getLevel(total);
   const nextLevel = getNextLevel(total);
   const pct = nextLevel ? Math.round(((total - level.pp) / (nextLevel.pp - level.pp)) * 100) : 100;
   const [tab, setTab] = useState("overview"); // overview | history | info
   const [showLevels, setShowLevels] = useState(false);
+  const [expandedDay, setExpandedDay] = useState(null);
 
   // Build complete level crossing dates — fill gaps via cumulative daily sum
   const completeLevelDates = {};
@@ -2286,15 +2335,49 @@ function PowerPointsPanel({member, logs, onClose}){
             const pts = dailyEarned[d]||0;
             const tags = dailyTags[d]||[];
             const dateLabel = new Date(d+"T00:00:00").toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"});
-            return <div key={d} style={{display:"flex",alignItems:"center",justifyContent:"space-between",
-              padding:"9px 4px",borderBottom:i<dates.length-1?`1px solid ${C.border}`:"none"}}>
-              <div>
-                <div style={{fontSize:12,fontWeight:600,color:C.text}}>{dateLabel}</div>
-                <div style={{display:"flex",gap:5,marginTop:2,flexWrap:"wrap"}}>
-                  {tags.map(t=>TAG_INFO[t]&&<span key={t} style={{fontSize:9,color:C.muted}}>{TAG_INFO[t].icon} {TAG_INFO[t].label}</span>)}
+            const details = dailyBreakdown[d]||[];
+            const isExpanded = expandedDay===d;
+            return <div key={d} style={{borderBottom:i<dates.length-1?`1px solid ${C.border}`:"none"}}>
+              <div onClick={()=>details.length>0&&setExpandedDay(isExpanded?null:d)} style={{
+                display:"flex",alignItems:"center",justifyContent:"space-between",
+                padding:"9px 4px",cursor:details.length>0?"pointer":"default",
+              }}>
+                <div>
+                  <div style={{fontSize:12,fontWeight:600,color:C.text,display:"flex",alignItems:"center",gap:5}}>
+                    {dateLabel}
+                    {details.length>0&&<span style={{fontSize:9,color:C.muted}}>{isExpanded?"▾":"▸"}</span>}
+                  </div>
+                  <div style={{display:"flex",gap:5,marginTop:2,flexWrap:"wrap"}}>
+                    {tags.map(t=>TAG_INFO[t]&&<span key={t} style={{fontSize:9,color:C.muted}}>{TAG_INFO[t].icon} {TAG_INFO[t].label}</span>)}
+                  </div>
                 </div>
+                <span style={{fontSize:12,fontWeight:700,color:pts>=0?(pts>0?C.done:C.muted):C.missed}}>{pts>0?"+":""}{pts.toLocaleString()}</span>
               </div>
-              <span style={{fontSize:12,fontWeight:700,color:pts>=0?(pts>0?C.done:C.muted):C.missed}}>{pts>0?"+":""}{pts.toLocaleString()}</span>
+              {isExpanded&&<div style={{background:C.bg,borderRadius:10,padding:"10px 12px",marginBottom:10,display:"flex",flexDirection:"column",gap:10}}>
+                {details.map((det,di)=>(
+                  <div key={di} style={{fontSize:11,paddingBottom:di<details.length-1?8:0,borderBottom:di<details.length-1?`1px solid ${C.border}`:"none"}}>
+                    <div style={{fontWeight:700,color:C.text,marginBottom:4,display:"flex",justifyContent:"space-between"}}>
+                      <span>{det.activityName}</span>
+                      <span style={{color:member.color}}>+{det.total.toLocaleString()}</span>
+                    </div>
+                    {det.shielded ? (
+                      <div style={{color:C.muted}}>🛡️ Shielded — flat +25</div>
+                    ) : (
+                      <div style={{color:C.muted,display:"flex",flexDirection:"column",gap:2}}>
+                        <div>{det.value}{det.activityUnit} vs target {det.target}{det.activityUnit} → {TAG_INFO[det.tierLabel]?.label||det.tierLabel} ({det.rawTier} base{det.ppMultiplier!==1?` × ${det.ppMultiplier} activity multiplier`:""})</div>
+                        <div>
+                          {(det.ppMultiplier!==1?Math.round(det.rawTier*det.ppMultiplier):det.rawTier).toLocaleString()} base
+                          {det.streakMultiplier>1&&<> × {det.streakMultiplier} streak</>}
+                          {det.mysteryMultiplier===2&&<> × 2 🎁 mystery</>}
+                          {" "}= {det.tierEarned.toLocaleString()}
+                        </div>
+                        {det.extraEarned>0&&<div>➕ {det.extraSessions} sessions bonus: +{det.extraEarned.toLocaleString()}</div>}
+                        {det.distanceEarned>0&&<div>🏃 Distance bonus: +{det.distanceEarned.toLocaleString()}</div>}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>}
             </div>;
           })}
         </div>;
@@ -2565,7 +2648,7 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
 }
 
 // ── Member Card ───────────────────────────────────────────────────────────────
-function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onBraverySave,onDeleteEntry}){
+function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onBraverySave,onIllnessSave,onIllnessDelete,onDeleteEntry}){
   const today=todayStr();
   const[showCal,setShowCal]=useState(true);
   const[showBadges,setShowBadges]=useState(false);
@@ -2573,6 +2656,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
   const[showGrowth,setShowGrowth]=useState(false);
   const[showGK,setShowGK]=useState(false);
   const[showBravery,setShowBravery]=useState(false);
+  const[showIllness,setShowIllness]=useState(false);
   const[showHeatmap,setShowHeatmap]=useState(false);
   const[mysteryReveal,setMysteryReveal]=useState(null); // {normalPP, bonusPP}
   const[modal,setModal]=useState(null);
@@ -2765,6 +2849,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
         <button onClick={()=>setShowGrowth(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:C.muted}}>📏 Growth</button>
         {member.gkEnabled&&<button onClick={()=>setShowGK(true)} style={{background:"none",border:"1px solid #7E57C2",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#7E57C2"}}>🧠 GK</button>}
         {member.braveryEnabled&&<button onClick={()=>setShowBravery(true)} style={{background:"none",border:"1px solid #F57C00",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#F57C00"}}>🦁 Bravery</button>}
+        {member.illnessEnabled&&<button onClick={()=>setShowIllness(true)} style={{background:"none",border:"1px solid #8E5FA8",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#8E5FA8"}}>🤒 Illness</button>}
         <button onClick={()=>setShowBadges(true)} style={{background:member.color,color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12}}>🏆 Badges</button>
       </div>
     </div>
@@ -2773,6 +2858,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
     {showGrowth&&<GrowthDrawer member={member} logs={logs} onSave={onGrowthSave} onClose={()=>setShowGrowth(false)}/>}
     {showGK&&<GKDrawer member={member} logs={logs} onGkSave={onGkSave} onClose={()=>setShowGK(false)}/>}
     {showBravery&&<BraveryDrawer member={member} logs={logs} onBraverySave={onBraverySave} onClose={()=>setShowBravery(false)}/>}
+    {showIllness&&<IllnessDrawer member={member} logs={logs} onIllnessSave={onIllnessSave} onIllnessDelete={onIllnessDelete} onClose={()=>setShowIllness(false)}/>}
     {mysteryReveal&&<MysteryBonusReveal normalPP={mysteryReveal.normalPP} bonusPP={mysteryReveal.bonusPP} onClose={()=>setMysteryReveal(null)}/>}
 
     {modal&&(member.alternating&&acts.length>1
@@ -2883,6 +2969,7 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
   const[eggMeter,setEggMeter]=useState(member?.eggMeter??false);
   const[gkEnabled,setGkEnabled]=useState(member?.gkEnabled??false);
   const[braveryEnabled,setBraveryEnabled]=useState(member?.braveryEnabled??false);
+  const[illnessEnabled,setIllnessEnabled]=useState(member?.illnessEnabled??false);
   const[startDate,setStartDate]=useState(member?.startDate??"");
   const[memberTheme,setMemberTheme]=useState(member?.memberTheme??"");
   const[memberPattern,setMemberPattern]=useState(member?.memberPattern??"");
@@ -2993,6 +3080,21 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
         </div>
       </div>
       <div style={{marginBottom:18}}>
+        <div onClick={()=>setIllnessEnabled(b=>!b)} style={{
+          display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+          background:illnessEnabled?"#F3E5F5":"#F7F5F0",border:`1.5px solid ${illnessEnabled?"#8E5FA8":C.border}`,
+          borderRadius:10,cursor:"pointer",userSelect:"none",
+        }}>
+          <div style={{width:36,height:20,borderRadius:99,background:illnessEnabled?"#8E5FA8":C.border,position:"relative",transition:"background 0.2s",flexShrink:0}}>
+            <div style={{position:"absolute",top:2,left:illnessEnabled?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+          </div>
+          <div>
+            <div style={{fontSize:13,fontWeight:600,color:illnessEnabled?"#6A3E7C":C.text}}>🤒 Illness Log</div>
+            <div style={{fontSize:11,color:C.muted}}>Note sick days for the record — no effect on Power Points or streaks</div>
+          </div>
+        </div>
+      </div>
+      <div style={{marginBottom:18}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
           <label style={{...lStyle,marginBottom:0}}>Activities</label>
           <button onClick={addAct} style={{background:color,color:"#fff",border:"none",borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add</button>
@@ -3053,7 +3155,7 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
       <div style={{display:"flex",gap:8}}>
         {!isNew&&<button onClick={()=>{if(window.confirm("Remove?"))onDelete(member.id);}} style={{padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",cursor:"pointer",color:C.missed,fontWeight:600}}>Delete</button>}
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,stackPoints})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
+        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,illnessEnabled,stackPoints})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
       </div>
     </div>
   </div>;
@@ -3512,6 +3614,33 @@ function BraveryDrawer({member, logs, onBraverySave, onClose}){
   </>;
 }
 
+function IllnessDrawer({member, logs, onIllnessSave, onIllnessDelete, onClose}){
+  return <>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
+    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
+      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
+      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+      <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:26}}>{member.emoji}</span>
+            <div>
+              <div style={{fontWeight:800,fontSize:16}}>🤒 Illness</div>
+              <div style={{fontSize:11,color:C.muted}}>{member.name}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,
+            borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px"}}>
+        <IllnessView member={member} logs={logs} onIllnessSave={onIllnessSave} onIllnessDelete={onIllnessDelete}/>
+      </div>
+    </div>
+  </>;
+}
+
 // ── Bravery Points View — parent picks reason + points, feeds same PP pool ──────
 function BraveryView({member, logs, onBraverySave}){
   const today = todayStr();
@@ -3567,6 +3696,70 @@ function BraveryView({member, logs, onBraverySave}){
               <div style={{fontSize:10,color:C.muted}}>{new Date(e.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</div>
             </div>
             <span style={{fontSize:13,fontWeight:800,color:"#F57C00"}}>+{e.points.toLocaleString()} ⚡</span>
+          </div>
+        ))}
+      </div>
+    </div>}
+  </div>;
+}
+
+// ── Illness Log — informational only, no PP/streak impact — a reason a day looked the way it did ──
+function IllnessView({member, logs, onIllnessSave, onIllnessDelete}){
+  const today = todayStr();
+  const illness = getIllnessLog(logs, member.id);
+  const[reason, setReason] = useState("");
+  const todayEntry = illness[today];
+
+  const sorted = Object.entries(illness).sort((a,b)=>b[0].localeCompare(a[0]));
+
+  return <div style={{display:"flex",flexDirection:"column",gap:14}}>
+    {todayEntry ? (
+      <div style={{background:"linear-gradient(135deg,#F3E5F5,#E1BEE7)",border:"1.5px solid #8E5FA8",
+        borderRadius:16,padding:20,textAlign:"center"}}>
+        <div style={{fontSize:36,marginBottom:6}}>🤒</div>
+        <div style={{fontWeight:800,fontSize:16,color:"#6A3E7C",marginBottom:2}}>Marked sick today</div>
+        <div style={{fontSize:12,color:"#8E5FA8",marginBottom:14,fontStyle:"italic"}}>"{todayEntry.reason}"</div>
+        <button onClick={()=>onIllnessDelete(member.id, today)} style={{
+          background:"none",border:"1.5px solid #8E5FA8",borderRadius:8,padding:"7px 14px",
+          color:"#8E5FA8",cursor:"pointer",fontWeight:600,fontSize:12,
+        }}>Remove today's entry</button>
+      </div>
+    ) : (
+      <div style={{background:"linear-gradient(135deg,#F3E5F5,#E1BEE7)",border:"1.5px solid #8E5FA8",
+        borderRadius:16,padding:20,textAlign:"center"}}>
+        <div style={{fontSize:36,marginBottom:6}}>🤒</div>
+        <div style={{fontWeight:800,fontSize:16,color:"#6A3E7C",marginBottom:2}}>Mark {member.name} as sick today</div>
+        <div style={{fontSize:12,color:"#8E5FA8",marginBottom:16}}>
+          A note for the record — doesn't affect Power Points or streaks
+        </div>
+        <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="What's going on? (e.g. Fever, stomach bug)"
+          style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #8E5FA8",
+          fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:12,background:"#fff"}}/>
+        <button disabled={!reason.trim()} onClick={()=>{
+          onIllnessSave(member.id, today, reason.trim());
+          setReason("");
+        }} style={{
+          width:"100%",padding:"11px 0",borderRadius:10,border:"none",
+          background:!reason.trim()?"#D0B0DC":"#8E5FA8",
+          color:"#fff",cursor:!reason.trim()?"not-allowed":"pointer",
+          fontWeight:700,fontSize:14,
+        }}>🤒 Mark as Sick</button>
+      </div>
+    )}
+
+    {sorted.length>0&&<div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:"14px 18px"}}>
+      <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>HISTORY</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {sorted.map(([date,e],i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+            padding:"8px 10px",background:"#FAF3FB",borderRadius:8}}>
+            <div>
+              <div style={{fontSize:12,fontWeight:600,color:C.text}}>{e.reason}</div>
+              <div style={{fontSize:10,color:C.muted}}>{new Date(date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</div>
+            </div>
+            {date!==today&&<button onClick={()=>onIllnessDelete(member.id, date)} style={{
+              background:"none",border:"none",color:"#B04A4A",cursor:"pointer",fontSize:11,fontWeight:600,
+            }}>Remove</button>}
           </div>
         ))}
       </div>
@@ -4590,6 +4783,26 @@ export default function App(){
     });
   },[]);
 
+  const handleIllnessSave=useCallback((mid,dateStr,reason)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const illness={...(next[mid].illness||{})};
+      illness[dateStr]={reason};
+      next[mid].illness=illness;
+      return next;
+    });
+  },[]);
+  const handleIllnessDelete=useCallback((mid,dateStr)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      if(!next[mid].illness) return prev;
+      const illness={...next[mid].illness};
+      delete illness[dateStr];
+      next[mid].illness=illness;
+      return next;
+    });
+  },[]);
+
   const handleTargetChange=useCallback((mid,actId,target,date,prevTarget)=>{
     setLogs(prev=>{
       const next={...prev,[mid]:{...(prev[mid]||{})}};
@@ -4700,7 +4913,7 @@ export default function App(){
             <MemberCard member={m} logs={logs} allMembers={members}
               onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}
               onOpenPP={(id)=>setPpPanelFor(id)} onGrowthSave={handleGrowthSave}
-              onGkSave={handleGkSave} onBraverySave={handleBraverySave} onDeleteEntry={handleDeleteEntry}/>
+              onGkSave={handleGkSave} onBraverySave={handleBraverySave} onIllnessSave={handleIllnessSave} onIllnessDelete={handleIllnessDelete} onDeleteEntry={handleDeleteEntry}/>
           </div>
           {ppPanelFor===m.id&&<div style={{flex:"1 1 320px",maxWidth:380,minWidth:280}}>
             <PowerPointsPanel member={m} logs={logs} onClose={()=>setPpPanelFor(null)}/>
