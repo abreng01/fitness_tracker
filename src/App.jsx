@@ -1264,10 +1264,60 @@ const JSONBIN_API_KEY = import.meta.env.VITE_JSONBIN_API_KEY;
 const JSONBIN_URL     = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
 let _saveTimer=null;
 
+// Deep-merge two log trees by union of keys, recursing into nested objects/arrays.
+// Prevents the classic "stale tab overwrites newer data" data-loss failure: a tab that
+// hasn't seen today's entries yet would otherwise PUT its incomplete snapshot and erase
+// anything saved elsewhere in the meantime. Only a genuine same-key conflict (same date,
+// different value on both sides) falls back to preferring local — the tab actively saving
+// right now, which represents the most recent deliberate action.
+function deepMergeLogs(remote, local){
+  if(remote == null) return local;
+  if(local == null) return remote;
+  if(Array.isArray(local) && Array.isArray(remote)){
+    const seen = new Set(remote.map(x=>JSON.stringify(x)));
+    const merged = [...remote];
+    for(const item of local){
+      const key = JSON.stringify(item);
+      if(!seen.has(key)){ merged.push(item); seen.add(key); }
+    }
+    return merged;
+  }
+  if(typeof local === 'object' && typeof remote === 'object' && !Array.isArray(local) && !Array.isArray(remote)){
+    const merged = {...remote};
+    for(const key of Object.keys(local)){
+      if(key in remote){
+        if(typeof local[key]==='object' && local[key]!==null){
+          merged[key] = deepMergeLogs(remote[key], local[key]);
+        } else {
+          merged[key] = local[key];
+        }
+      } else {
+        merged[key] = local[key];
+      }
+    }
+    return merged;
+  }
+  return local;
+}
+// Members merge by id — union of members present on either side, preferring local's
+// profile fields for members that exist on both (most recent edit wins for settings).
+function mergeMembers(remote, local){
+  const remoteArr = Array.isArray(remote) ? remote : [];
+  const localArr = Array.isArray(local) ? local : [];
+  const byId = new Map();
+  for(const m of remoteArr) byId.set(m.id, m);
+  for(const m of localArr) byId.set(m.id, m); // local overwrites on id conflict — latest edit wins
+  return Array.from(byId.values());
+}
+
 async function loadData(){
   if(JSONBIN_BIN_ID&&JSONBIN_API_KEY){
     try{
-      const res=await fetch(`${JSONBIN_URL}/latest`,{headers:{'X-Master-Key':JSONBIN_API_KEY,'X-Bin-Meta':'false'}});
+      const res=await fetch(`${JSONBIN_URL}/latest`,{
+        headers:{'X-Master-Key':JSONBIN_API_KEY,'X-Bin-Meta':'false'},
+        cache:'no-store', // CRITICAL: never serve a cached response — a 304 with stale data
+                          // causes saveData() to merge against old state, destroying newer entries
+      });
       if(res.ok){
         const raw=await res.json();
         const d=migrateData(raw);
@@ -1280,6 +1330,31 @@ async function loadData(){
   return null;
 }
 async function saveData(p){
+  if(JSONBIN_BIN_ID&&JSONBIN_API_KEY){
+    try{
+      // Fetch the latest remote state first and merge, rather than blindly overwriting —
+      // cache: no-store is essential here: a 304 cached response would cause us to merge
+      // against stale data and silently destroy any entries added from another tab or device.
+      const res=await fetch(`${JSONBIN_URL}/latest`,{
+        headers:{'X-Master-Key':JSONBIN_API_KEY,'X-Bin-Meta':'false'},
+        cache:'no-store',
+      });
+      if(res.ok){
+        const remote=await res.json();
+        const merged={
+          members: mergeMembers(remote.members, p.members),
+          logs: deepMergeLogs(remote.logs||{}, p.logs||{}),
+          theme: p.theme,
+          pattern: p.pattern,
+        };
+        const s=JSON.stringify(merged);
+        try{localStorage.setItem("ff_data",s);}catch{}
+        await fetch(JSONBIN_URL,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_API_KEY},body:s});
+        return;
+      }
+    }catch{}
+  }
+  // Fallback if remote fetch failed — save local as-is rather than losing the save entirely
   const s=JSON.stringify(p);
   try{localStorage.setItem("ff_data",s);}catch{}
   if(JSONBIN_BIN_ID&&JSONBIN_API_KEY){
