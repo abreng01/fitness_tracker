@@ -2848,6 +2848,7 @@ function computeChaseStats(member, target, logs){
 }
 
 function ChaseCard({member, target, logs}){
+  const today = todayStr();
   const s = computeChaseStats(member, target, logs);
   const [expanded, setExpanded] = useState(true);
   const closing = s.netClosingPerWeek > 0;
