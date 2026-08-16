@@ -2782,6 +2782,207 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
 }
 
 // ── Member Card ───────────────────────────────────────────────────────────────
+// ── The Chase — tracks gap between this member and their target ───────────────
+function computeChaseStats(member, target, logs){
+  const today = todayStr();
+  const myPP = computePowerPoints(member, logs);
+  const targetPP = computePowerPoints(target, logs);
+  const gap = targetPP.total - myPP.total;
+
+  // Build weekly PP totals for last 6 weeks — for both members
+  function weeklyHistory(ppResult){
+    const weeks = [];
+    for(let w=5; w>=0; w--){
+      const weekEnd = new Date(today+"T00:00:00");
+      weekEnd.setDate(weekEnd.getDate() - w*7);
+      const weekStart = new Date(weekEnd);
+      weekStart.setDate(weekEnd.getDate() - 6);
+      const weekStartStr = toLocalDateStr(weekStart);
+      const weekEndStr = toLocalDateStr(weekEnd);
+      let total = 0;
+      for(const [d, pp] of Object.entries(ppResult.dailyEarned)){
+        if(d >= weekStartStr && d <= weekEndStr) total += Math.max(0, pp||0);
+      }
+      weeks.push({label: weekEnd.toLocaleDateString("en-IN",{day:"numeric",month:"short"}), pp: Math.round(total)});
+    }
+    return weeks;
+  }
+
+  const myWeeks = weeklyHistory(myPP);
+  const targetWeeks = weeklyHistory(targetPP);
+
+  // Gap this week vs last week
+  const gapThisWeek = targetPP.weekPP - myPP.weekPP;
+  const myLastWeek = myWeeks[myWeeks.length-2]?.pp || 0;
+  const targetLastWeek = targetWeeks[targetWeeks.length-2]?.pp || 0;
+  const gapLastWeek = targetLastWeek - myLastWeek;
+  const gapChange = gapThisWeek - gapLastWeek; // positive = gap widening, negative = gap closing
+
+  // Projection: weeks to close at current pace
+  const netClosingPerWeek = myPP.weekPP - targetPP.weekPP; // positive = closing
+  let weeksToClose = null;
+  let catchDate = null;
+  if(netClosingPerWeek > 0){
+    weeksToClose = Math.ceil(gap / netClosingPerWeek);
+    const cd = new Date(today+"T00:00:00");
+    cd.setDate(cd.getDate() + weeksToClose*7);
+    catchDate = cd.toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"});
+  }
+
+  // What weekly PP needed to close in N weeks
+  function ppNeededToCloseIn(weeks){
+    const targetFuturePP = targetPP.total + targetPP.weekPP * weeks;
+    return Math.round((targetFuturePP - myPP.total) / weeks);
+  }
+
+  return {
+    myTotal: myPP.total, targetTotal: targetPP.total, gap,
+    myWeekPP: myPP.weekPP, targetWeekPP: targetPP.weekPP,
+    gapThisWeek, gapChange,
+    myWeeks, targetWeeks,
+    weeksToClose, catchDate, netClosingPerWeek,
+    ppNeededIn8: ppNeededToCloseIn(8),
+    ppNeededIn12: ppNeededToCloseIn(12),
+    ppNeededIn24: ppNeededToCloseIn(24),
+  };
+}
+
+function ChaseCard({member, target, logs}){
+  const s = computeChaseStats(member, target, logs);
+  const [expanded, setExpanded] = useState(true);
+  const closing = s.netClosingPerWeek > 0;
+  const gapClosingThisWeek = s.gapThisWeek < 0; // negative gap delta = closing
+
+  // Mini bar chart: max value across both members all weeks
+  const maxWeekPP = Math.max(...s.myWeeks.map(w=>w.pp), ...s.targetWeeks.map(w=>w.pp), 1);
+
+  return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,
+    marginBottom:12,overflow:"hidden"}}>
+
+    {/* Header — always visible */}
+    <div onClick={()=>setExpanded(e=>!e)} style={{
+      padding:"12px 16px",cursor:"pointer",
+      background:"linear-gradient(135deg,#1a1a2e,#16213e)",
+      display:"flex",alignItems:"center",justifyContent:"space-between",
+    }}>
+      <div>
+        <div style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.5)",letterSpacing:0.5,marginBottom:2}}>
+          🏃 THE CHASE
+        </div>
+        <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>
+          {closing
+            ? `Closing in on ${target.name} — ${s.gap.toLocaleString()} PP behind`
+            : `${s.gap.toLocaleString()} PP behind ${target.name}`
+          }
+        </div>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:11,color: gapClosingThisWeek?"#4CAF50":"#FF5252",fontWeight:700}}>
+            {gapClosingThisWeek ? "▼ Closing" : "▲ Widening"}
+          </div>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>
+            {Math.abs(s.gapThisWeek).toLocaleString()} PP/wk
+          </div>
+        </div>
+        <span style={{color:"rgba(255,255,255,0.4)",fontSize:14}}>{expanded?"▾":"▸"}</span>
+      </div>
+    </div>
+
+    {expanded&&<div style={{padding:"14px 16px",display:"flex",flexDirection:"column",gap:14}}>
+
+      {/* Gap + pace section */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        <div style={{background:C.bg,borderRadius:10,padding:"10px 12px"}}>
+          <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:4}}>CURRENT GAP</div>
+          <div style={{fontSize:18,fontWeight:900,color:C.text}}>{s.gap.toLocaleString()}</div>
+          <div style={{fontSize:10,color:C.muted}}>PP behind {target.name}</div>
+        </div>
+        <div style={{background:C.bg,borderRadius:10,padding:"10px 12px"}}>
+          <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:4}}>GAP THIS WEEK</div>
+          <div style={{fontSize:18,fontWeight:900,color:gapClosingThisWeek?"#4CAF50":"#FF5252"}}>
+            {gapClosingThisWeek?"↓":"↑"}{Math.abs(s.gapThisWeek).toLocaleString()}
+          </div>
+          <div style={{fontSize:10,color:C.muted}}>{gapClosingThisWeek?"closing":"widening"}</div>
+        </div>
+        <div style={{background:C.bg,borderRadius:10,padding:"10px 12px"}}>
+          <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:4}}>YOUR PACE</div>
+          <div style={{fontSize:18,fontWeight:900,color:C.text}}>{s.myWeekPP.toLocaleString()}</div>
+          <div style={{fontSize:10,color:C.muted}}>PP this week</div>
+        </div>
+        <div style={{background:C.bg,borderRadius:10,padding:"10px 12px"}}>
+          <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:4}}>{target.name.toUpperCase()}'S PACE</div>
+          <div style={{fontSize:18,fontWeight:900,color:C.text}}>{s.targetWeekPP.toLocaleString()}</div>
+          <div style={{fontSize:10,color:C.muted}}>PP this week</div>
+        </div>
+      </div>
+
+      {/* Projection */}
+      <div style={{background:C.bg,borderRadius:10,padding:"12px 14px"}}>
+        <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:10}}>AT THIS PACE</div>
+        {closing && s.catchDate
+          ? <div style={{fontSize:13,fontWeight:700,color:"#4CAF50",marginBottom:6}}>
+              🎯 Catch {target.name} around <strong>{s.catchDate}</strong> (~{s.weeksToClose} weeks)
+            </div>
+          : <div style={{fontSize:13,fontWeight:700,color:"#FF5252",marginBottom:6}}>
+              ⚠️ Gap widening — need to outpace {target.name} by more than {s.targetWeekPP.toLocaleString()} PP/week
+            </div>
+        }
+        <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:8}}>
+          {[{weeks:8,pp:s.ppNeededIn8},{weeks:12,pp:s.ppNeededIn12},{weeks:24,pp:s.ppNeededIn24}].map(({weeks,pp})=>{
+            const feasible = pp <= s.myWeekPP * 2;
+            const d = new Date(today+"T00:00:00");
+            d.setDate(d.getDate()+weeks*7);
+            const dateLabel = d.toLocaleDateString("en-IN",{day:"numeric",month:"short"});
+            return <div key={weeks} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+              padding:"6px 8px",borderRadius:7,background:feasible?"rgba(76,175,80,0.08)":"transparent"}}>
+              <span style={{fontSize:11,color:C.muted}}>Close in {weeks}w ({dateLabel})</span>
+              <span style={{fontSize:11,fontWeight:700,color:feasible?"#4CAF50":C.text}}>
+                {pp.toLocaleString()} PP/wk needed
+              </span>
+            </div>;
+          })}
+        </div>
+      </div>
+
+      {/* Mini bar chart — last 6 weeks */}
+      <div style={{background:C.bg,borderRadius:10,padding:"12px 14px"}}>
+        <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:10}}>WEEKLY PP — LAST 6 WEEKS</div>
+        <div style={{display:"flex",gap:2,alignItems:"flex-end",height:60}}>
+          {s.myWeeks.map((w,i)=>{
+            const tw = s.targetWeeks[i];
+            const myH = Math.round((w.pp/maxWeekPP)*56);
+            const tH = Math.round((tw.pp/maxWeekPP)*56);
+            const isLast = i===s.myWeeks.length-1;
+            return <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+              <div style={{width:"100%",display:"flex",gap:1,alignItems:"flex-end",height:56}}>
+                <div style={{flex:1,height:myH,background:member.color,borderRadius:"2px 2px 0 0",
+                  opacity:isLast?1:0.6,minHeight:w.pp>0?2:0}}/>
+                <div style={{flex:1,height:tH,background:target.color,borderRadius:"2px 2px 0 0",
+                  opacity:isLast?1:0.6,minHeight:tw.pp>0?2:0,
+                  backgroundImage:target.color===member.color?"repeating-linear-gradient(45deg,transparent,transparent 2px,rgba(255,255,255,0.3) 2px,rgba(255,255,255,0.3) 4px)":"none"}}/>
+              </div>
+              <div style={{fontSize:8,color:C.muted,textAlign:"center",lineHeight:1.2}}>{w.label}</div>
+            </div>;
+          })}
+        </div>
+        <div style={{display:"flex",gap:12,marginTop:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:4}}>
+            <div style={{width:10,height:10,borderRadius:2,background:member.color}}/>
+            <span style={{fontSize:10,color:C.muted}}>{member.name}</span>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:4}}>
+            <div style={{width:10,height:10,borderRadius:2,background:target.color,
+              backgroundImage:target.color===member.color?"repeating-linear-gradient(45deg,transparent,transparent 2px,rgba(255,255,255,0.3) 2px,rgba(255,255,255,0.3) 4px)":"none"}}/>
+            <span style={{fontSize:10,color:C.muted}}>{target.name}</span>
+          </div>
+        </div>
+      </div>
+
+    </div>}
+  </div>;
+}
+
 function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onBraverySave,onIllnessSave,onIllnessDelete,onDeleteEntry}){
   const today=todayStr();
   const[showCal,setShowCal]=useState(true);
@@ -2883,6 +3084,12 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
 
     {/* Egg-O-Meter */}
     {member.eggMeter&&<EggMeter member={member} logs={logs} onEggChange={onEggChange} onNewBadge={onNewBadge}/>}
+
+    {/* The Chase — gap tracker vs chosen target member */}
+    {member.chaseTarget&&(()=>{
+      const target = (allMembers||[]).find(m=>m.id===member.chaseTarget);
+      return target ? <ChaseCard member={member} target={target} logs={logs}/> : null;
+    })()}
 
     {/* Consistency */}
     <div style={{marginBottom:12}}>
@@ -3104,6 +3311,7 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
   const[gkEnabled,setGkEnabled]=useState(member?.gkEnabled??false);
   const[braveryEnabled,setBraveryEnabled]=useState(member?.braveryEnabled??false);
   const[illnessEnabled,setIllnessEnabled]=useState(member?.illnessEnabled??false);
+  const[chaseTarget,setChaseTarget]=useState(member?.chaseTarget??null);
   const[startDate,setStartDate]=useState(member?.startDate??"");
   const[memberTheme,setMemberTheme]=useState(member?.memberTheme??"");
   const[memberPattern,setMemberPattern]=useState(member?.memberPattern??"");
@@ -3229,6 +3437,17 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
         </div>
       </div>
       <div style={{marginBottom:18}}>
+        <label style={lStyle}>🏃 Chase Target <span style={{fontWeight:400,color:C.muted}}>(optional — shows a gap tracker on this card)</span></label>
+        <select value={chaseTarget||""} onChange={e=>setChaseTarget(e.target.value||null)}
+          style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.border}`,
+          fontSize:13,background:C.surface,color:C.text,outline:"none"}}>
+          <option value="">None</option>
+          {(allMembers||[]).filter(m=>m.id!==(member?.id??null)).map(m=>(
+            <option key={m.id} value={m.id}>{m.name}</option>
+          ))}
+        </select>
+      </div>
+      <div style={{marginBottom:18}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
           <label style={{...lStyle,marginBottom:0}}>Activities</label>
           <button onClick={addAct} style={{background:color,color:"#fff",border:"none",borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add</button>
@@ -3289,7 +3508,7 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
       <div style={{display:"flex",gap:8}}>
         {!isNew&&<button onClick={()=>{if(window.confirm("Remove?"))onDelete(member.id);}} style={{padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",cursor:"pointer",color:C.missed,fontWeight:600}}>Delete</button>}
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,illnessEnabled,stackPoints})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
+        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,illnessEnabled,stackPoints,chaseTarget})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
       </div>
     </div>
   </div>;
