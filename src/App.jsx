@@ -177,8 +177,16 @@ function getBraveryLog(logs, memberId){
 function getIllnessLog(logs, memberId){
   return (logs[memberId] && logs[memberId].illness) || {};
 }
+function getOlympiadLog(logs, memberId){
+  return (logs[memberId] && logs[memberId].olympiad) || [];
+}
 function computeBraveryBonus(logs, memberId){
   const entries = getBraveryLog(logs, memberId);
+  const total = entries.reduce((s,e)=>s+(e.points||0),0);
+  return {total, count:entries.length};
+}
+function computeOlympiadBonus(logs, memberId){
+  const entries = getOlympiadLog(logs, memberId);
   const total = entries.reduce((s,e)=>s+(e.points||0),0);
   return {total, count:entries.length};
 }
@@ -601,10 +609,18 @@ function computePowerPoints(member, logs){
       braveryByDate[entry.date] = (braveryByDate[entry.date]||0) + entry.points;
     }
   }
+  // Olympiad Points — same pattern as Bravery
+  const olympiadByDate = {};
+  for(const entry of getOlympiadLog(logs, member.id)){
+    if(entry.date && entry.date <= today && (!sd || entry.date >= sd) && entry.points>0){
+      allDates.add(entry.date);
+      olympiadByDate[entry.date] = (olympiadByDate[entry.date]||0) + entry.points;
+    }
+  }
   const sortedDates = [...allDates].sort();
 
   let totalPP = 100; // base starting points
-  let breakdown = {atTarget:0, aboveTarget:0, belowTarget:0, pb:0, shielded:0, skipped:0, streakBonus:0, streakBreak:0, mysteryDays:0, eggBonus:0, gkBonus:0, braveryBonus:0, extraSessionBonus:0, distanceBonus:0};
+  let breakdown = {atTarget:0, aboveTarget:0, belowTarget:0, pb:0, shielded:0, skipped:0, streakBonus:0, streakBreak:0, mysteryDays:0, eggBonus:0, gkBonus:0, braveryBonus:0, olympiadBonus:0, extraSessionBonus:0, distanceBonus:0};
   let prevStreak = 0;
   let levelHistory = []; // [{level, title, icon, date}]
   let lastLevelSeen = 1;
@@ -884,6 +900,15 @@ function computePowerPoints(member, logs){
       breakdown.braveryBonus += braveryPts;
       if(!dailyTags[dateStr]) dailyTags[dateStr]=[];
       dailyTags[dateStr].push("bravery");
+    }
+
+    // Olympiad Points — same pattern as Bravery
+    const olympiadPts = olympiadByDate[dateStr]||0;
+    if(olympiadPts>0){
+      totalPP += olympiadPts;
+      breakdown.olympiadBonus += olympiadPts;
+      if(!dailyTags[dateStr]) dailyTags[dateStr]=[];
+      dailyTags[dateStr].push("olympiad");
     }
 
     dailyEarned[dateStr] = totalPP - ppBeforeDay; // net change this day, multiplier + eggs + GK + Bravery included
@@ -2317,6 +2342,7 @@ function PowerPointsPanel({member, logs, onClose}){
             {label:"🥚 Eggs",val:breakdown.eggBonus,show:breakdown.eggBonus>0},
             {label:"🧠 GK Learning",val:breakdown.gkBonus,show:breakdown.gkBonus>0},
             {label:"🦁 Bravery",val:breakdown.braveryBonus,show:breakdown.braveryBonus>0},
+            {label:"🏅 Olympiad",val:breakdown.olympiadBonus,show:breakdown.olympiadBonus>0},
             {label:"➕ Extra sessions",val:breakdown.extraSessionBonus,show:breakdown.extraSessionBonus>0},
             {label:"🏃 Distance bonus",val:breakdown.distanceBonus,show:breakdown.distanceBonus>0},
             {label:"Starting bonus",val:100,show:true},
@@ -2984,7 +3010,7 @@ function ChaseCard({member, target, logs}){
   </div>;
 }
 
-function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onBraverySave,onIllnessSave,onIllnessDelete,onDeleteEntry}){
+function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onBraverySave,onIllnessSave,onIllnessDelete,onOlympiadSave,onDeleteEntry}){
   const today=todayStr();
   const[showCal,setShowCal]=useState(true);
   const[showBadges,setShowBadges]=useState(false);
@@ -2993,6 +3019,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
   const[showGK,setShowGK]=useState(false);
   const[showBravery,setShowBravery]=useState(false);
   const[showIllness,setShowIllness]=useState(false);
+  const[showOlympiad,setShowOlympiad]=useState(false);
   const[showHeatmap,setShowHeatmap]=useState(false);
   const[mysteryReveal,setMysteryReveal]=useState(null); // {normalPP, bonusPP}
   const[modal,setModal]=useState(null);
@@ -3192,6 +3219,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
         {member.gkEnabled&&<button onClick={()=>setShowGK(true)} style={{background:"none",border:"1px solid #7E57C2",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#7E57C2"}}>🧠 GK</button>}
         {member.braveryEnabled&&<button onClick={()=>setShowBravery(true)} style={{background:"none",border:"1px solid #F57C00",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#F57C00"}}>🦁 Bravery</button>}
         {member.illnessEnabled&&<button onClick={()=>setShowIllness(true)} style={{background:"none",border:"1px solid #8E5FA8",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#8E5FA8"}}>🤒 Illness</button>}
+        {member.id==="son"&&<button onClick={()=>setShowOlympiad(true)} style={{background:"none",border:"1px solid #F9A825",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#E65100"}}>🏅 Olympiad</button>}
         <button onClick={()=>setShowBadges(true)} style={{background:member.color,color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12}}>🏆 Badges</button>
       </div>
     </div>
@@ -3201,6 +3229,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
     {showGK&&<GKDrawer member={member} logs={logs} onGkSave={onGkSave} onClose={()=>setShowGK(false)}/>}
     {showBravery&&<BraveryDrawer member={member} logs={logs} onBraverySave={onBraverySave} onClose={()=>setShowBravery(false)}/>}
     {showIllness&&<IllnessDrawer member={member} logs={logs} onIllnessSave={onIllnessSave} onIllnessDelete={onIllnessDelete} onClose={()=>setShowIllness(false)}/>}
+    {showOlympiad&&<OlympiadDrawer member={member} logs={logs} onOlympiadSave={onOlympiadSave} onClose={()=>setShowOlympiad(false)}/>}
     {mysteryReveal&&<MysteryBonusReveal normalPP={mysteryReveal.normalPP} bonusPP={mysteryReveal.bonusPP} onClose={()=>setMysteryReveal(null)}/>}
 
     {modal&&(member.alternating&&acts.length>1
@@ -3966,6 +3995,100 @@ function BraveryDrawer({member, logs, onBraverySave, onClose}){
       </div>
     </div>
   </>;
+}
+
+function OlympiadDrawer({member, logs, onOlympiadSave, onClose}){
+  return <>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
+    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
+      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
+      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+      <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:26}}>{member.emoji}</span>
+            <div>
+              <div style={{fontWeight:800,fontSize:16}}>🏅 Olympiad</div>
+              <div style={{fontSize:11,color:C.muted}}>{member.name}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,
+            borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px"}}>
+        <OlympiadView member={member} logs={logs} onOlympiadSave={onOlympiadSave}/>
+      </div>
+    </div>
+  </>;
+}
+
+function OlympiadView({member, logs, onOlympiadSave}){
+  const today = todayStr();
+  const entries = getOlympiadLog(logs, member.id);
+  const total = computeOlympiadBonus(logs, member.id);
+  const[date, setDate] = useState(today);
+  const[subject, setSubject] = useState("");
+  const[points, setPoints] = useState("");
+  const iStyle = {width:"100%",padding:"10px 12px",borderRadius:8,
+    border:`1.5px solid ${C.border}`,fontSize:13,outline:"none",
+    background:C.surface,color:C.text,boxSizing:"border-box",marginBottom:10};
+  const sorted = [...entries].sort((a,b)=>b.date.localeCompare(a.date));
+
+  return <div style={{display:"flex",flexDirection:"column",gap:14}}>
+    {/* Total summary */}
+    <div style={{background:"linear-gradient(135deg,#FFF8E1,#FFF3CD)",border:"1.5px solid #F9A825",
+      borderRadius:16,padding:20,textAlign:"center"}}>
+      <div style={{fontSize:36,marginBottom:4}}>🏅</div>
+      <div style={{fontWeight:800,fontSize:22,color:"#E65100"}}>{total.total.toLocaleString()} PP</div>
+      <div style={{fontSize:12,color:"#BF6900",marginTop:2}}>{total.count} session{total.count!==1?"s":""} logged</div>
+    </div>
+
+    {/* Log new session */}
+    <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:"14px 16px"}}>
+      <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>LOG SESSION</div>
+      <label style={{fontSize:12,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Date</label>
+      <input type="date" value={date} max={today} onChange={e=>setDate(e.target.value)} style={iStyle}/>
+      <label style={{fontSize:12,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Subject / Topic</label>
+      <input value={subject} onChange={e=>setSubject(e.target.value)}
+        placeholder="e.g. Maths - Geometry, Science - Light"
+        style={iStyle}/>
+      <label style={{fontSize:12,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Points earned</label>
+      <input type="number" value={points} onChange={e=>setPoints(e.target.value)}
+        placeholder="e.g. 500" min="1" style={{...iStyle,marginBottom:14}}/>
+      <button disabled={!subject.trim()||!points||parseInt(points)<=0}
+        onClick={()=>{
+          onOlympiadSave(member.id, {date, subject:subject.trim(), points:parseInt(points)});
+          setSubject(""); setPoints(""); setDate(today);
+        }} style={{
+          width:"100%",padding:"11px 0",borderRadius:10,border:"none",
+          background:(!subject.trim()||!points||parseInt(points)<=0)?"#ccc":"#F9A825",
+          color:(!subject.trim()||!points||parseInt(points)<=0)?"#999":"#fff",
+          cursor:(!subject.trim()||!points||parseInt(points)<=0)?"not-allowed":"pointer",
+          fontWeight:700,fontSize:14,
+        }}>🏅 Log Olympiad Session</button>
+    </div>
+
+    {/* History */}
+    {sorted.length>0&&<div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:"14px 16px"}}>
+      <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>HISTORY</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {sorted.map((e,i)=>(
+          <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+            padding:"10px 12px",background:"#FFFBF0",borderRadius:8,border:"1px solid #FFE082"}}>
+            <div>
+              <div style={{fontSize:13,fontWeight:700,color:C.text}}>🏅 {e.subject}</div>
+              <div style={{fontSize:10,color:C.muted,marginTop:2}}>
+                {new Date(e.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}
+              </div>
+            </div>
+            <div style={{fontSize:16,fontWeight:900,color:"#E65100"}}>+{(e.points||0).toLocaleString()}</div>
+          </div>
+        ))}
+      </div>
+    </div>}
+  </div>;
 }
 
 function IllnessDrawer({member, logs, onIllnessSave, onIllnessDelete, onClose}){
@@ -5157,6 +5280,15 @@ export default function App(){
     });
   },[]);
 
+  const handleOlympiadSave=useCallback((mid,entry)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const olympiad=[...(next[mid].olympiad||[]), entry];
+      next[mid].olympiad=olympiad;
+      return next;
+    });
+  },[]);
+
   const handleTargetChange=useCallback((mid,actId,target,date,prevTarget)=>{
     setLogs(prev=>{
       const next={...prev,[mid]:{...(prev[mid]||{})}};
@@ -5267,7 +5399,7 @@ export default function App(){
             <MemberCard member={m} logs={logs} allMembers={members}
               onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}
               onOpenPP={(id)=>setPpPanelFor(id)} onGrowthSave={handleGrowthSave}
-              onGkSave={handleGkSave} onBraverySave={handleBraverySave} onIllnessSave={handleIllnessSave} onIllnessDelete={handleIllnessDelete} onDeleteEntry={handleDeleteEntry}/>
+              onGkSave={handleGkSave} onBraverySave={handleBraverySave} onIllnessSave={handleIllnessSave} onIllnessDelete={handleIllnessDelete} onOlympiadSave={handleOlympiadSave} onDeleteEntry={handleDeleteEntry}/>
           </div>
           {ppPanelFor===m.id&&<div style={{flex:"1 1 320px",maxWidth:380,minWidth:280}}>
             <PowerPointsPanel member={m} logs={logs} onClose={()=>setPpPanelFor(null)}/>
