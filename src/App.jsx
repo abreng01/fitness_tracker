@@ -3010,7 +3010,7 @@ function ChaseCard({member, target, logs}){
   </div>;
 }
 
-function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onBraverySave,onIllnessSave,onIllnessDelete,onOlympiadSave,onOlympiadDelete,onOlympiadUpdate,onDeleteEntry}){
+function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onBraverySave,onBraveryDelete,onBraveryUpdate,onIllnessSave,onIllnessDelete,onOlympiadSave,onOlympiadDelete,onOlympiadUpdate,onDeleteEntry}){
   const today=todayStr();
   const[showCal,setShowCal]=useState(true);
   const[showBadges,setShowBadges]=useState(false);
@@ -3227,7 +3227,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
     {showStats&&<AllTimeStats member={member} logs={logs} onClose={()=>setShowStats(false)}/>}
     {showGrowth&&<GrowthDrawer member={member} logs={logs} onSave={onGrowthSave} onClose={()=>setShowGrowth(false)}/>}
     {showGK&&<GKDrawer member={member} logs={logs} onGkSave={onGkSave} onClose={()=>setShowGK(false)}/>}
-    {showBravery&&<BraveryDrawer member={member} logs={logs} onBraverySave={onBraverySave} onClose={()=>setShowBravery(false)}/>}
+    {showBravery&&<BraveryDrawer member={member} logs={logs} onBraverySave={onBraverySave} onBraveryDelete={onBraveryDelete} onBraveryUpdate={onBraveryUpdate} onClose={()=>setShowBravery(false)}/>}
     {showIllness&&<IllnessDrawer member={member} logs={logs} onIllnessSave={onIllnessSave} onIllnessDelete={onIllnessDelete} onClose={()=>setShowIllness(false)}/>}
     {showOlympiad&&<OlympiadDrawer member={member} logs={logs} onOlympiadSave={onOlympiadSave} onOlympiadDelete={onOlympiadDelete} onOlympiadUpdate={onOlympiadUpdate} onClose={()=>setShowOlympiad(false)}/>}
     {mysteryReveal&&<MysteryBonusReveal normalPP={mysteryReveal.normalPP} bonusPP={mysteryReveal.bonusPP} onClose={()=>setMysteryReveal(null)}/>}
@@ -3970,7 +3970,7 @@ function GKView({member, logs, onGkSave}){
 }
 
 // ── Bravery Drawer (wraps BraveryView in a slide-in panel) ───────────────────
-function BraveryDrawer({member, logs, onBraverySave, onClose}){
+function BraveryDrawer({member, logs, onBraverySave, onBraveryDelete, onBraveryUpdate, onClose}){
   return <>
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
     <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
@@ -3991,7 +3991,8 @@ function BraveryDrawer({member, logs, onBraverySave, onClose}){
         </div>
       </div>
       <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px"}}>
-        <BraveryView member={member} logs={logs} onBraverySave={onBraverySave}/>
+        <BraveryView member={member} logs={logs} onBraverySave={onBraverySave}
+          onBraveryDelete={onBraveryDelete} onBraveryUpdate={onBraveryUpdate}/>
       </div>
     </div>
   </>;
@@ -4177,14 +4178,37 @@ function IllnessDrawer({member, logs, onIllnessSave, onIllnessDelete, onClose}){
 }
 
 // ── Bravery Points View — parent picks reason + points, feeds same PP pool ──────
-function BraveryView({member, logs, onBraverySave}){
+function BraveryView({member, logs, onBraverySave, onBraveryDelete, onBraveryUpdate}){
   const today = todayStr();
   const entries = getBraveryLog(logs, member.id);
   const[reason, setReason] = useState("");
   const[points, setPoints] = useState("");
   const bonus = computeBraveryBonus(logs, member.id);
+  const[editingIndex, setEditingIndex] = useState(null);
+  const[editDate, setEditDate] = useState("");
+  const[editReason, setEditReason] = useState("");
+  const[editPoints, setEditPoints] = useState("");
 
-  const sorted = [...entries].sort((a,b)=>b.date.localeCompare(a.date));
+  const iStyle = {width:"100%",padding:"10px 12px",borderRadius:8,
+    border:"1.5px solid #F57C00",fontSize:13,outline:"none",
+    boxSizing:"border-box",marginBottom:8,background:"#fff"};
+
+  const sorted = entries.map((e,i)=>({...e,_origIndex:i}))
+    .sort((a,b)=>b.date.localeCompare(a.date));
+
+  function startEdit(e, origIndex){
+    setEditingIndex(origIndex);
+    setEditDate(e.date);
+    setEditReason(e.reason);
+    setEditPoints(String(e.points));
+  }
+  function cancelEdit(){ setEditingIndex(null); }
+  function saveEdit(origIndex){
+    onBraveryUpdate(member.id, origIndex, {
+      date:editDate, reason:editReason.trim(), points:parseInt(editPoints)
+    });
+    setEditingIndex(null);
+  }
 
   return <div style={{display:"flex",flexDirection:"column",gap:14}}>
     <div style={{background:"linear-gradient(135deg,#FFF3E0,#FFE0B2)",border:"1.5px solid #F57C00",
@@ -4195,11 +4219,9 @@ function BraveryView({member, logs, onBraverySave}){
         Award {member.name} points for anything brave — you choose why and how much
       </div>
       <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="What did they do? (e.g. Tried a new food)"
-        style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #F57C00",
-        fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,background:"#fff"}}/>
+        style={{...iStyle,marginBottom:10}}/>
       <input type="number" min={1} value={points} onChange={e=>setPoints(e.target.value)} placeholder="Points (e.g. 500)"
-        style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #F57C00",
-        fontSize:16,fontWeight:700,outline:"none",boxSizing:"border-box",marginBottom:12,background:"#fff"}}/>
+        style={{...iStyle,fontSize:16,fontWeight:700,marginBottom:12}}/>
       <button disabled={!reason.trim()||!points||parseInt(points)<=0} onClick={()=>{
         onBraverySave(member.id, {date:today, reason:reason.trim(), points:parseInt(points)});
         setReason(""); setPoints("");
@@ -4223,16 +4245,55 @@ function BraveryView({member, logs, onBraverySave}){
     {sorted.length>0&&<div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:"14px 18px"}}>
       <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>HISTORY</div>
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {sorted.map((e,i)=>(
-          <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",
-            padding:"8px 10px",background:"#FFF8F0",borderRadius:8}}>
-            <div>
-              <div style={{fontSize:12,fontWeight:600,color:C.text}}>{e.reason}</div>
-              <div style={{fontSize:10,color:C.muted}}>{new Date(e.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</div>
-            </div>
-            <span style={{fontSize:13,fontWeight:800,color:"#F57C00"}}>+{e.points.toLocaleString()} ⚡</span>
-          </div>
-        ))}
+        {sorted.map((e)=>{
+          const origIndex = e._origIndex;
+          const isEditing = editingIndex === origIndex;
+          return <div key={origIndex} style={{
+            padding:"10px 12px",background:"#FFF8F0",borderRadius:8,
+            border:`1px solid ${isEditing?"#F57C00":"#FFD0A0"}`,
+          }}>
+            {isEditing ? (
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Date</label>
+                <input type="date" value={editDate} max={today} onChange={ev=>setEditDate(ev.target.value)}
+                  style={iStyle}/>
+                <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Reason</label>
+                <input value={editReason} onChange={ev=>setEditReason(ev.target.value)}
+                  style={iStyle}/>
+                <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Points</label>
+                <input type="number" value={editPoints} onChange={ev=>setEditPoints(ev.target.value)}
+                  min="1" style={{...iStyle,marginBottom:10}}/>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={cancelEdit} style={{flex:1,padding:"8px 0",borderRadius:8,
+                    border:`1px solid ${C.border}`,background:"none",cursor:"pointer",
+                    fontSize:12,fontWeight:600,color:C.muted}}>Cancel</button>
+                  <button disabled={!editReason.trim()||!editPoints||parseInt(editPoints)<=0}
+                    onClick={()=>saveEdit(origIndex)} style={{flex:2,padding:"8px 0",borderRadius:8,
+                    border:"none",background:"#F57C00",color:"#fff",cursor:"pointer",
+                    fontSize:12,fontWeight:700}}>Save changes</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div>
+                  <div style={{fontSize:12,fontWeight:600,color:C.text}}>{e.reason}</div>
+                  <div style={{fontSize:10,color:C.muted}}>{new Date(e.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</div>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:13,fontWeight:800,color:"#F57C00"}}>+{e.points.toLocaleString()} ⚡</span>
+                  <button onClick={()=>startEdit(e, origIndex)} style={{background:"none",
+                    border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 8px",
+                    cursor:"pointer",fontSize:11,color:C.muted,fontWeight:600}}>Edit</button>
+                  <button onClick={()=>{
+                    if(window.confirm("Delete this bravery entry?")) onBraveryDelete(member.id, origIndex);
+                  }} style={{background:"none",border:"1px solid #E57373",
+                    borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,
+                    color:"#E57373",fontWeight:600}}>✕</button>
+                </div>
+              </div>
+            )}
+          </div>;
+        })}
       </div>
     </div>}
   </div>;
@@ -5318,6 +5379,26 @@ export default function App(){
     });
   },[]);
 
+  const handleBraveryDelete=useCallback((mid,index)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const bravery=[...(next[mid].bravery||[])];
+      bravery.splice(index,1);
+      next[mid].bravery=bravery;
+      return next;
+    });
+  },[]);
+
+  const handleBraveryUpdate=useCallback((mid,index,entry)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const bravery=[...(next[mid].bravery||[])];
+      bravery[index]=entry;
+      next[mid].bravery=bravery;
+      return next;
+    });
+  },[]);
+
   const handleIllnessSave=useCallback((mid,dateStr,reason)=>{
     setLogs(prev=>{
       const next={...prev,[mid]:{...(prev[mid]||{})}};
@@ -5477,7 +5558,7 @@ export default function App(){
             <MemberCard member={m} logs={logs} allMembers={members}
               onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}
               onOpenPP={(id)=>setPpPanelFor(id)} onGrowthSave={handleGrowthSave}
-              onGkSave={handleGkSave} onBraverySave={handleBraverySave} onIllnessSave={handleIllnessSave} onIllnessDelete={handleIllnessDelete} onOlympiadSave={handleOlympiadSave} onOlympiadDelete={handleOlympiadDelete} onOlympiadUpdate={handleOlympiadUpdate} onDeleteEntry={handleDeleteEntry}/>
+              onGkSave={handleGkSave} onBraverySave={handleBraverySave} onBraveryDelete={handleBraveryDelete} onBraveryUpdate={handleBraveryUpdate} onIllnessSave={handleIllnessSave} onIllnessDelete={handleIllnessDelete} onOlympiadSave={handleOlympiadSave} onOlympiadDelete={handleOlympiadDelete} onOlympiadUpdate={handleOlympiadUpdate} onDeleteEntry={handleDeleteEntry}/>
           </div>
           {ppPanelFor===m.id&&<div style={{flex:"1 1 320px",maxWidth:380,minWidth:280}}>
             <PowerPointsPanel member={m} logs={logs} onClose={()=>setPpPanelFor(null)}/>
