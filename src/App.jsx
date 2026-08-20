@@ -743,6 +743,7 @@ function computePowerPoints(member, logs){
               streakMultiplier: multiplier, mysteryMultiplier: mysteryMult,
               tierEarned, extraSessions: sessionVals.length>1?sessionVals.length:0, extraEarned,
               distanceEarned, total: tierEarned+extraEarned+distanceEarned,
+              sessions: sessionVals.length>1?sessionVals:[],
             });
             if(rawTier===250) tags.push("pb");
             else if(rawTier===200) tags.push("above");
@@ -789,6 +790,7 @@ function computePowerPoints(member, logs){
               streakMultiplier: multiplier, mysteryMultiplier: mysteryMult,
               tierEarned, extraSessions: bestSessionCount>1?bestSessionCount:0, extraEarned,
               distanceEarned, total: tierEarned+extraEarned+distanceEarned,
+              sessions: bestSessionCount>1?(bestActivity.l.sessions||[]):[],
               note: doneActs.length>1 ? "Best of " + doneActs.length + " activities today" : null,
             });
           }
@@ -853,6 +855,7 @@ function computePowerPoints(member, logs){
             streakMultiplier: multiplier, mysteryMultiplier: mysteryMult,
             tierEarned, extraSessions: sessionVals.length>1?sessionVals.length:0, extraEarned,
             distanceEarned, total: earned,
+            sessions: sessionVals.length>1?sessionVals:[],
           });
           const tags=[];
           if(rawTier===250) tags.push("pb");
@@ -2472,7 +2475,15 @@ function PowerPointsPanel({member, logs, onClose}){
                           {det.mysteryMultiplier===2&&<> × 2 🎁 mystery</>}
                           {" "}= {det.tierEarned.toLocaleString()}
                         </div>
-                        {det.extraEarned>0&&<div>➕ {det.extraSessions} sessions bonus: +{det.extraEarned.toLocaleString()}</div>}
+                        {det.extraEarned>0&&<div>➕ {det.extraSessions-1} extra session{det.extraSessions-1>1?"s":""} bonus: +{det.extraEarned.toLocaleString()}</div>}
+                        {det.sessions&&det.sessions.length>1&&<div style={{marginTop:3,paddingTop:3,borderTop:`1px solid ${C.border}`,display:"flex",flexWrap:"wrap",gap:4}}>
+                          {det.sessions.map((s,si)=>(
+                            <span key={si} style={{fontSize:10,background:C.bg,border:`1px solid ${C.border}`,
+                              borderRadius:5,padding:"1px 6px",color:C.muted,fontWeight:600}}>
+                              S{si+1}: {s}{det.activityUnit}
+                            </span>
+                          ))}
+                        </div>}
                         {det.distanceEarned>0&&<div>🏃 Distance bonus: +{det.distanceEarned.toLocaleString()}</div>}
                       </div>
                     )}
