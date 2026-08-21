@@ -719,14 +719,23 @@ function computePowerPoints(member, logs){
             const maxSession = Math.max(...sessionVals);
             const isPB = maxSession > actBests[a.id] && maxSession > effectiveTarget;
             if(isPB) actBests[a.id] = maxSession;
+            // First session scores full tier × all multipliers (same as before)
             const rawTier = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
             const basePts = rawTier * (a.ppMultiplier ?? 1);
-            const extraPts = sessionVals.length>1 ? 100*(sessionVals.length-1) : 0;
             const distancePts = Math.max(0, l.value - effectiveTarget) * (a.distanceBonusRate ?? 0);
             const mysteryMult = isMysteryBonusDay(member.id, dateStr) ? 2 : 1;
             const tierEarned = Math.round(basePts * multiplier * mysteryMult);
-            const extraEarned = Math.round(extraPts * multiplier * mysteryMult);
             const distanceEarned = Math.round(distancePts * multiplier * mysteryMult);
+            // Extra sessions: each scores full tier PP based on its own reps vs target, WITH streak and mystery
+            let extraPts = 0;
+            if(sessionVals.length > 1){
+              for(let si=1; si<sessionVals.length; si++){
+                const sv = sessionVals[si];
+                const sTier = sv > effectiveTarget ? 200 : sv >= effectiveTarget ? 100 : 50;
+                extraPts += sTier * (a.ppMultiplier ?? 1);
+              }
+            }
+            const extraEarned = Math.round(extraPts * multiplier * mysteryMult);
             dayEarned += tierEarned + extraEarned + distanceEarned;
             if(rawTier === 250) breakdown.pb += tierEarned;
             else if(rawTier === 200) breakdown.aboveTarget += tierEarned;
@@ -734,7 +743,7 @@ function computePowerPoints(member, logs){
             else breakdown.belowTarget += tierEarned;
             if(extraEarned>0) breakdown.extraSessionBonus += extraEarned;
             if(distanceEarned>0) breakdown.distanceBonus += distanceEarned;
-            breakdown.streakBonus += (tierEarned-basePts)+(extraEarned-extraPts)+(distanceEarned-distancePts);
+            breakdown.streakBonus += (tierEarned-basePts)+(distanceEarned-distancePts);
             if(!dailyBreakdown[dateStr]) dailyBreakdown[dateStr]=[];
             dailyBreakdown[dateStr].push({
               activityName: a.name, activityUnit: a.unit, value: l.value, target: effectiveTarget,
@@ -774,9 +783,18 @@ function computePowerPoints(member, logs){
               bestActivity = {a, l, effectiveTarget};
             }
           }
-          const extraPts = bestSessionCount>1 ? 100*(bestSessionCount-1) : 0;
           const mysteryMult = isMysteryBonusDay(member.id, dateStr) ? 2 : 1;
           const tierEarned = Math.round(bestPts * multiplier * mysteryMult);
+          // Extra sessions on best activity: each scores full tier base PP (no multipliers)
+          let extraPts = 0;
+          if(bestActivity && bestSessionCount > 1){
+            const bestSessions = bestActivity.l.sessions||[];
+            for(let si=1; si<bestSessions.length; si++){
+              const sv = bestSessions[si];
+              const sTier = sv > bestActivity.effectiveTarget ? 200 : sv >= bestActivity.effectiveTarget ? 100 : 50;
+              extraPts += sTier * (bestActivity.a.ppMultiplier ?? 1);
+            }
+          }
           const extraEarned = Math.round(extraPts * multiplier * mysteryMult);
           const distanceEarned = Math.round(bestDistancePts * multiplier * mysteryMult);
           dayEarned += tierEarned + extraEarned + distanceEarned;
@@ -831,8 +849,16 @@ function computePowerPoints(member, logs){
           if(isPB) actBests[a.id] = maxSession;
           const rawTier = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
           const basePts = rawTier * (a.ppMultiplier ?? 1);
-          const extraPts = sessionVals.length>1 ? 100*(sessionVals.length-1) : 0; // credit for extra sessions beyond the first, even if not a new PB
-          const distancePts = Math.max(0, l.value - effectiveTarget) * (a.distanceBonusRate ?? 0); // scales continuously with how far past target
+          // Extra sessions: each scores full tier base PP (no multipliers) based on its own reps vs target
+          let extraPts = 0;
+          if(sessionVals.length > 1){
+            for(let si=1; si<sessionVals.length; si++){
+              const sv = sessionVals[si];
+              const sTier = sv > effectiveTarget ? 200 : sv >= effectiveTarget ? 100 : 50;
+              extraPts += sTier * (a.ppMultiplier ?? 1);
+            }
+          }
+          const distancePts = Math.max(0, l.value - effectiveTarget) * (a.distanceBonusRate ?? 0);
           const mysteryMult = isMysteryBonusDay(member.id, dateStr) ? 2 : 1;
           const tierEarned = Math.round(basePts * multiplier * mysteryMult);
           const extraEarned = Math.round(extraPts * multiplier * mysteryMult);
