@@ -2951,11 +2951,14 @@ function computeWeeklyMomentum(member, logs){
 
   if(lastWeekDays.length === 0) return null; // not enough history
 
-  // Signal 1: PP earned
+  // Signal 1: PP earned — normalize to daily average for fair partial-week comparison
   const ppData = computePowerPoints(member, logs);
   function ppForDays(days){ return days.reduce((s,d)=>s+Math.max(0,ppData.dailyEarned[d]||0),0); }
-  const thisPP = ppForDays(thisWeekDays);
-  const lastPP = ppForDays(lastWeekDays);
+  const thisPPTotal = ppForDays(thisWeekDays);
+  const lastPPTotal = ppForDays(lastWeekDays);
+  // Use daily average so partial weeks compare fairly against full weeks
+  const thisPP = thisWeekDays.length > 0 ? thisPPTotal / thisWeekDays.length : 0;
+  const lastPP = lastWeekDays.length > 0 ? lastPPTotal / lastWeekDays.length : 0;
 
   // Signal 2: avg output as % of target
   function avgOutputForDays(days){
@@ -2973,7 +2976,7 @@ function computeWeeklyMomentum(member, logs){
   const thisOutput = avgOutputForDays(thisWeekDays);
   const lastOutput = avgOutputForDays(lastWeekDays);
 
-  // Signal 3: total sessions logged
+  // Signal 3: total sessions logged — daily average for fair comparison
   function sessionCountForDays(days){
     let total = 0;
     for(const d of days){
@@ -2984,7 +2987,7 @@ function computeWeeklyMomentum(member, logs){
         }
       }
     }
-    return total;
+    return days.length > 0 ? total / days.length : 0; // daily average
   }
   const thisSessions = sessionCountForDays(thisWeekDays);
   const lastSessions = sessionCountForDays(lastWeekDays);
@@ -3033,10 +3036,10 @@ function computeWeeklyMomentum(member, logs){
   return {
     score,
     signals: {
-      pp:          {this: thisPP,              last: lastPP,              pct: pctChange(thisPP, lastPP),             delta: ppDelta},
-      output:      {this: thisOutput,          last: lastOutput,          pct: thisOutput&&lastOutput ? pctChange(thisOutput, lastOutput) : null, delta: outputDelta},
-      sessions:    {this: thisSessions,        last: lastSessions,        pct: pctChange(thisSessions, lastSessions), delta: sessionsDelta},
-      consistency: {this: Math.round(thisConsistency*100), last: Math.round(lastConsistency*100), pct: Math.round((thisConsistency-lastConsistency)*100), delta: consistDelta},
+      pp:          {this: Math.round(thisPP).toLocaleString(),    last: Math.round(lastPP).toLocaleString(),    pct: pctChange(thisPP, lastPP),             delta: ppDelta},
+      output:      {this: thisOutput ? (thisOutput*100).toFixed(0)+"%" : "—", last: lastOutput ? (lastOutput*100).toFixed(0)+"%" : "—", pct: thisOutput&&lastOutput ? pctChange(thisOutput, lastOutput) : null, delta: outputDelta},
+      sessions:    {this: thisSessions.toFixed(1),   last: lastSessions.toFixed(1),   pct: pctChange(thisSessions, lastSessions), delta: sessionsDelta},
+      consistency: {this: Math.round(thisConsistency*100)+"%", last: Math.round(lastConsistency*100)+"%", pct: Math.round((thisConsistency-lastConsistency)*100), delta: consistDelta},
     },
     thisWeek: thisMonday,
     lastWeek: lastMonday,
@@ -3061,10 +3064,10 @@ function WeeklyMomentumCard({member, logs}){
   const barWidth = Math.abs(barFill - 50);
 
   const signalRows = [
-    {label:"PP earned",    icon:"⚡", curr:m.signals.pp.this.toLocaleString(),      prev:m.signals.pp.last.toLocaleString(),      pct:m.signals.pp.pct},
-    {label:"Avg output",   icon:"💪", curr:m.signals.output.this ? (m.signals.output.this*100).toFixed(0)+"%" : "—",  prev:m.signals.output.last ? (m.signals.output.last*100).toFixed(0)+"%" : "—", pct:m.signals.output.pct},
-    {label:"Sessions",     icon:"🔁", curr:String(m.signals.sessions.this),         prev:String(m.signals.sessions.last),         pct:m.signals.sessions.pct},
-    {label:"Consistency",  icon:"📅", curr:m.signals.consistency.this+"%",          prev:m.signals.consistency.last+"%",          pct:m.signals.consistency.pct},
+    {label:"PP/day avg",      icon:"⚡", curr:m.signals.pp.this,      prev:m.signals.pp.last,      pct:m.signals.pp.pct},
+    {label:"Avg output",      icon:"💪", curr:m.signals.output.this,   prev:m.signals.output.last,  pct:m.signals.output.pct},
+    {label:"Sessions/day",    icon:"🔁", curr:m.signals.sessions.this, prev:m.signals.sessions.last,pct:m.signals.sessions.pct},
+    {label:"Consistency",     icon:"📅", curr:m.signals.consistency.this,prev:m.signals.consistency.last,pct:m.signals.consistency.pct},
   ];
 
   return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,marginBottom:12,overflow:"hidden"}}>
