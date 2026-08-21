@@ -3194,13 +3194,17 @@ function computeAthleteDNA(member, logs){
   const aboveDays = sortedDates.filter(d => dayDone(d) && dayAboveTarget(d)).length;
   const intensity = doneDays > 0 ? aboveDays / doneDays : 0;
 
-  // 3. DURABILITY — longest streak as % of total days tracked (capped at 90 for scaling)
+  // 3. DURABILITY — longest streak as % of 90 days (minimum denominator)
+  // Using max(90, totalDaysSinceStart*0.4) prevents new members with short perfect histories
+  // from scoring 100% durability after just 20 days — which would unfairly outrank members
+  // with long histories and genuinely impressive streaks
   let longestStreak = 0, currentStreak = 0;
   for(const d of sortedDates){
     if(dayDone(d)){ currentStreak++; longestStreak = Math.max(longestStreak, currentStreak); }
     else if(daySkipped(d)) currentStreak = 0;
   }
-  const durability = Math.min(1, longestStreak / Math.min(totalDaysSinceStart, 90));
+  const durabilityDenominator = Math.max(90, totalDaysSinceStart * 0.4);
+  const durability = Math.min(1, longestStreak / durabilityDenominator);
 
   // 4. RESILIENCE — after each streak break, how fast was return? avg across all breaks
   let recoveryScores = [];
@@ -3224,11 +3228,12 @@ function computeAthleteDNA(member, logs){
     : 0.8; // default: good if never had a break
 
   // Weighted score 0-100
+  // Discipline weighted highest (40%) — consistency is the foundation of athletic character
   const score = Math.min(100, Math.round(
-    discipline  * 0.30 * 100 +
+    discipline  * 0.40 * 100 +
     intensity   * 0.25 * 100 +
-    durability  * 0.25 * 100 +
-    resilience  * 0.20 * 100
+    durability  * 0.20 * 100 +
+    resilience  * 0.15 * 100
   ));
 
   // Archetype
@@ -3244,10 +3249,10 @@ function computeAthleteDNA(member, logs){
 
   // Strongest and weakest signal
   const signals = [
-    {label:"Discipline",  value: Math.round(discipline*100),  weight:"30%"},
+    {label:"Discipline",  value: Math.round(discipline*100),  weight:"40%"},
     {label:"Intensity",   value: Math.round(intensity*100),   weight:"25%"},
-    {label:"Durability",  value: Math.round(durability*100),  weight:"25%"},
-    {label:"Resilience",  value: Math.round(resilience*100),  weight:"20%"},
+    {label:"Durability",  value: Math.round(durability*100),  weight:"20%"},
+    {label:"Resilience",  value: Math.round(resilience*100),  weight:"15%"},
   ];
   const sorted = [...signals].sort((a,b)=>b.value-a.value);
   const strongest = sorted[0];
