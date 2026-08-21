@@ -3130,6 +3130,296 @@ function WeeklyMomentumCard({member, logs}){
 }
 
 
+// ── Gem Vault ─────────────────────────────────────────────────────────────────
+// 8 collectible gems earned through specific real achievements.
+// Purely prestige — no PP value. Each gem stacks; count grows over time.
+const GEM_DEFS = [
+  {
+    id:"diamond", icon:"💎", name:"Diamond", color:"#00BCD4",
+    rarity:"Legendary",
+    desc:"Perfect month — every day logged, zero misses",
+  },
+  {
+    id:"platinum", icon:"🌟", name:"Platinum", color:"#9E9E9E",
+    rarity:"Epic",
+    desc:"30-day unbroken streak completed",
+  },
+  {
+    id:"gold", icon:"🪙", name:"Gold", color:"#F9A825",
+    rarity:"Rare",
+    desc:"7-day streak completed",
+  },
+  {
+    id:"ruby", icon:"🔴", name:"Ruby", color:"#E53935",
+    rarity:"Rare",
+    desc:"PB beaten by 20%+ over previous best",
+  },
+  {
+    id:"sapphire", icon:"💠", name:"Sapphire", color:"#1E88E5",
+    rarity:"Uncommon",
+    desc:"Above target 7 days in a row",
+  },
+  {
+    id:"silver", icon:"🥈", name:"Silver", color:"#78909C",
+    rarity:"Uncommon",
+    desc:"Any personal best set",
+  },
+  {
+    id:"pearl", icon:"🤍", name:"Pearl", color:"#EC407A",
+    rarity:"Uncommon",
+    desc:"Comeback — logged after a 3+ day miss",
+  },
+  {
+    id:"emerald", icon:"🟢", name:"Emerald", color:"#43A047",
+    rarity:"Common",
+    desc:"3 or more sessions in a single day",
+  },
+];
+
+function computeGemVault(member, logs){
+  const today = todayStr();
+  const acts = member.activities || [];
+  const sd = member.startDate || null;
+  if(acts.length === 0) return {};
+
+  // Collect all dates across all activities
+  const allDates = new Set();
+  for(const a of acts){
+    const al = getActivityLogs(logs, member.id, a.id);
+    for(const d of Object.keys(al)) if(d <= today && (!sd || d >= sd)) allDates.add(d);
+  }
+  const sortedDates = [...allDates].sort();
+  if(sortedDates.length === 0) return {};
+
+  // helpers
+  function dayDone(ds){
+    if(member.alternating && acts.length>1){
+      return acts.some(a=>{
+        const l=getActivityLogs(logs,member.id,a.id)[ds];
+        return l&&(l.status==="shielded"||(l.status!=="skipped"&&l.value>0));
+      });
+    }
+    return acts.some(a=>{
+      const l=getActivityLogs(logs,member.id,a.id)[ds];
+      return l&&l.status!=="skipped"&&l.value>0;
+    });
+  }
+  function daySkipped(ds){
+    return acts.some(a=>{
+      const l=getActivityLogs(logs,member.id,a.id)[ds];
+      return l&&l.status==="skipped";
+    });
+  }
+  function dayAboveTarget(ds){
+    return acts.some(a=>{
+      const l=getActivityLogs(logs,member.id,a.id)[ds];
+      if(!l||l.status==="skipped"||l.status==="shielded") return false;
+      return l.value>(l.target||a.target);
+    });
+  }
+  function sessionCount(ds){
+    let total=0;
+    for(const a of acts){
+      const l=getActivityLogs(logs,member.id,a.id)[ds];
+      if(l&&l.status!=="skipped"&&l.status!=="shielded"&&l.value>0){
+        total += l.sessions&&l.sessions.length>0 ? l.sessions.length : 1;
+      }
+    }
+    return total;
+  }
+
+  const counts = {diamond:0,platinum:0,gold:0,ruby:0,sapphire:0,silver:0,pearl:0,emerald:0};
+
+  // Track all-time bests per activity for PB detection
+  const actBests = {};
+  let streak=0, aboveStreak=0;
+  let prevDone=false, missStart=null;
+
+  // Month tracking for Diamond
+  const monthsSeen = {};
+
+  for(let i=0; i<sortedDates.length; i++){
+    const ds = sortedDates[i];
+    const done = dayDone(ds);
+    const skipped = daySkipped(ds);
+
+    // Track month for Diamond
+    const monthKey = ds.slice(0,7);
+    if(!monthsSeen[monthKey]) monthsSeen[monthKey] = {total:0, done:0, missed:0};
+    monthsSeen[monthKey].total++;
+    if(done) monthsSeen[monthKey].done++;
+    else if(skipped) monthsSeen[monthKey].missed++;
+
+    if(done){
+      // Streak tracking
+      streak++;
+      // Gold: every time streak hits multiple of 7
+      if(streak % 7 === 0) counts.gold++;
+      // Platinum: every time streak hits 30
+      if(streak === 30 || (streak > 30 && streak % 30 === 0)) counts.platinum++;
+
+      // Pearl: comeback after 3+ day miss
+      if(missStart !== null){
+        const gap = Math.round((new Date(ds+"T00:00:00")-new Date(missStart+"T00:00:00"))/86400000);
+        if(gap >= 3) counts.pearl++;
+        missStart = null;
+      }
+
+      // Above target streak
+      if(dayAboveTarget(ds)){
+        aboveStreak++;
+        if(aboveStreak === 7) counts.sapphire++;
+        else if(aboveStreak > 7 && aboveStreak % 7 === 0) counts.sapphire++;
+      } else {
+        aboveStreak = 0;
+      }
+
+      // Silver + Ruby: PB detection per activity
+      for(const a of acts){
+        const l = getActivityLogs(logs,member.id,a.id)[ds];
+        if(!l||l.status==="skipped"||l.status==="shielded"||!l.value) continue;
+        const sessionVals = l.sessions&&l.sessions.length>0 ? l.sessions : [l.value];
+        const maxVal = Math.max(...sessionVals);
+        const prev = actBests[a.id] || 0;
+        if(maxVal > prev && maxVal > (l.target||a.target)){
+          // Silver: any PB
+          counts.silver++;
+          // Ruby: PB beats previous by 20%+
+          if(prev > 0 && maxVal >= prev * 1.2) counts.ruby++;
+          actBests[a.id] = maxVal;
+        } else {
+          if(prev === 0) actBests[a.id] = maxVal;
+        }
+      }
+
+      // Emerald: 3+ sessions in a day
+      if(sessionCount(ds) >= 3) counts.emerald++;
+
+      prevDone = true;
+    } else {
+      if(skipped || (prevDone && ds < today)){
+        if(skipped && missStart === null) missStart = ds;
+        streak = 0;
+        aboveStreak = 0;
+      }
+      prevDone = false;
+    }
+  }
+
+  // Diamond: check completed past months (not current month) for perfection
+  const currentMonth = today.slice(0,7);
+  for(const [month, data] of Object.entries(monthsSeen)){
+    if(month === currentMonth) continue; // current month not complete yet
+    // A perfect month: every day in that month was logged (no skips, no misses)
+    // We check: done === total days in that month and missed === 0
+    const [y, m] = month.split('-').map(Number);
+    const daysInThatMonth = new Date(y, m, 0).getDate();
+    if(data.done === daysInThatMonth && data.missed === 0) counts.diamond++;
+  }
+
+  return counts;
+}
+
+function GemVaultCard({member, logs}){
+  const counts = computeGemVault(member, logs);
+  const total = Object.values(counts).reduce((s,v)=>s+v, 0);
+  const [expanded, setExpanded] = useState(false);
+
+  const rarityOrder = ["Legendary","Epic","Rare","Uncommon","Common"];
+  const byRarity = {};
+  for(const g of GEM_DEFS){
+    if(!byRarity[g.rarity]) byRarity[g.rarity] = [];
+    byRarity[g.rarity].push({...g, count: counts[g.id]||0});
+  }
+
+  // Top gems for collapsed preview (only ones earned)
+  const earned = GEM_DEFS.filter(g=>counts[g.id]>0).sort((a,b)=>{
+    const ro = rarityOrder;
+    return ro.indexOf(a.rarity) - ro.indexOf(b.rarity);
+  });
+
+  return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,marginBottom:12,overflow:"hidden"}}>
+    {/* Header */}
+    <div onClick={()=>setExpanded(e=>!e)} style={{padding:"14px 16px",cursor:"pointer",
+      background:"linear-gradient(135deg,#1a1a2e,#16213e)"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div>
+          <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.5)",letterSpacing:0.5,marginBottom:4}}>💎 GEM VAULT</div>
+          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+            {earned.length === 0
+              ? <span style={{fontSize:12,color:"rgba(255,255,255,0.4)"}}>No gems yet — start earning!</span>
+              : earned.slice(0,6).map(g=>(
+                <span key={g.id} style={{fontSize:18}}>{g.icon}
+                  {counts[g.id]>1&&<sup style={{fontSize:9,color:"rgba(255,255,255,0.7)",fontWeight:700}}>×{counts[g.id]}</sup>}
+                </span>
+              ))
+            }
+            {earned.length > 6 && <span style={{fontSize:11,color:"rgba(255,255,255,0.4)"}}>+{earned.length-6} more</span>}
+          </div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:20,fontWeight:900,color:"#F9A825"}}>{total}</div>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>total gems</div>
+          <span style={{color:"rgba(255,255,255,0.4)",fontSize:14}}>{expanded?"▾":"▸"}</span>
+        </div>
+      </div>
+    </div>
+
+    {expanded&&<div style={{padding:"16px"}}>
+      {/* Gem grid by rarity */}
+      {rarityOrder.map(rarity=>{
+        const gems = byRarity[rarity];
+        if(!gems) return null;
+        return <div key={rarity} style={{marginBottom:14}}>
+          <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>
+            {rarity==="Legendary"?"🌟":rarity==="Epic"?"🔵":rarity==="Rare"?"🟡":rarity==="Uncommon"?"⚪":"🟤"} {rarity.toUpperCase()}
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {gems.map(g=>{
+              const earned = g.count > 0;
+              return <div key={g.id} style={{
+                display:"flex",alignItems:"center",justifyContent:"space-between",
+                padding:"10px 12px",borderRadius:10,
+                background:earned?`${g.color}12`:C.bg,
+                border:`1px solid ${earned?g.color:C.border}`,
+                opacity:earned?1:0.5,
+              }}>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{fontSize:22,filter:earned?"none":"grayscale(100%)"}}>{g.icon}</span>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:700,color:earned?g.color:C.muted}}>{g.name}</div>
+                    <div style={{fontSize:10,color:C.muted}}>{g.desc}</div>
+                  </div>
+                </div>
+                <div style={{textAlign:"right",minWidth:40}}>
+                  {earned
+                    ? <div style={{fontSize:18,fontWeight:900,color:g.color}}>×{g.count}</div>
+                    : <div style={{fontSize:11,color:C.muted}}>—</div>
+                  }
+                </div>
+              </div>;
+            })}
+          </div>
+        </div>;
+      })}
+
+      {/* Legend footer */}
+      <div style={{marginTop:4,padding:"10px 12px",background:C.bg,borderRadius:10,
+        border:`1px solid ${C.border}`}}>
+        <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:6}}>HOW TO EARN</div>
+        <div style={{display:"flex",flexDirection:"column",gap:3}}>
+          {GEM_DEFS.map(g=>(
+            <div key={g.id} style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:12}}>{g.icon}</span>
+              <span style={{fontSize:10,color:C.muted}}><span style={{fontWeight:700,color:g.color}}>{g.name}:</span> {g.desc}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>}
+  </div>;
+}
+
 function ChaseCard({member, target, logs}){
   const today = todayStr();
   const s = computeChaseStats(member, target, logs);
@@ -3369,6 +3659,9 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
 
     {/* Weekly Momentum */}
     <WeeklyMomentumCard member={member} logs={logs}/>
+
+    {/* Gem Vault */}
+    <GemVaultCard member={member} logs={logs}/>
 
     {/* Egg-O-Meter */}
     {member.eggMeter&&<EggMeter member={member} logs={logs} onEggChange={onEggChange} onNewBadge={onNewBadge}/>}
