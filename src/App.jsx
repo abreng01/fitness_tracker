@@ -2910,6 +2910,223 @@ function computeChaseStats(member, target, logs){
   };
 }
 
+// ── Weekly Momentum ──────────────────────────────────────────────────────────
+// A weekly gauge (-100 to +100) measuring how this week compares to last week
+// across 4 signals: PP earned, average output vs target, session count, consistency.
+// Resets every Monday. Always dynamic — even peak performers have something to chase.
+function computeWeeklyMomentum(member, logs){
+  const today = todayStr();
+  const acts = member.activities || [];
+  if(acts.length === 0) return null;
+
+  // Get Monday of current week and last week
+  function getMondayOf(dateStr){
+    const d = new Date(dateStr+"T00:00:00");
+    const day = d.getDay(); // 0=Sun
+    const diff = day === 0 ? 6 : day - 1;
+    d.setDate(d.getDate() - diff);
+    return toLocalDateStr(d);
+  }
+  const thisMonday = getMondayOf(today);
+  const lastMondayDate = new Date(thisMonday+"T00:00:00");
+  lastMondayDate.setDate(lastMondayDate.getDate() - 7);
+  const lastMonday = toLocalDateStr(lastMondayDate);
+  const thisSunday = toLocalDateStr(new Date(new Date(thisMonday+"T00:00:00").getTime() + 6*86400000));
+  const lastSunday = toLocalDateStr(new Date(new Date(lastMonday+"T00:00:00").getTime() + 6*86400000));
+
+  // Get days in a week range
+  function getDaysInRange(from, to){
+    const days = [];
+    const d = new Date(from+"T00:00:00");
+    const end = new Date(to+"T00:00:00");
+    while(d <= end){
+      const ds = toLocalDateStr(d);
+      if(ds <= today) days.push(ds);
+      d.setDate(d.getDate()+1);
+    }
+    return days;
+  }
+  const thisWeekDays = getDaysInRange(thisMonday, thisSunday);
+  const lastWeekDays = getDaysInRange(lastMonday, lastSunday);
+
+  if(lastWeekDays.length === 0) return null; // not enough history
+
+  // Signal 1: PP earned
+  const ppData = computePowerPoints(member, logs);
+  function ppForDays(days){ return days.reduce((s,d)=>s+Math.max(0,ppData.dailyEarned[d]||0),0); }
+  const thisPP = ppForDays(thisWeekDays);
+  const lastPP = ppForDays(lastWeekDays);
+
+  // Signal 2: avg output as % of target
+  function avgOutputForDays(days){
+    const vals = [];
+    for(const d of days){
+      for(const a of acts){
+        const l = getActivityLogs(logs, member.id, a.id)[d];
+        if(l && l.status !== "skipped" && l.status !== "shielded" && l.value > 0){
+          vals.push(l.value / (l.target || a.target));
+        }
+      }
+    }
+    return vals.length > 0 ? vals.reduce((s,v)=>s+v,0)/vals.length : null;
+  }
+  const thisOutput = avgOutputForDays(thisWeekDays);
+  const lastOutput = avgOutputForDays(lastWeekDays);
+
+  // Signal 3: total sessions logged
+  function sessionCountForDays(days){
+    let total = 0;
+    for(const d of days){
+      for(const a of acts){
+        const l = getActivityLogs(logs, member.id, a.id)[d];
+        if(l && l.status !== "skipped" && l.status !== "shielded" && l.value > 0){
+          total += l.sessions ? l.sessions.length : 1;
+        }
+      }
+    }
+    return total;
+  }
+  const thisSessions = sessionCountForDays(thisWeekDays);
+  const lastSessions = sessionCountForDays(lastWeekDays);
+
+  // Signal 4: consistency (% of days with at least one activity logged)
+  function consistencyForDays(days){
+    if(days.length === 0) return 0;
+    let logged = 0;
+    for(const d of days){
+      const anyLogged = acts.some(a => {
+        const l = getActivityLogs(logs, member.id, a.id)[d];
+        return l && l.status !== "skipped" && (l.status === "shielded" || l.value > 0);
+      });
+      if(anyLogged) logged++;
+    }
+    return logged / days.length;
+  }
+  const thisConsistency = consistencyForDays(thisWeekDays);
+  const lastConsistency = consistencyForDays(lastWeekDays);
+
+  // Compute delta for each signal — normalized to -1..+1
+  function safeDelta(curr, prev){
+    if(prev === null || prev === 0) return curr > 0 ? 0.5 : 0;
+    return Math.max(-1, Math.min(1, (curr - prev) / prev));
+  }
+  const ppDelta        = safeDelta(thisPP, lastPP);
+  const outputDelta    = thisOutput!==null&&lastOutput!==null ? safeDelta(thisOutput, lastOutput) : 0;
+  const sessionsDelta  = safeDelta(thisSessions, lastSessions);
+  const consistDelta   = thisConsistency - lastConsistency; // already -1..+1
+
+  // Weighted momentum score: -100 to +100
+  const momentum = Math.round(
+    ppDelta       * 0.35 * 100 +
+    outputDelta   * 0.25 * 100 +
+    sessionsDelta * 0.20 * 100 +
+    consistDelta  * 0.20 * 100
+  );
+  const score = Math.max(-100, Math.min(100, momentum));
+
+  // Pct changes for display
+  function pctChange(curr, prev){
+    if(prev === null || prev === 0) return null;
+    return Math.round((curr - prev) / prev * 100);
+  }
+
+  return {
+    score,
+    signals: {
+      pp:          {this: thisPP,              last: lastPP,              pct: pctChange(thisPP, lastPP),             delta: ppDelta},
+      output:      {this: thisOutput,          last: lastOutput,          pct: thisOutput&&lastOutput ? pctChange(thisOutput, lastOutput) : null, delta: outputDelta},
+      sessions:    {this: thisSessions,        last: lastSessions,        pct: pctChange(thisSessions, lastSessions), delta: sessionsDelta},
+      consistency: {this: Math.round(thisConsistency*100), last: Math.round(lastConsistency*100), pct: Math.round((thisConsistency-lastConsistency)*100), delta: consistDelta},
+    },
+    thisWeek: thisMonday,
+    lastWeek: lastMonday,
+    daysLogged: thisWeekDays.length,
+  };
+}
+
+function WeeklyMomentumCard({member, logs}){
+  const m = computeWeeklyMomentum(member, logs);
+  const [expanded, setExpanded] = useState(false);
+  if(!m) return null;
+
+  const {score, signals} = m;
+  const isPositive = score > 0;
+  const isNeutral = score === 0;
+  const barColor = score >= 40 ? "#4CAF50" : score >= 10 ? "#8BC34A" : score >= -10 ? "#F9A825" : score >= -40 ? "#FF7043" : "#F44336";
+  const label = score >= 40 ? "Surging 🚀" : score >= 10 ? "Building ↑" : score >= -10 ? "Holding steady ⚖️" : score >= -40 ? "Dipping ↓" : "Needs a push ⚠️";
+
+  // Bar width: map -100..+100 to 0..100% with center at 50%
+  const barFill = Math.round(50 + score/2);
+  const barLeft = Math.min(50, barFill);
+  const barWidth = Math.abs(barFill - 50);
+
+  const signalRows = [
+    {label:"PP earned",    icon:"⚡", curr:m.signals.pp.this.toLocaleString(),      prev:m.signals.pp.last.toLocaleString(),      pct:m.signals.pp.pct},
+    {label:"Avg output",   icon:"💪", curr:m.signals.output.this ? (m.signals.output.this*100).toFixed(0)+"%" : "—",  prev:m.signals.output.last ? (m.signals.output.last*100).toFixed(0)+"%" : "—", pct:m.signals.output.pct},
+    {label:"Sessions",     icon:"🔁", curr:String(m.signals.sessions.this),         prev:String(m.signals.sessions.last),         pct:m.signals.sessions.pct},
+    {label:"Consistency",  icon:"📅", curr:m.signals.consistency.this+"%",          prev:m.signals.consistency.last+"%",          pct:m.signals.consistency.pct},
+  ];
+
+  return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,marginBottom:12,overflow:"hidden"}}>
+    <div onClick={()=>setExpanded(e=>!e)} style={{padding:"14px 16px",cursor:"pointer"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+        <div>
+          <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:3}}>📈 WEEKLY MOMENTUM</div>
+          <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+            <span style={{fontSize:26,fontWeight:900,color:barColor}}>{score > 0 ? "+" : ""}{score}</span>
+            <span style={{fontSize:12,fontWeight:600,color:barColor}}>{label}</span>
+          </div>
+        </div>
+        <span style={{color:C.muted,fontSize:14}}>{expanded?"▾":"▸"}</span>
+      </div>
+      {/* Momentum gauge — center bar */}
+      <div style={{position:"relative",height:8,borderRadius:99,background:C.border,overflow:"hidden"}}>
+        {/* Center line */}
+        <div style={{position:"absolute",left:"50%",top:0,width:1,height:"100%",background:C.muted,zIndex:1}}/>
+        {/* Fill */}
+        <div style={{
+          position:"absolute",top:0,height:"100%",
+          left:`${barLeft}%`,width:`${barWidth}%`,
+          background:barColor,borderRadius:99,transition:"all 0.5s ease",
+        }}/>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:3}}>
+        <span style={{fontSize:9,color:C.muted}}>← Last week</span>
+        <span style={{fontSize:9,color:C.muted}}>This week →</span>
+      </div>
+    </div>
+
+    {expanded&&<div style={{padding:"0 16px 14px",borderTop:`1px solid ${C.border}`}}>
+      <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10,marginTop:12}}>THIS WEEK vs LAST WEEK</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {signalRows.map(({label,icon,curr,prev,pct})=>{
+          const up = pct !== null && pct > 0;
+          const down = pct !== null && pct < 0;
+          return <div key={label} style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+            padding:"8px 10px",background:C.bg,borderRadius:8}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:14}}>{icon}</span>
+              <span style={{fontSize:12,fontWeight:600,color:C.text}}>{label}</span>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:11,color:C.muted}}>{prev}</span>
+              <span style={{fontSize:11,color:C.muted}}>→</span>
+              <span style={{fontSize:12,fontWeight:700,color:up?"#4CAF50":down?"#F44336":C.text}}>{curr}</span>
+              {pct !== null && <span style={{fontSize:10,fontWeight:700,
+                color:up?"#4CAF50":down?"#F44336":C.muted,
+                background:up?"rgba(76,175,80,0.1)":down?"rgba(244,67,54,0.1)":"transparent",
+                borderRadius:4,padding:"1px 4px"}}>
+                {up?"+":""}{pct}%
+              </span>}
+            </div>
+          </div>;
+        })}
+      </div>
+    </div>}
+  </div>;
+}
+
+
 function ChaseCard({member, target, logs}){
   const today = todayStr();
   const s = computeChaseStats(member, target, logs);
@@ -3146,6 +3363,9 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
         <div style={{height:"100%",width:`${Math.round(((ppData.total-ppLevel.pp)/(ppNext.pp-ppLevel.pp))*100)}%`,background:"linear-gradient(90deg,#FFD700,#FFA500)",transition:"width 0.5s"}}/>
       </div>}
     </div>
+
+    {/* Weekly Momentum */}
+    <WeeklyMomentumCard member={member} logs={logs}/>
 
     {/* Egg-O-Meter */}
     {member.eggMeter&&<EggMeter member={member} logs={logs} onEggChange={onEggChange} onNewBadge={onNewBadge}/>}
