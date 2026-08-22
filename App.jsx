@@ -81,6 +81,12 @@ function todayStr(){
   const d=new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
+// Timezone-safe date formatter — use this instead of d.toISOString().slice(0,10) for ANY date
+// arithmetic. toISOString() converts to UTC, which silently shifts the date backward by a day
+// for anyone in a timezone ahead of UTC (e.g. India, UTC+5:30) — this caused streak/PP miscalculations.
+function toLocalDateStr(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
 function isFuture(ds){return ds>todayStr();}
 function daysInMonth(y,m){return new Date(y,m+1,0).getDate();}
 function firstDayOfMonth(y,m){return new Date(y,m,1).getDay();}
@@ -104,12 +110,85 @@ function getActivityLogs(logs, memberId, activityId){
 }
 
 // ── Egg-O-Meter helpers (isolated from activity/badge/streak system) ─────────
+// ── Historical target resolution ──────────────────────────────────────────────
+// Returns the correct target for a given activity on a given date, using:
+//  1. The stamped target on the log entry itself (most accurate — set at save time)
+//  2. The targetHistory log (finds what target was active on that date)
+//  3. The current activity target (last resort, only correct if no changes ever made)
+function getHistoricalTarget(logEntry, activityId, currentTarget, logs, memberId, dateStr){
+  // First: use stamped target if present — always set for logs saved after we added stamping
+  if(logEntry&&logEntry.target) return logEntry.target;
+  // Second: look up targetHistory for what the target was on that date
+  if(logs&&memberId&&activityId&&dateStr){
+    const history = (logs[memberId]?.targetHistory?.[activityId])||[];
+    if(history.length>0){
+      const sorted=[...history].sort((a,b)=>a.date.localeCompare(b.date));
+      // Find the most recent change ON or BEFORE the queried date
+      let historicalTarget=null;
+      for(const h of sorted){
+        if(h.date<=dateStr) historicalTarget=h.target;
+      }
+      if(historicalTarget!==null) return historicalTarget;
+      // All history entries are AFTER this date — the date predates the first recorded change.
+      // Use prevTarget from the oldest entry (what the target WAS before it was changed)
+      if(sorted[0].prevTarget!=null) return sorted[0].prevTarget;
+    }
+  }
+  // Third: no history at all — current target has always been the target
+  return currentTarget;
+}
+
 function getEggLogs(logs, memberId){
   return (logs[memberId] && logs[memberId].eggs) || {};
 }
 function totalEggCount(logs, memberId){
   const eggs = getEggLogs(logs, memberId);
   return Object.values(eggs).reduce((sum,c)=>sum+(c||0), 0);
+}
+
+// ── General Knowledge (GK) — verbal quiz tracker, isolated, feeds into same PP pool ──
+// Parent asks questions verbally; tap the button once all answered correctly.
+function getGkData(logs, memberId){
+  return (logs[memberId] && logs[memberId].gk) || {dailyResults:{}, weekendResults:{}};
+}
+function getWeekKey(dateStr){
+  // Anchor to the Monday of the work-week this weekend follows, so Saturday
+  // and the very next Sunday both map to the SAME key (avoids double-awarding).
+  const d = new Date(dateStr+"T00:00:00");
+  const dow = d.getDay(); // 0=Sun,6=Sat
+  const daysSinceMonday = dow===0 ? 6 : dow-1;
+  const monday = new Date(d);
+  monday.setDate(d.getDate()-daysSinceMonday);
+  return toLocalDateStr(monday); // e.g. "2026-07-13" — Monday's date as the unique key
+}
+function computeGkBonus(logs, memberId){
+  const gk = getGkData(logs, memberId);
+  const dailyEntries = Object.values(gk.dailyResults||{}).filter(v=>v?.points>0);
+  const weekendEntries = Object.values(gk.weekendResults||{}).filter(w=>w?.points>0);
+  const dailyBonus = dailyEntries.reduce((s,v)=>s+v.points,0);
+  const weekendBonus = weekendEntries.reduce((s,w)=>s+w.points,0);
+  return {total:dailyBonus+weekendBonus, dailyBonus, weekendBonus, dailyCount:dailyEntries.length, weekendCount:weekendEntries.length};
+}
+
+// ── Bravery Points — parent-awarded, free-form reason + points, feeds same PP pool ──
+function getBraveryLog(logs, memberId){
+  return (logs[memberId] && logs[memberId].bravery) || [];
+}
+function getIllnessLog(logs, memberId){
+  return (logs[memberId] && logs[memberId].illness) || {};
+}
+function getOlympiadLog(logs, memberId){
+  return (logs[memberId] && logs[memberId].olympiad) || [];
+}
+function computeBraveryBonus(logs, memberId){
+  const entries = getBraveryLog(logs, memberId);
+  const total = entries.reduce((s,e)=>s+(e.points||0),0);
+  return {total, count:entries.length};
+}
+function computeOlympiadBonus(logs, memberId){
+  const entries = getOlympiadLog(logs, memberId);
+  const total = entries.reduce((s,e)=>s+(e.points||0),0);
+  return {total, count:entries.length};
 }
 
 // ── Streak ────────────────────────────────────────────────────────────────────
@@ -135,12 +214,13 @@ function shieldsUsed(logs, memberId, activities){
   const today=todayStr();
   const ym=today.slice(0,7); // YYYY-MM
   let used=0;
-  const counted=new Set(); // count per date not per activity
+  const counted=new Set(); // count per (date, activityId) — each shielded activity consumes its own shield
   for(const a of(activities||[])){
     const al=getActivityLogs(logs,memberId,a.id);
     for(const[d,l]of Object.entries(al)){
-      if(d.startsWith(ym)&&l.status==="shielded"&&!counted.has(d)){
-        counted.add(d);used++;
+      const key=`${d}__${a.id}`;
+      if(d.startsWith(ym)&&l.status==="shielded"&&!counted.has(key)){
+        counted.add(key);used++;
       }
     }
   }
@@ -152,7 +232,10 @@ function allTimeBest(al){
   let best=0;
   const today=todayStr();
   for(const[d,l]of Object.entries(al)){
-    if(d<=today&&l.status!=="skipped"&&l.value>best) best=l.value;
+    if(d<=today&&l.status!=="skipped"){
+      const sessionVals = l.sessions&&l.sessions.length>0 ? l.sessions : [l.value];
+      for(const v of sessionVals) if(v>best) best=v;
+    }
   }
   return best;
 }
@@ -404,16 +487,46 @@ const PP_LEVELS = [
   {level:18, pp:36000,  title:"Mythic",       icon:"🔱"},
   {level:19, pp:43000,  title:"Paragon",      icon:"💠"},
   {level:20, pp:51500,  title:"Master",       icon:"💎"},
-  {level:21, pp:61500,  title:"Elite",        icon:"👑"},
-  {level:22, pp:73500,  title:"Ascendant",    icon:"✨"},
-  {level:23, pp:88000,  title:"Titan",        icon:"🌋"},
-  {level:24, pp:105000, title:"Warlord",      icon:"🔥"},
-  {level:25, pp:125000, title:"Legendary",    icon:"🌠"},
-  {level:26, pp:150000, title:"Demigod",      icon:"⚡👑"},
-  {level:27, pp:180000, title:"Overlord",     icon:"🔱👑"},
-  {level:28, pp:215000, title:"Eternal",      icon:"💫"},
-  {level:29, pp:255000, title:"Transcendent", icon:"🌌✨"},
-  {level:30, pp:300000, title:"Immortal",     icon:"🌌"},
+  {level:21, pp:66500,  title:"Elite",        icon:"👑"},
+  {level:22, pp:81500,  title:"Ascendant",    icon:"✨"},
+  {level:23, pp:96500,  title:"Titan",        icon:"🌋"},
+  {level:24, pp:111500, title:"Warlord",      icon:"🔥"},
+  {level:25, pp:126500, title:"Legendary",    icon:"🌠"},
+  {level:26, pp:141500, title:"Demigod",      icon:"⚡👑"},
+  {level:27, pp:156500, title:"Overlord",     icon:"🔱👑"},
+  {level:28, pp:171500, title:"Eternal",      icon:"💫"},
+  {level:29, pp:186500, title:"Transcendent", icon:"🌌✨"},
+  {level:30, pp:201500, title:"Celestial",    icon:"🌙"},
+  {level:31, pp:221500, title:"Astral",       icon:"⭐"},
+  {level:32, pp:241500, title:"Cosmic",       icon:"🌌"},
+  {level:33, pp:261500, title:"Nebula",       icon:"🌠"},
+  {level:34, pp:281500, title:"Galactic",     icon:"🪐"},
+  {level:35, pp:301500, title:"Universal",    icon:"🌐"},
+  {level:36, pp:321500, title:"Omnipotent",   icon:"🔮"},
+  {level:37, pp:341500, title:"Absolute",     icon:"💥"},
+  {level:38, pp:361500, title:"Supreme",      icon:"🏵️"},
+  {level:39, pp:381500, title:"Peerless",     icon:"🥇"},
+  {level:40, pp:401500, title:"Ultimate",     icon:"🌌"},
+  {level:41, pp:426500, title:"Sovereign",    icon:"👑"},
+  {level:42, pp:451500, title:"Zenith",       icon:"🌅"},
+  {level:43, pp:476500, title:"Radiant",      icon:"🔆"},
+  {level:44, pp:501500, title:"Luminous",     icon:"💡"},
+  {level:45, pp:526500, title:"Paramount",    icon:"🏔️"},
+  {level:46, pp:551500, title:"Empyrean",     icon:"🌌🔥"},
+  {level:47, pp:576500, title:"Divine",       icon:"🕊️"},
+  {level:48, pp:601500, title:"Colossal",     icon:"🗿"},
+  {level:49, pp:626500, title:"Everlasting",  icon:"⏳"},
+  {level:50, pp:651500, title:"Boundless",    icon:"🌊"},
+  {level:51, pp:681500, title:"Primordial",   icon:"🌋"},
+  {level:52, pp:711500, title:"Genesis",      icon:"🌱"},
+  {level:53, pp:741500, title:"Apex",         icon:"🏔️👑"},
+  {level:54, pp:771500, title:"Unbound",     icon:"🔓"},
+  {level:55, pp:800000, title:"Ethereal",    icon:"🌫️"},
+  {level:56, pp:840000, title:"Exalted",     icon:"⚜️"},
+  {level:57, pp:880000, title:"Resplendent", icon:"🎇"},
+  {level:58, pp:920000, title:"Majestic",    icon:"🦅"},
+  {level:59, pp:960000, title:"Infinite",    icon:"♾️"},
+  {level:60, pp:1000000,title:"Immortal",    icon:"🌌👑"},
 ];
 
 function getLevel(pp){
@@ -467,21 +580,53 @@ function computePowerPoints(member, logs){
   const acts = member.activities || [];
   const sd = member.startDate || null;
 
-  // Collect all days across all activities
+  // Collect all days across all activities AND egg logs
   const allDates = new Set();
   for(const a of acts){
     const al = getActivityLogs(logs, member.id, a.id);
     for(const d of Object.keys(al)) if(d <= today && (!sd || d >= sd)) allDates.add(d);
   }
+  // Also include egg log dates so level crossings driven by eggs are correctly dated
+  const eggLogDates = getEggLogs(logs, member.id);
+  for(const d of Object.keys(eggLogDates)) if(d <= today && (!sd || d >= sd)) allDates.add(d);
+  // Also include GK (verbal quiz) dates for the same reason
+  const gkData = getGkData(logs, member.id);
+  const gkDailyByDate = gkData.dailyResults || {};
+  for(const d of Object.keys(gkDailyByDate)) if(gkDailyByDate[d]?.points>0 && d <= today && (!sd || d >= sd)) allDates.add(d);
+  // GK weekend review completions carry a completion date
+  const gkWeekendByDate = {}; // dateStr -> points earned that weekend review
+  for(const w of Object.values(gkData.weekendResults||{})){
+    if(w.date && w.date <= today && (!sd || w.date >= sd)){
+      allDates.add(w.date);
+      gkWeekendByDate[w.date] = w.points||0;
+    }
+  }
+  // Bravery Points — multiple awards can land on the same date, so aggregate per date first
+  const braveryByDate = {}; // dateStr -> total bravery points that date
+  for(const entry of getBraveryLog(logs, member.id)){
+    if(entry.date && entry.date <= today && (!sd || entry.date >= sd) && entry.points>0){
+      allDates.add(entry.date);
+      braveryByDate[entry.date] = (braveryByDate[entry.date]||0) + entry.points;
+    }
+  }
+  // Olympiad Points — same pattern as Bravery
+  const olympiadByDate = {};
+  for(const entry of getOlympiadLog(logs, member.id)){
+    if(entry.date && entry.date <= today && (!sd || entry.date >= sd) && entry.points>0){
+      allDates.add(entry.date);
+      olympiadByDate[entry.date] = (olympiadByDate[entry.date]||0) + entry.points;
+    }
+  }
   const sortedDates = [...allDates].sort();
 
   let totalPP = 100; // base starting points
-  let breakdown = {atTarget:0, aboveTarget:0, belowTarget:0, pb:0, shielded:0, skipped:0, streakBonus:0, streakBreak:0, mysteryDays:0, eggBonus:0};
+  let breakdown = {atTarget:0, aboveTarget:0, belowTarget:0, pb:0, shielded:0, skipped:0, streakBonus:0, streakBreak:0, mysteryDays:0, eggBonus:0, gkBonus:0, braveryBonus:0, olympiadBonus:0, extraSessionBonus:0, distanceBonus:0};
   let prevStreak = 0;
   let levelHistory = []; // [{level, title, icon, date}]
   let lastLevelSeen = 1;
   let dailyEarned = {}; // dateStr -> net PP change that day (for accurate weekPP/pace)
   let dailyTags = {}; // dateStr -> array of tag strings (pb/above/at/below/shielded/skipped/mystery)
+  let dailyBreakdown = {}; // dateStr -> array of per-activity detail objects, for the detailed day view
 
   // Track all-time best per activity for PB detection
   const actBests = {};
@@ -494,7 +639,7 @@ function computePowerPoints(member, logs){
     const d = new Date(dateStr + "T00:00:00");
     const checkD = new Date(d);
     while(true){
-      const k = checkD.toISOString().slice(0,10);
+      const k = toLocalDateStr(checkD);
       if(k > dateStr) { checkD.setDate(checkD.getDate()-1); continue; }
       let anyLogged = false;
       if(member.alternating && acts.length > 1){
@@ -516,11 +661,14 @@ function computePowerPoints(member, logs){
 
     const multiplier = getStreakMultiplier(streakOnDay);
 
-    // Streak break penalty
+    // Streak break penalty — only for days that are genuinely over (past days), or where the
+    // person explicitly tapped Skip. A day that just hasn't been logged yet (today, still pending)
+    // should never be treated as a confirmed miss — that's not what happened, it just hasn't happened yet.
     if(prevStreak >= 7){
       const allSkipped = acts.every(a => {
         const l = getActivityLogs(logs, member.id, a.id)[dateStr];
-        return !l || l.status === "skipped";
+        if(!l) return dateStr < today;
+        return l.status === "skipped";
       });
       if(allSkipped && streakOnDay === 0){
         totalPP = Math.max(0, totalPP - 100);
@@ -531,47 +679,154 @@ function computePowerPoints(member, logs){
 
     // For alternating members — day is one unit
     if(member.alternating && acts.length > 1){
-      const anyShielded = acts.some(a => {
+      const shieldedActs = acts.filter(a => {
         const l = getActivityLogs(logs, member.id, a.id)[dateStr];
         return l && l.status === "shielded";
-      });
-      const anySkipped = acts.every(a => {
-        const l = getActivityLogs(logs, member.id, a.id)[dateStr];
-        return !l || l.status === "skipped";
       });
       const doneActs = acts.filter(a => {
         const l = getActivityLogs(logs, member.id, a.id)[dateStr];
         return l && l.status !== "skipped" && l.status !== "shielded" && l.value > 0;
       });
+      const hasExplicitSkip = acts.some(a => {
+        const l = getActivityLogs(logs, member.id, a.id)[dateStr];
+        return l && l.status === "skipped";
+      });
+      // Same principle as above: don't treat "nothing logged yet today" as a miss unless the day
+      // is actually over, or the person explicitly marked it skipped.
+      const nothingHappened = shieldedActs.length===0 && doneActs.length===0 && (dateStr < today || hasExplicitSkip);
 
-      if(anyShielded){ totalPP += 25; breakdown.shielded += 25; dailyTags[dateStr]=["shielded"]; }
-      else if(anySkipped){ totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; dailyTags[dateStr]=["skipped"]; }
-      else if(doneActs.length > 0){
-        // Use best activity for scoring
-        let bestPts = 0;
-        for(const a of doneActs){
-          const l = getActivityLogs(logs, member.id, a.id)[dateStr];
-          const effectiveTarget = l.target || a.target;
-          const isPB = l.value > actBests[a.id] && l.value > effectiveTarget;
-          if(isPB) actBests[a.id] = l.value;
-          const basePts = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
-          if(basePts > bestPts) bestPts = basePts;
-        }
-        const mysteryMult = isMysteryBonusDay(member.id, dateStr) ? 2 : 1;
-        const earned = Math.round(bestPts * multiplier * mysteryMult);
-        const bonus = earned - bestPts;
-        totalPP += earned;
-        if(bestPts === 250) breakdown.pb += earned;
-        else if(bestPts === 200) breakdown.aboveTarget += earned;
-        else if(bestPts === 100) breakdown.atTarget += earned;
-        else breakdown.belowTarget += earned;
-        breakdown.streakBonus += bonus;
+      if(nothingHappened){
+        totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; dailyTags[dateStr]=["skipped"];
+      } else {
         const tags=[];
-        if(bestPts===250) tags.push("pb");
-        else if(bestPts===200) tags.push("above");
-        else if(bestPts===100) tags.push("at");
-        else tags.push("below");
-        if(mysteryMult===2) tags.push("mystery");
+        let dayEarned=0;
+        // Shielded activities each contribute their own flat bonus — doesn't wipe out other activities done that day
+        for(const a of shieldedActs){
+          dayEarned += 25;
+          breakdown.shielded += 25;
+          tags.push("shielded");
+          if(!dailyBreakdown[dateStr]) dailyBreakdown[dateStr]=[];
+          dailyBreakdown[dateStr].push({
+            activityName: a.name, activityUnit: a.unit, shielded: true, total: 25,
+          });
+        }
+        // Done activities score via Stack Points (sum all) or best-of, same as before
+        if(doneActs.length > 0 && member.stackPoints){
+          for(const a of doneActs){
+            const l = getActivityLogs(logs, member.id, a.id)[dateStr];
+            const effectiveTarget = getHistoricalTarget(l, a.id, a.target, logs, member.id, dateStr);
+            const sessionVals = l.sessions&&l.sessions.length>0 ? l.sessions : [l.value];
+            const maxSession = Math.max(...sessionVals);
+            const isPB = maxSession > actBests[a.id] && maxSession > effectiveTarget;
+            if(isPB) actBests[a.id] = maxSession;
+            // First session scores full tier × all multipliers (same as before)
+            const rawTier = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
+            const basePts = rawTier * (a.ppMultiplier ?? 1);
+            const distancePts = Math.max(0, l.value - effectiveTarget) * (a.distanceBonusRate ?? 0);
+            const mysteryMult = isMysteryBonusDay(member.id, dateStr) ? 2 : 1;
+            const tierEarned = Math.round(basePts * multiplier * mysteryMult);
+            const distanceEarned = Math.round(distancePts * multiplier * mysteryMult);
+            // Extra sessions: each scores full tier PP based on its own reps vs target, WITH streak and mystery
+            let extraPts = 0;
+            if(sessionVals.length > 1){
+              for(let si=1; si<sessionVals.length; si++){
+                const sv = sessionVals[si];
+                const sTier = sv > effectiveTarget ? 200 : sv >= effectiveTarget ? 100 : 50;
+                extraPts += sTier * (a.ppMultiplier ?? 1);
+              }
+            }
+            const extraEarned = Math.round(extraPts * multiplier * mysteryMult);
+            dayEarned += tierEarned + extraEarned + distanceEarned;
+            if(rawTier === 250) breakdown.pb += tierEarned;
+            else if(rawTier === 200) breakdown.aboveTarget += tierEarned;
+            else if(rawTier === 100) breakdown.atTarget += tierEarned;
+            else breakdown.belowTarget += tierEarned;
+            if(extraEarned>0) breakdown.extraSessionBonus += extraEarned;
+            if(distanceEarned>0) breakdown.distanceBonus += distanceEarned;
+            breakdown.streakBonus += (tierEarned-basePts)+(distanceEarned-distancePts);
+            if(!dailyBreakdown[dateStr]) dailyBreakdown[dateStr]=[];
+            dailyBreakdown[dateStr].push({
+              activityName: a.name, activityUnit: a.unit, value: l.value, target: effectiveTarget,
+              tierLabel: rawTier===250?"pb":rawTier===200?"above":rawTier===100?"at":"below",
+              rawTier, ppMultiplier: a.ppMultiplier ?? 1, basePts,
+              streakMultiplier: multiplier, mysteryMultiplier: mysteryMult,
+              tierEarned, extraSessions: sessionVals.length>1?sessionVals.length:0, extraEarned,
+              distanceEarned, total: tierEarned+extraEarned+distanceEarned,
+              sessions: sessionVals.length>1?sessionVals:[],
+            });
+            if(rawTier===250) tags.push("pb");
+            else if(rawTier===200) tags.push("above");
+            else if(rawTier===100) tags.push("at");
+            else tags.push("below");
+            if(extraEarned>0) tags.push("extraSession");
+            if(mysteryMult===2) tags.push("mystery");
+          }
+        } else if(doneActs.length > 0){
+          // Use best activity for scoring
+          let bestPts = 0;
+          let bestRawTier = 0;
+          let bestSessionCount = 1;
+          let bestDistancePts = 0;
+          let bestActivity = null;
+          for(const a of doneActs){
+            const l = getActivityLogs(logs, member.id, a.id)[dateStr];
+            const effectiveTarget = getHistoricalTarget(l, a.id, a.target, logs, member.id, dateStr);
+            const sessionVals = l.sessions&&l.sessions.length>0 ? l.sessions : [l.value];
+            const maxSession = Math.max(...sessionVals);
+            const isPB = maxSession > actBests[a.id] && maxSession > effectiveTarget;
+            if(isPB) actBests[a.id] = maxSession;
+            const rawTier = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
+            const basePts = rawTier * (a.ppMultiplier ?? 1);
+            if(basePts > bestPts){
+              bestPts = basePts; bestRawTier = rawTier; bestSessionCount = sessionVals.length;
+              bestDistancePts = Math.max(0, l.value - effectiveTarget) * (a.distanceBonusRate ?? 0);
+              bestActivity = {a, l, effectiveTarget};
+            }
+          }
+          const mysteryMult = isMysteryBonusDay(member.id, dateStr) ? 2 : 1;
+          const tierEarned = Math.round(bestPts * multiplier * mysteryMult);
+          // Extra sessions on best activity: each scores full tier base PP (no multipliers)
+          let extraPts = 0;
+          if(bestActivity && bestSessionCount > 1){
+            const bestSessions = bestActivity.l.sessions||[];
+            for(let si=1; si<bestSessions.length; si++){
+              const sv = bestSessions[si];
+              const sTier = sv > bestActivity.effectiveTarget ? 200 : sv >= bestActivity.effectiveTarget ? 100 : 50;
+              extraPts += sTier * (bestActivity.a.ppMultiplier ?? 1);
+            }
+          }
+          const extraEarned = Math.round(extraPts * multiplier * mysteryMult);
+          const distanceEarned = Math.round(bestDistancePts * multiplier * mysteryMult);
+          dayEarned += tierEarned + extraEarned + distanceEarned;
+          if(bestActivity){
+            if(!dailyBreakdown[dateStr]) dailyBreakdown[dateStr]=[];
+            dailyBreakdown[dateStr].push({
+              activityName: bestActivity.a.name, activityUnit: bestActivity.a.unit,
+              value: bestActivity.l.value, target: bestActivity.effectiveTarget,
+              tierLabel: bestRawTier===250?"pb":bestRawTier===200?"above":bestRawTier===100?"at":"below",
+              rawTier: bestRawTier, ppMultiplier: bestActivity.a.ppMultiplier ?? 1, basePts: bestPts,
+              streakMultiplier: multiplier, mysteryMultiplier: mysteryMult,
+              tierEarned, extraSessions: bestSessionCount>1?bestSessionCount:0, extraEarned,
+              distanceEarned, total: tierEarned+extraEarned+distanceEarned,
+              sessions: bestSessionCount>1?(bestActivity.l.sessions||[]):[],
+              note: doneActs.length>1 ? "Best of " + doneActs.length + " activities today" : null,
+            });
+          }
+          if(bestRawTier === 250) breakdown.pb += tierEarned;
+          else if(bestRawTier === 200) breakdown.aboveTarget += tierEarned;
+          else if(bestRawTier === 100) breakdown.atTarget += tierEarned;
+          else breakdown.belowTarget += tierEarned;
+          if(extraEarned>0) breakdown.extraSessionBonus += extraEarned;
+          if(distanceEarned>0) breakdown.distanceBonus += distanceEarned;
+          breakdown.streakBonus += (tierEarned-bestPts) + (extraEarned-extraPts) + (distanceEarned-bestDistancePts);
+          if(bestRawTier===250) tags.push("pb");
+          else if(bestRawTier===200) tags.push("above");
+          else if(bestRawTier===100) tags.push("at");
+          else tags.push("below");
+          if(extraEarned>0) tags.push("extraSession");
+          if(mysteryMult===2) tags.push("mystery");
+        }
+        totalPP += dayEarned;
         dailyTags[dateStr]=tags;
       }
     } else {
@@ -580,34 +835,112 @@ function computePowerPoints(member, logs){
         const al = getActivityLogs(logs, member.id, a.id);
         const l = al[dateStr];
         if(!l) continue;
-        const effectiveTarget = l.target || a.target;
-        if(l.status === "shielded"){ totalPP += 25; breakdown.shielded += 25; dailyTags[dateStr]=["shielded"]; }
+        const effectiveTarget = getHistoricalTarget(l, a.id, a.target, logs, member.id, dateStr);
+        if(l.status === "shielded"){
+          totalPP += 25; breakdown.shielded += 25; dailyTags[dateStr]=["shielded"];
+          if(!dailyBreakdown[dateStr]) dailyBreakdown[dateStr]=[];
+          dailyBreakdown[dateStr].push({activityName: a.name, activityUnit: a.unit, shielded: true, total: 25});
+        }
         else if(l.status === "skipped"){ totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; dailyTags[dateStr]=["skipped"]; }
         else if(l.value > 0){
-          const isPB = l.value > actBests[a.id] && l.value > effectiveTarget;
-          if(isPB) actBests[a.id] = l.value;
-          const basePts = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
+          const sessionVals = l.sessions&&l.sessions.length>0 ? l.sessions : [l.value];
+          const maxSession = Math.max(...sessionVals);
+          const isPB = maxSession > actBests[a.id] && maxSession > effectiveTarget;
+          if(isPB) actBests[a.id] = maxSession;
+          const rawTier = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
+          const basePts = rawTier * (a.ppMultiplier ?? 1);
+          // Extra sessions: each scores full tier base PP (no multipliers) based on its own reps vs target
+          let extraPts = 0;
+          if(sessionVals.length > 1){
+            for(let si=1; si<sessionVals.length; si++){
+              const sv = sessionVals[si];
+              const sTier = sv > effectiveTarget ? 200 : sv >= effectiveTarget ? 100 : 50;
+              extraPts += sTier * (a.ppMultiplier ?? 1);
+            }
+          }
+          const distancePts = Math.max(0, l.value - effectiveTarget) * (a.distanceBonusRate ?? 0);
           const mysteryMult = isMysteryBonusDay(member.id, dateStr) ? 2 : 1;
-          const earned = Math.round(basePts * multiplier * mysteryMult);
-          const bonus = earned - basePts;
+          const tierEarned = Math.round(basePts * multiplier * mysteryMult);
+          const extraEarned = Math.round(extraPts * multiplier * mysteryMult);
+          const distanceEarned = Math.round(distancePts * multiplier * mysteryMult);
+          const earned = tierEarned + extraEarned + distanceEarned;
+          const bonus = (tierEarned-basePts) + (extraEarned-extraPts) + (distanceEarned-distancePts);
           totalPP += earned;
-          if(basePts === 250) breakdown.pb += earned;
-          else if(basePts === 200) breakdown.aboveTarget += earned;
-          else if(basePts === 100) breakdown.atTarget += earned;
-          else breakdown.belowTarget += earned;
+          if(rawTier === 250) breakdown.pb += tierEarned;
+          else if(rawTier === 200) breakdown.aboveTarget += tierEarned;
+          else if(rawTier === 100) breakdown.atTarget += tierEarned;
+          else breakdown.belowTarget += tierEarned;
+          if(extraEarned>0) breakdown.extraSessionBonus += extraEarned;
+          if(distanceEarned>0) breakdown.distanceBonus += distanceEarned;
           breakdown.streakBonus += bonus;
+          if(!dailyBreakdown[dateStr]) dailyBreakdown[dateStr]=[];
+          dailyBreakdown[dateStr].push({
+            activityName: a.name, activityUnit: a.unit, value: l.value, target: effectiveTarget,
+            tierLabel: rawTier===250?"pb":rawTier===200?"above":rawTier===100?"at":"below",
+            rawTier, ppMultiplier: a.ppMultiplier ?? 1, basePts,
+            streakMultiplier: multiplier, mysteryMultiplier: mysteryMult,
+            tierEarned, extraSessions: sessionVals.length>1?sessionVals.length:0, extraEarned,
+            distanceEarned, total: earned,
+            sessions: sessionVals.length>1?sessionVals:[],
+          });
           const tags=[];
-          if(basePts===250) tags.push("pb");
-          else if(basePts===200) tags.push("above");
-          else if(basePts===100) tags.push("at");
+          if(rawTier===250) tags.push("pb");
+          else if(rawTier===200) tags.push("above");
+          else if(rawTier===100) tags.push("at");
           else tags.push("below");
+          if(extraEarned>0) tags.push("extraSession");
           if(mysteryMult===2) tags.push("mystery");
           dailyTags[dateStr]=tags;
         }
       }
     }
     totalPP = Math.max(0, totalPP);
-    dailyEarned[dateStr] = totalPP - ppBeforeDay; // net change this day, multiplier already applied
+
+    // Add egg PP for this date inside the loop so levelHistory sees it correctly
+    const eggsThisDay = eggLogDates[dateStr] || 0;
+    if(eggsThisDay > 0){
+      const eggPP = eggsThisDay * 1000;
+      totalPP += eggPP;
+      breakdown.eggBonus += eggPP;
+      if(!dailyTags[dateStr]) dailyTags[dateStr]=[];
+      dailyTags[dateStr].push("egg");
+    }
+
+    // Add GK (verbal quiz) PP for this date inside the loop, same pattern as eggs
+    const gkDailyPts = gkDailyByDate[dateStr]?.points||0;
+    if(gkDailyPts>0){
+      totalPP += gkDailyPts;
+      breakdown.gkBonus += gkDailyPts;
+      if(!dailyTags[dateStr]) dailyTags[dateStr]=[];
+      dailyTags[dateStr].push("gk");
+    }
+    const gkWeekendPts = gkWeekendByDate[dateStr]||0;
+    if(gkWeekendPts>0){
+      totalPP += gkWeekendPts;
+      breakdown.gkBonus += gkWeekendPts;
+      if(!dailyTags[dateStr]) dailyTags[dateStr]=[];
+      dailyTags[dateStr].push("gkWeekend");
+    }
+
+    // Add Bravery Points for this date inside the loop, same pattern as eggs/GK
+    const braveryPts = braveryByDate[dateStr]||0;
+    if(braveryPts>0){
+      totalPP += braveryPts;
+      breakdown.braveryBonus += braveryPts;
+      if(!dailyTags[dateStr]) dailyTags[dateStr]=[];
+      dailyTags[dateStr].push("bravery");
+    }
+
+    // Olympiad Points — same pattern as Bravery
+    const olympiadPts = olympiadByDate[dateStr]||0;
+    if(olympiadPts>0){
+      totalPP += olympiadPts;
+      breakdown.olympiadBonus += olympiadPts;
+      if(!dailyTags[dateStr]) dailyTags[dateStr]=[];
+      dailyTags[dateStr].push("olympiad");
+    }
+
+    dailyEarned[dateStr] = totalPP - ppBeforeDay; // net change this day, multiplier + eggs + GK + Bravery included
 
     // Track level-up moments
     const dayLevel = getLevel(totalPP);
@@ -617,36 +950,19 @@ function computePowerPoints(member, logs){
     }
   }
 
-  // Egg-O-Meter bonus — flat +1000 PP per egg, added directly into the same PP pool
-  const eggLogs = getEggLogs(logs, member.id);
-  let eggBonusTotal = 0;
-  for(const [d, count] of Object.entries(eggLogs)){
-    if(d <= today && (!sd || d >= sd)){
-      const amt = (count||0) * 1000;
-      eggBonusTotal += amt;
-      dailyEarned[d] = (dailyEarned[d]||0) + amt;
-      if(!dailyTags[d]) dailyTags[d]=[];
-      dailyTags[d].push("egg");
-    }
-  }
-  totalPP += eggBonusTotal;
-  breakdown.eggBonus = eggBonusTotal;
+  // Egg-O-Meter bonus — already processed inside loop above, no double counting needed
 
-  // This week's PP — sum of actual net daily earnings (multiplier + mystery bonus already applied)
+  // This week's PP — sum of actual net daily earnings (multiplier + mystery bonus + eggs already applied)
   const weekStart = new Date(today);
   weekStart.setDate(weekStart.getDate() - 6);
-  const weekStartStr = weekStart.toISOString().slice(0,10);
+  const weekStartStr = toLocalDateStr(weekStart);
   let weekPP = 0;
   for(const dateStr of sortedDates){
     if(dateStr < weekStartStr) continue;
-    weekPP += Math.max(0, dailyEarned[dateStr] || 0); // only count positive earnings for pace, not penalties
-  }
-  // Include recent egg bonuses in the week's pace too
-  for(const [d, count] of Object.entries(eggLogs)){
-    if(d >= weekStartStr && d <= today) weekPP += (count||0) * 1000;
+    weekPP += Math.max(0, dailyEarned[dateStr] || 0);
   }
 
-  return { total: Math.round(totalPP), breakdown, weekPP, levelHistory, dailyEarned, dailyTags };
+  return { total: Math.round(totalPP), breakdown, weekPP, levelHistory, dailyEarned, dailyTags, dailyBreakdown };
 }
 
 // ── PP Pace Projection ────────────────────────────────────────────────────────
@@ -744,8 +1060,49 @@ const BADGES=[
   {id:"walk_200",  e:"🚶",label:"200km",             desc:"200 km total distance",           tier:"gold",  check:s=>s.unit==="km"&&s.totalVol>=200},
   {id:"walk_250",  e:"🏆",label:"Long Hauler",       desc:"250 km total distance",           tier:"gold",  check:s=>s.unit==="km"&&s.totalVol>=250},
   {id:"walk_500",  e:"🚀",label:"500 Club",          desc:"500 km total distance",           tier:"gold",  check:s=>s.unit==="km"&&s.totalVol>=500},
+  // ── 🚶 NEW: extended km milestones + single-session PBs
+  {id:"walk_750",  e:"🌄",label:"750km",             desc:"750 km total distance",           tier:"gold",  check:s=>s.unit==="km"&&s.totalVol>=750},
+  {id:"walk_1000", e:"🌍",label:"1000km Club",       desc:"1000 km total distance",          tier:"gold",  check:s=>s.unit==="km"&&s.totalVol>=1000},
+  {id:"km_pb5",     e:"🏃",label:"5km Session",       desc:"5 km in one session",             tier:"bronze",check:s=>s.unit==="km"&&s.bestVal>=5},
+  {id:"km_pb10",    e:"🎽",label:"10km Session",      desc:"10 km in one session",            tier:"silver",check:s=>s.unit==="km"&&s.bestVal>=10},
+  // ── 🧗 NEW: single-session hang PBs (sec)
+  {id:"hang_pb60",  e:"⏱️",label:"One Minute",       desc:"Single hang of 60 sec",           tier:"bronze",check:s=>s.unit==="sec"&&s.bestVal>=60},
+  {id:"hang_pb90",  e:"🥋",label:"90 Seconds",       desc:"Single hang of 90 sec",           tier:"silver",check:s=>s.unit==="sec"&&s.bestVal>=90},
+  {id:"hang_pb120", e:"🦅",label:"Two Minutes",      desc:"Single hang of 2 min",            tier:"silver",check:s=>s.unit==="sec"&&s.bestVal>=120},
+  {id:"hang_pb180", e:"🏰",label:"Three Minutes",    desc:"Single hang of 3 min",            tier:"gold",  check:s=>s.unit==="sec"&&s.bestVal>=180},
+  {id:"hang_pb300", e:"🌌",label:"Five Minutes",     desc:"Single hang of 5 min",            tier:"gold",  check:s=>s.unit==="sec"&&s.bestVal>=300},
+  // ── 🏋️ NEW: reps unit milestones (squats, push-ups etc.) — brand new unit type
+  {id:"reps_50",   e:"🌱",label:"50 Reps",           desc:"50 total reps logged",            tier:"bronze",check:s=>s.unit==="reps"&&s.totalVol>=50},
+  {id:"reps_100",  e:"💯",label:"Century Reps",      desc:"100 total reps logged",           tier:"bronze",check:s=>s.unit==="reps"&&s.totalVol>=100},
+  {id:"reps_250",  e:"🔥",label:"250 Reps",          desc:"250 total reps logged",           tier:"silver",check:s=>s.unit==="reps"&&s.totalVol>=250},
+  {id:"reps_500",  e:"💪",label:"500 Reps",          desc:"500 total reps logged",           tier:"silver",check:s=>s.unit==="reps"&&s.totalVol>=500},
+  {id:"reps_1000", e:"🏆",label:"1000 Reps",         desc:"1000 total reps logged",          tier:"gold",  check:s=>s.unit==="reps"&&s.totalVol>=1000},
+  {id:"reps_2500", e:"🌟",label:"2500 Reps",         desc:"2500 total reps logged",          tier:"gold",  check:s=>s.unit==="reps"&&s.totalVol>=2500},
+  {id:"reps_pb10", e:"🎯",label:"10 in a Row",       desc:"10 reps in one session",          tier:"bronze",check:s=>s.unit==="reps"&&s.bestVal>=10},
+  {id:"reps_pb20", e:"⚡",label:"20 in a Row",       desc:"20 reps in one session",          tier:"silver",check:s=>s.unit==="reps"&&s.bestVal>=20},
+  {id:"reps_pb30", e:"🦾",label:"30 in a Row",       desc:"30 reps in one session",          tier:"silver",check:s=>s.unit==="reps"&&s.bestVal>=30},
+  {id:"reps_pb50", e:"🌋",label:"50 in a Row",       desc:"50 reps in one session",          tier:"gold",  check:s=>s.unit==="reps"&&s.bestVal>=50},
+  // ── ⏱️ NEW: min unit milestones (strength training etc.)
+  {id:"min_60",    e:"⏱️",label:"First Hour",        desc:"60 total minutes logged",         tier:"bronze",check:s=>s.unit==="min"&&s.totalVol>=60},
+  {id:"min_300",   e:"🔥",label:"5 Hours",           desc:"300 total minutes logged",        tier:"bronze",check:s=>s.unit==="min"&&s.totalVol>=300},
+  {id:"min_600",   e:"💪",label:"10 Hours",          desc:"600 total minutes logged",        tier:"silver",check:s=>s.unit==="min"&&s.totalVol>=600},
+  {id:"min_pb30",  e:"🌱",label:"30 Min Session",    desc:"Single session of 30 min",        tier:"bronze",check:s=>s.unit==="min"&&s.bestVal>=30},
+  {id:"min_pb45",  e:"🎯",label:"45 Min Session",    desc:"Single session of 45 min",        tier:"silver",check:s=>s.unit==="min"&&s.bestVal>=45},
 ];
 const FAM_IDS=new Set(["fam_day","fam_10","fam_week","fam_trio"]);
+// ── Get relevant badges for a member based on their actual activity units ─────
+function getMemberBadges(member){
+  const units = new Set((member.activities||[]).map(a=>a.unit));
+  return BADGES.filter(b=>{
+    if(FAM_IDS.has(b.id)) return false;
+    // Prefix-based unit detection — most reliable
+    if(b.id.startsWith("hang_")) return units.has("sec");
+    if(b.id.startsWith("reps_")) return units.has("reps");
+    if(b.id.startsWith("walk_")||b.id.startsWith("km_")) return units.has("km");
+    if(b.id.startsWith("min_")) return units.has("min");
+    return true; // generic badge — applies to everyone
+  });
+}
 const TC={
   bronze:{bg:"#FDF0E0",bd:"#C97D3A",tx:"#7A4A1E",gl:"#C97D3A33"},
   silver:{bg:"#F0F4F8",bd:"#8A9BB0",tx:"#3A4A5E",gl:"#8A9BB033"},
@@ -757,7 +1114,12 @@ function computeStats(al,target){
   const today=todayStr();
   const entries=Object.entries(al).filter(([d])=>d<=today).sort(([a],[b])=>a.localeCompare(b));
   let totalDone=0,bestVal=0;
-  for(const[,l]of entries) if(l.status!=="skipped"&&l.status!=="shielded"&&l.value>0){totalDone++;if(l.value>bestVal)bestVal=l.value;}
+  for(const[,l]of entries) if(l.status!=="skipped"&&l.status!=="shielded"&&l.value>0){
+    totalDone++;
+    const sessionVals=l.sessions&&l.sessions.length>0?l.sessions:[l.value];
+    const maxSession=Math.max(...sessionVals);
+    if(maxSession>bestVal)bestVal=maxSession;
+  }
   const bestPct=target>0?Math.round((bestVal/target)*100):0;
   const streak=streakCount(al);
   let bestPerf=0,cp=0;
@@ -775,7 +1137,7 @@ function computeStats(al,target){
     if(l.status==="skipped"||!l.value) continue;
     const d=new Date(ds+"T00:00:00");const dow=(d.getDay()+6)%7;
     const mon=new Date(d);mon.setDate(d.getDate()-dow);
-    const wk=mon.toISOString().slice(0,10);
+    const wk=toLocalDateStr(mon);
     wm[wk]=(wm[wk]||0)+1;
   }
   const wvals=Object.values(wm);const bestWeek=wvals.length?Math.max(...wvals):0;
@@ -790,18 +1152,21 @@ function computeStats(al,target){
     if(gap>=7){pg++;if(pg>=3){comeback=true;break;}}
     lastL=ds;
   }
-  let perfMon=false,perfSun=false;
+  let perfMon=false,perfSun=false,perfTue=false,perfThu=false;
   for(const ym of mons){
     const[y,m]=ym.split("-").map(Number);const dm=new Date(y,m,0).getDate();
-    let am=true,hm=false,as_=true,hs=false;
+    let am=true,hm=false,as_=true,hs=false,at=true,ht=false,ath=true,hth=false;
     for(let day=1;day<=dm;day++){
       const dt=new Date(y,m-1,day);const dow=dt.getDay();
       const key=`${y}-${String(m).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
       if(key>today) continue;
       if(dow===1){hm=true;const l=al[key];if(!l||l.status==="skipped")am=false;}
       if(dow===0){hs=true;const l=al[key];if(!l||l.status==="skipped")as_=false;}
+      if(dow===2){ht=true;const l=al[key];if(!l||l.status==="skipped")at=false;}
+      if(dow===4){hth=true;const l=al[key];if(!l||l.status==="skipped")ath=false;}
     }
     if(hm&&am)perfMon=true;if(hs&&as_)perfSun=true;
+    if(ht&&at)perfTue=true;if(hth&&ath)perfThu=true;
   }
   const wem={};
   for(const[ds,l]of entries){
@@ -809,7 +1174,7 @@ function computeStats(al,target){
     const d=new Date(ds+"T00:00:00");const dow=d.getDay();
     if(dow!==0&&dow!==6) continue;
     const sat=new Date(d);sat.setDate(d.getDate()-(dow===0?1:0));
-    const wk=sat.toISOString().slice(0,10);
+    const wk=toLocalDateStr(sat);
     if(!wem[wk])wem[wk]=new Set();wem[wk].add(dow);
   }
   const perfWknd=Object.values(wem).filter(s=>s.size===2).length;
@@ -842,7 +1207,7 @@ function computeStats(al,target){
   }
 
   return{totalDone,bestVal,bestPct,streak,bestStreak,bestPerf,bestMonPct,highMons,hasPB:bestVal>target,
-    bestWeek,consec5w,comeback,perfMon,perfSun,perfWknd,trackDays,overStreak,steadyStreak,
+    bestWeek,consec5w,comeback,perfMon,perfSun,perfTue,perfThu,perfWknd,trackDays,overStreak,steadyStreak,
     totalVol,unit:"",bestMonthDays,famDays:0,famWeeks:0,famActive:false};
 }
 
@@ -886,6 +1251,8 @@ function computeMemberLevelStats(member, logs){
     comeback: stats.comeback,
     perfMon: stats.perfMon,
     perfSun: stats.perfSun,
+    perfTue: stats.perfTue,
+    perfThu: stats.perfThu,
     perfWknd: stats.perfWknd,
     bestMonthDays: stats.bestMonthDays,
   };
@@ -911,7 +1278,7 @@ function computeFamStats(members,logs){
         if(ds>today||l.status==="skipped"||!l.value) continue;
         const d=new Date(ds+"T00:00:00");const dow=(d.getDay()+6)%7;
         const mon=new Date(d);mon.setDate(d.getDate()-dow);
-        const wk=mon.toISOString().slice(0,10);
+        const wk=toLocalDateStr(mon);
         if(!wm[wk])wm[wk]={};if(!wm[wk][m.id])wm[wk][m.id]=new Set();
         wm[wk][m.id].add(ds);
       }
@@ -951,10 +1318,60 @@ const JSONBIN_API_KEY = import.meta.env.VITE_JSONBIN_API_KEY;
 const JSONBIN_URL     = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
 let _saveTimer=null;
 
+// Deep-merge two log trees by union of keys, recursing into nested objects/arrays.
+// Prevents the classic "stale tab overwrites newer data" data-loss failure: a tab that
+// hasn't seen today's entries yet would otherwise PUT its incomplete snapshot and erase
+// anything saved elsewhere in the meantime. Only a genuine same-key conflict (same date,
+// different value on both sides) falls back to preferring local — the tab actively saving
+// right now, which represents the most recent deliberate action.
+function deepMergeLogs(remote, local){
+  if(remote == null) return local;
+  if(local == null) return remote;
+  if(Array.isArray(local) && Array.isArray(remote)){
+    const seen = new Set(remote.map(x=>JSON.stringify(x)));
+    const merged = [...remote];
+    for(const item of local){
+      const key = JSON.stringify(item);
+      if(!seen.has(key)){ merged.push(item); seen.add(key); }
+    }
+    return merged;
+  }
+  if(typeof local === 'object' && typeof remote === 'object' && !Array.isArray(local) && !Array.isArray(remote)){
+    const merged = {...remote};
+    for(const key of Object.keys(local)){
+      if(key in remote){
+        if(typeof local[key]==='object' && local[key]!==null){
+          merged[key] = deepMergeLogs(remote[key], local[key]);
+        } else {
+          merged[key] = local[key];
+        }
+      } else {
+        merged[key] = local[key];
+      }
+    }
+    return merged;
+  }
+  return local;
+}
+// Members merge by id — union of members present on either side, preferring local's
+// profile fields for members that exist on both (most recent edit wins for settings).
+function mergeMembers(remote, local){
+  const remoteArr = Array.isArray(remote) ? remote : [];
+  const localArr = Array.isArray(local) ? local : [];
+  const byId = new Map();
+  for(const m of remoteArr) byId.set(m.id, m);
+  for(const m of localArr) byId.set(m.id, m); // local overwrites on id conflict — latest edit wins
+  return Array.from(byId.values());
+}
+
 async function loadData(){
   if(JSONBIN_BIN_ID&&JSONBIN_API_KEY){
     try{
-      const res=await fetch(`${JSONBIN_URL}/latest`,{headers:{'X-Master-Key':JSONBIN_API_KEY,'X-Bin-Meta':'false'}});
+      const res=await fetch(`${JSONBIN_URL}/latest`,{
+        headers:{'X-Master-Key':JSONBIN_API_KEY,'X-Bin-Meta':'false'},
+        cache:'no-store', // CRITICAL: never serve a cached response — a 304 with stale data
+                          // causes saveData() to merge against old state, destroying newer entries
+      });
       if(res.ok){
         const raw=await res.json();
         const d=migrateData(raw);
@@ -967,6 +1384,31 @@ async function loadData(){
   return null;
 }
 async function saveData(p){
+  if(JSONBIN_BIN_ID&&JSONBIN_API_KEY){
+    try{
+      // Fetch the latest remote state first and merge, rather than blindly overwriting —
+      // cache: no-store is essential here: a 304 cached response would cause us to merge
+      // against stale data and silently destroy any entries added from another tab or device.
+      const res=await fetch(`${JSONBIN_URL}/latest`,{
+        headers:{'X-Master-Key':JSONBIN_API_KEY,'X-Bin-Meta':'false'},
+        cache:'no-store',
+      });
+      if(res.ok){
+        const remote=await res.json();
+        const merged={
+          members: mergeMembers(remote.members, p.members),
+          logs: deepMergeLogs(remote.logs||{}, p.logs||{}),
+          theme: p.theme,
+          pattern: p.pattern,
+        };
+        const s=JSON.stringify(merged);
+        try{localStorage.setItem("ff_data",s);}catch{}
+        await fetch(JSONBIN_URL,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_API_KEY},body:s});
+        return;
+      }
+    }catch{}
+  }
+  // Fallback if remote fetch failed — save local as-is rather than losing the save entirely
   const s=JSON.stringify(p);
   try{localStorage.setItem("ff_data",s);}catch{}
   if(JSONBIN_BIN_ID&&JSONBIN_API_KEY){
@@ -995,10 +1437,13 @@ const MAJOR_MILESTONE_IDS = new Set([
   "month_3","month_6","month_12",
   "hang_36000","walk_500",
   "mon_30","fam_trio",
-  // PP level ups (levels 5+ get celebration, spread across all 30 levels)
+  // PP level ups (levels 5+ get celebration, spread across all 55 levels)
   "pp_level_5","pp_level_7","pp_level_9","pp_level_11","pp_level_13",
   "pp_level_15","pp_level_17","pp_level_19","pp_level_21","pp_level_23",
-  "pp_level_25","pp_level_27","pp_level_29","pp_level_30"
+  "pp_level_25","pp_level_27","pp_level_29","pp_level_31","pp_level_33",
+  "pp_level_35","pp_level_37","pp_level_39","pp_level_41","pp_level_43",
+  "pp_level_45","pp_level_47","pp_level_49","pp_level_51","pp_level_53","pp_level_55",
+  "pp_level_57","pp_level_59","pp_level_60"
 ]);
 
 function CelebrationScreen({badge, memberName, onClose}){
@@ -1094,7 +1539,7 @@ function Toast({badge,onDismiss}){
 }
 
 // ── Multi-activity Log Modal ──────────────────────────────────────────────────
-function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
+function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDeleteEntry,onClose}){
   const displayDate=new Date(dateStr+"T00:00:00").toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"short"});
   const isDecimal=(u)=>["km","miles","kg","hrs"].includes(u);
 
@@ -1106,29 +1551,79 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
       actId:a.id,
       status:ex?.status??"done",
       value:ex?.value??a.target,
+      originalValue:ex?.value??0, // snapshot of what was logged before this edit — used for "add session"
+      sessions:ex?.sessions||null, // individual session values, if this day has more than one
+      mode:"replace", // 'add' = sum onto existing, 'replace' = overwrite (default for fresh entries)
       alreadySaved:!!alreadySaved,
       editing:false, // true when user taps edit on an already-saved activity
     };
   });
   const[entries,setEntries]=useState(init);
   const upd=(id,f,v)=>setEntries(p=>p.map(e=>e.actId===id?{...e,[f]:v}:e));
-  const startEdit=(id)=>setEntries(p=>p.map(e=>e.actId===id?{...e,editing:true}:e));
+  const startEdit=(id)=>setEntries(p=>p.map(e=>{
+    if(e.actId!==id) return e;
+    // Only offer "add session" for done activities with a real logged value — not skipped/shielded
+    const canAdd = e.status==="done" && e.originalValue>0;
+    return{...e, editing:true, mode:canAdd?"add":"replace", value:canAdd?0:e.originalValue};
+  }));
+  const switchMode=(id,mode)=>setEntries(p=>p.map(e=>{
+    if(e.actId!==id) return e;
+    return{...e, mode, value:mode==="replace"?e.originalValue:0};
+  }));
   const saveSingle=(actId)=>{
     // Save just this one activity, keeping others as-is
     const entry=entries.find(e=>e.actId===actId);
     if(!entry) return;
     const act=member.activities.find(a=>a.id===actId);
+    const isAdding = entry.mode==="add" && entry.status==="done";
+    const finalValue = isAdding ? (entry.originalValue||0) + (entry.value||0) : entry.value;
+    // Track individual sessions so PB detection can tell "170 total" apart from "a genuine 110 single session"
+    let sessions;
+    if(isAdding){
+      const ex=getActivityLogs(logs,member.id,actId)[dateStr];
+      const priorSessions = ex?.sessions || (ex?.value>0 ? [ex.value] : []);
+      sessions = [...priorSessions, entry.value||0];
+    } else if(entry.status==="done"){
+      sessions = undefined; // "Correct Total" resets to a clean single authoritative value
+    }
     // Build full entries array — for unsaved activities, pass their current logged value or skip
     const toSave=member.activities.map(a=>{
-      if(a.id===actId) return{actId:a.id,value:entry.value,status:entry.status,target:a.target};
+      if(a.id===actId) return{actId:a.id,value:finalValue,status:entry.status,target:a.target,sessions};
       // For other activities, use whatever is already logged (if anything)
       const ex=getActivityLogs(logs,member.id,a.id)[dateStr];
-      if(ex) return{actId:a.id,value:ex.value,status:ex.status,target:a.target};
+      if(ex) return{actId:a.id,value:ex.value,status:ex.status,target:a.target,sessions:ex.sessions};
       return null; // not yet logged, don't touch
     }).filter(Boolean);
     onSaveAll(toSave);
-    // Mark as saved in local state
-    setEntries(p=>p.map(e=>e.actId===actId?{...e,alreadySaved:true,editing:false}:e));
+    // Mark as saved in local state, updating originalValue to the new total for any future "add"
+    setEntries(p=>p.map(e=>e.actId===actId?{...e,value:finalValue,originalValue:finalValue,sessions:sessions||null,alreadySaved:true,editing:false,mode:"replace"}:e));
+  };
+
+  const deleteSession=(actId,sessionIdx)=>{
+    const entry=entries.find(e=>e.actId===actId);
+    if(!entry||!entry.sessions) return;
+    const act=member.activities.find(a=>a.id===actId);
+    const newSessions=entry.sessions.filter((_,i)=>i!==sessionIdx);
+    const newValue=newSessions.reduce((s,v)=>s+v,0);
+    const finalSessions=newSessions.length>1?newSessions:undefined; // collapse back to plain value if only one left
+    const toSave=member.activities.map(a=>{
+      if(a.id===actId) return{actId:a.id,value:newValue,status:newValue>0?"done":"skipped",target:a.target,sessions:finalSessions};
+      const ex=getActivityLogs(logs,member.id,a.id)[dateStr];
+      if(ex) return{actId:a.id,value:ex.value,status:ex.status,target:a.target,sessions:ex.sessions};
+      return null;
+    }).filter(Boolean);
+    onSaveAll(toSave);
+    setEntries(p=>p.map(e=>e.actId===actId?{...e,value:newValue,originalValue:newValue,sessions:finalSessions||null,status:newValue>0?"done":"skipped"}:e));
+  };
+
+  const deleteThisEntry=(actId)=>{
+    if(!window.confirm("Delete this entry completely? This cannot be undone.")) return;
+    onDeleteEntry(member.id, actId, dateStr);
+    const act=member.activities.find(a=>a.id===actId);
+    setEntries(p=>p.map(e=>e.actId===actId?{
+      ...e, status:"done", value:act?.target??0, originalValue:0, sessions:null,
+      alreadySaved:false, editing:false, mode:"replace",
+    }:e));
   };
 
   const allSaved=entries.every(e=>e.alreadySaved);
@@ -1149,23 +1644,34 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
         return <div key={act.id}>
           {/* Already saved — show as greyed summary with Edit button */}
           {!isActive ? (
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
-              padding:"10px 12px",background:C.bg,borderRadius:10,marginBottom:4}}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span style={{fontSize:16,color:en.status==="skipped"?C.missed:C.done}}>
-                  {en.status==="skipped"?"✗":"✓"}
-                </span>
-                <div>
-                  <div style={{fontWeight:600,fontSize:13,color:C.text}}>{act.name}</div>
-                  <div style={{fontSize:11,color:C.muted}}>
-                    {en.status==="skipped"?"Skipped":en.status==="shielded"?"Shielded":`${en.value} ${act.unit}`}
+            <div style={{padding:"10px 12px",background:C.bg,borderRadius:10,marginBottom:4}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:16,color:en.status==="skipped"?C.missed:C.done}}>
+                    {en.status==="skipped"?"✗":"✓"}
+                  </span>
+                  <div>
+                    <div style={{fontWeight:600,fontSize:13,color:C.text}}>{act.name}</div>
+                    <div style={{fontSize:11,color:C.muted}}>
+                      {en.status==="skipped"?"Skipped":en.status==="shielded"?"Shielded":`${en.value} ${act.unit}${en.sessions&&en.sessions.length>1?` (${en.sessions.length} sessions)`:""}`}
+                    </div>
                   </div>
                 </div>
+                <button onClick={()=>startEdit(act.id)} style={{background:"none",border:`1px solid ${C.border}`,
+                  borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:11,fontWeight:600,color:C.muted}}>
+                  Edit
+                </button>
               </div>
-              <button onClick={()=>startEdit(act.id)} style={{background:"none",border:`1px solid ${C.border}`,
-                borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:11,fontWeight:600,color:C.muted}}>
-                Edit
-              </button>
+              {/* Session breakdown with per-session delete */}
+              {en.sessions&&en.sessions.length>1&&<div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:4}}>
+                {en.sessions.map((sv,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:11,color:C.muted}}>
+                    <span>Session {i+1}: <strong style={{color:C.text}}>{sv} {act.unit}</strong></span>
+                    <button onClick={()=>deleteSession(act.id,i)} style={{background:"none",border:"none",
+                      color:C.missed,cursor:"pointer",fontSize:11,fontWeight:600,padding:"2px 6px"}}>Remove</button>
+                  </div>
+                ))}
+              </div>}
             </div>
           ) : (
             /* Active — show full input */
@@ -1184,18 +1690,59 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
                     style={{padding:"5px 10px",borderRadius:8,border:`1.5px solid ${en.status==="skipped"?C.missed:C.border}`,
                     background:en.status==="skipped"?C.missed:"transparent",color:en.status==="skipped"?"#fff":C.muted,
                     fontWeight:600,cursor:"pointer",fontSize:12}}>✗ Skip</button>
+                  {(shieldsLeft>0||en.status==="shielded")&&<button onClick={()=>{upd(act.id,"status","shielded");upd(act.id,"value",0);}}
+                    style={{padding:"5px 10px",borderRadius:8,border:`1.5px solid ${en.status==="shielded"?"#1976D2":C.border}`,
+                    background:en.status==="shielded"?"#1976D2":"transparent",color:en.status==="shielded"?"#fff":C.muted,
+                    fontWeight:600,cursor:"pointer",fontSize:12}}>🛡️ Shield</button>}
                 </div>
               </div>
-              {en.status==="done"&&<div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+
+              {en.status==="shielded"&&<div style={{fontSize:11,color:"#1976D2",background:"#E3F2FD",
+                border:"1px solid #90CAF9",borderRadius:8,padding:"8px 10px",marginBottom:10}}>
+                🛡️ This will protect just <strong>{act.name}</strong>'s streak today — {shieldsLeft} of 4 shields left this month.
+              </div>}
+
+              {/* Add-session vs replace-total mode toggle — only shown when there's an existing logged value */}
+              {en.status==="done"&&en.alreadySaved&&en.originalValue>0&&<div style={{display:"flex",gap:6,marginBottom:10}}>
+                <button onClick={()=>switchMode(act.id,"add")} style={{flex:1,padding:"6px 0",borderRadius:7,
+                  border:`1.5px solid ${en.mode==="add"?member.color:C.border}`,
+                  background:en.mode==="add"?member.color+"15":"none",
+                  color:en.mode==="add"?member.color:C.muted,cursor:"pointer",fontWeight:600,fontSize:11}}>
+                  ➕ Add Session
+                </button>
+                <button onClick={()=>switchMode(act.id,"replace")} style={{flex:1,padding:"6px 0",borderRadius:7,
+                  border:`1.5px solid ${en.mode==="replace"?member.color:C.border}`,
+                  background:en.mode==="replace"?member.color+"15":"none",
+                  color:en.mode==="replace"?member.color:C.muted,cursor:"pointer",fontWeight:600,fontSize:11}}>
+                  ✏️ Correct Total
+                </button>
+              </div>}
+
+              {en.alreadySaved&&<button onClick={()=>deleteThisEntry(act.id)} style={{
+                background:"none",border:"none",color:C.missed,cursor:"pointer",
+                fontSize:11,fontWeight:600,padding:"4px 0",marginBottom:8,textDecoration:"underline",
+              }}>🗑️ Delete this entry</button>}
+
+              {en.status==="done"&&en.mode==="add"&&en.originalValue>0&&<div style={{fontSize:11,color:C.muted,marginBottom:6}}>
+                Already logged: <strong style={{color:C.text}}>{en.originalValue} {act.unit}</strong> today
+              </div>}
+
+              {en.status==="done"&&<div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
                 <input type="number" min={0} step={isDecimal(act.unit)?0.1:1}
                   value={en.value} onChange={e=>upd(act.id,"value",parseFloat(e.target.value)||0)}
+                  placeholder={en.mode==="add"?"e.g. this session's amount":undefined}
                   style={{flex:1,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,
                   fontSize:20,fontWeight:700,outline:"none",background:"#fff"}}/>
                 <span style={{fontSize:13,color:C.muted,fontWeight:600,minWidth:36}}>{act.unit}</span>
               </div>}
+
+              {en.status==="done"&&en.mode==="add"&&en.originalValue>0&&<div style={{fontSize:12,color:member.color,fontWeight:600,marginBottom:10}}>
+                New total: {(en.originalValue||0)+(en.value||0)} {act.unit}
+              </div>}
+
               <button onClick={()=>saveSingle(act.id)} style={{width:"100%",padding:"9px 0",borderRadius:8,
                 border:"none",background:member.color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13}}>
-                Save {act.name}
+                {en.mode==="add"&&en.originalValue>0?`➕ Add to ${act.name}`:`Save ${act.name}`}
               </button>
             </div>
           )}
@@ -1215,36 +1762,33 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
         </button>
         {!allSaved&&<button onClick={()=>onSaveAll(entries.map(e=>{
           const act=member.activities.find(a=>a.id===e.actId);
-          return{actId:e.actId,value:e.value,status:e.status,target:act?.target};
+          const finalValue = (e.mode==="add" && e.status==="done") ? (e.originalValue||0)+(e.value||0) : e.value;
+          return{actId:e.actId,value:finalValue,status:e.status,target:act?.target};
         }))} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",
           background:member.color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save all</button>}
       </div>
-
-      {/* Shield option */}
-      {shieldsLeft>0&&!allSaved&&<div style={{marginTop:10,padding:"10px 14px",background:"#E3F2FD",
-        border:"1.5px solid #90CAF9",borderRadius:10,display:"flex",alignItems:"center",
-        justifyContent:"space-between",gap:10}}>
-        <div>
-          <div style={{fontWeight:700,fontSize:13,color:"#1565C0"}}>🛡️ Use a shield</div>
-          <div style={{fontSize:11,color:"#1976D2"}}>{shieldsLeft} of 4 remaining this month · Protects your streak</div>
-        </div>
-        <button onClick={()=>onSaveAll(entries.map(e=>({...e,status:"shielded",value:0})))}
-          style={{background:"#1976D2",color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",
-          cursor:"pointer",fontWeight:700,fontSize:12,whiteSpace:"nowrap"}}>Use shield</button>
-      </div>}
     </div>
   </div>;
 }
 
 // ── Alternating Log Modal (pick one or more activities) ──────────────────────
-function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}){
+function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDeleteEntry,onClose}){
   const displayDate=new Date(dateStr+"T00:00:00").toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"short"});
   const acts=member.activities||[];
 
   // Build initial state
   const init=acts.map(a=>{
     const ex=getActivityLogs(logs,member.id,a.id)[dateStr];
-    return{actId:a.id,selected:ex&&ex.status!=="skipped"&&ex.status!=="shielded",status:ex?.status??"none",value:ex?.value??a.target};
+    const alreadyLogged = ex&&ex.status==="done"&&ex.value>0;
+    return{
+      actId:a.id,
+      selected:ex&&ex.status!=="skipped"&&ex.status!=="shielded",
+      status:ex?.status??"none",
+      value:ex?.value??a.target,
+      originalValue:ex?.value??0, // snapshot for "add session"
+      alreadyLogged:!!alreadyLogged,
+      mode:"replace", // 'add' sums onto existing, 'replace' overwrites (default, matches pre-filled value)
+    };
   });
   const[entries,setEntries]=useState(init);
   const[isRest,setIsRest]=useState(init.every(e=>e.status==="skipped"));
@@ -1253,7 +1797,25 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}
     setIsRest(false);
     setEntries(p=>p.map(e=>e.actId===actId?{...e,selected:!e.selected,status:!e.selected?"done":"none"}:e));
   };
+  const toggleShield=(actId)=>setEntries(p=>p.map(e=>{
+    if(e.actId!==actId) return e;
+    const isShielded = e.status==="shielded";
+    return{...e, selected:false, status:isShielded?"none":"shielded"};
+  }));
   const updVal=(actId,val)=>setEntries(p=>p.map(e=>e.actId===actId?{...e,value:val}:e));
+  const switchMode=(actId,mode)=>setEntries(p=>p.map(e=>{
+    if(e.actId!==actId) return e;
+    return{...e, mode, value:mode==="add"?0:e.originalValue};
+  }));
+  const deleteThisEntry=(actId)=>{
+    if(!window.confirm("Delete this entry completely? This cannot be undone.")) return;
+    onDeleteEntry(member.id, actId, dateStr);
+    const act=acts.find(a=>a.id===actId);
+    setEntries(p=>p.map(e=>e.actId===actId?{
+      ...e, selected:false, status:"none", value:act?.target??0,
+      originalValue:0, alreadyLogged:false, mode:"replace",
+    }:e));
+  };
   const isDecimal=(u)=>["km","miles","kg","hrs"].includes(u);
   const anySelected=entries.some(e=>e.selected);
 
@@ -1261,7 +1823,20 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}
     const result=acts.map(a=>{
       const en=entries.find(e=>e.actId===a.id);
       if(isRest) return{actId:a.id,value:0,status:"skipped",target:a.target};
-      if(en?.selected) return{actId:a.id,value:en.value,status:"done",target:a.target};
+      if(en?.status==="shielded"){
+        return{actId:a.id,value:0,status:"shielded",target:a.target};
+      }
+      if(en?.selected){
+        const isAdding = en.mode==="add" && en.alreadyLogged;
+        const finalValue = isAdding ? (en.originalValue||0)+(en.value||0) : en.value;
+        let sessions;
+        if(isAdding){
+          const ex=getActivityLogs(logs,member.id,a.id)[dateStr];
+          const priorSessions = ex?.sessions || (ex?.value>0 ? [ex.value] : []);
+          sessions = [...priorSessions, en.value||0];
+        }
+        return{actId:a.id,value:finalValue,status:"done",target:a.target,sessions};
+      }
       return{actId:a.id,value:0,status:"skipped",target:a.target};
     });
     onSaveAll(result);
@@ -1281,31 +1856,71 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}
         {acts.map(a=>{
           const en=entries.find(e=>e.actId===a.id);
           const selected=en?.selected&&!isRest;
+          const isShielded=en?.status==="shielded"&&!isRest;
           return <div key={a.id}>
-            <div onClick={()=>toggleAct(a.id)} style={{
+            <div style={{
               display:"flex",alignItems:"center",gap:12,padding:"12px 14px",
-              borderRadius:10,border:`2px solid ${selected?member.color:C.border}`,
-              background:selected?member.color+"0F":"transparent",cursor:"pointer",
+              borderRadius:isShielded?"10px 10px 0 0":10,
+              border:`2px solid ${selected?member.color:isShielded?"#1976D2":C.border}`,
+              background:selected?member.color+"0F":isShielded?"#E3F2FD":"transparent",
               transition:"all 0.15s",
             }}>
-              <div style={{
-                width:22,height:22,borderRadius:"50%",flexShrink:0,
-                background:selected?member.color:C.border,
+              <div onClick={()=>toggleAct(a.id)} style={{
+                width:22,height:22,borderRadius:"50%",flexShrink:0,cursor:"pointer",
+                background:selected?member.color:isShielded?"#1976D2":C.border,
                 display:"flex",alignItems:"center",justifyContent:"center",
               }}>
                 {selected&&<span style={{color:"#fff",fontSize:13,fontWeight:700}}>✓</span>}
+                {isShielded&&<span style={{fontSize:12}}>🛡️</span>}
               </div>
-              <div style={{flex:1}}>
+              <div onClick={()=>toggleAct(a.id)} style={{flex:1,cursor:"pointer"}}>
                 <div style={{fontWeight:600,fontSize:14,color:C.text}}>{a.name}</div>
                 <div style={{fontSize:11,color:C.muted}}>Target: {a.target} {a.unit}</div>
               </div>
+              {!selected&&(shieldsLeft>0||isShielded)&&!isRest&&<button onClick={()=>toggleShield(a.id)} style={{
+                background:isShielded?"#1976D2":"none",color:isShielded?"#fff":"#1976D2",
+                border:"1.5px solid #1976D2",borderRadius:8,padding:"5px 9px",
+                cursor:"pointer",fontWeight:600,fontSize:11,whiteSpace:"nowrap",
+              }}>{isShielded?"🛡️ Shielded":"🛡️ Shield"}</button>}
             </div>
+            {isShielded&&<div style={{fontSize:11,color:"#1976D2",background:"#E3F2FD",
+              border:"1.5px solid #90CAF9",borderTop:"none",borderRadius:"0 0 10px 10px",
+              padding:"8px 14px",marginTop:-2}}>
+              Protects just <strong>{a.name}</strong>'s streak today — {shieldsLeft} of 4 shields left this month.
+            </div>}
             {/* Value input when selected */}
-            {selected&&<div style={{display:"flex",alignItems:"center",gap:10,background:member.color+"0D",borderRadius:"0 0 10px 10px",padding:"10px 14px",marginTop:-4}}>
-              <input type="number" min={0} step={isDecimal(a.unit)?0.1:1}
-                value={en.value} onChange={e=>updVal(a.id,parseFloat(e.target.value)||0)}
-                style={{flex:1,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,fontSize:20,fontWeight:700,outline:"none",background:"#fff"}}/>
-              <span style={{fontSize:13,color:C.muted,fontWeight:600,minWidth:28}}>{a.unit}</span>
+            {selected&&<div style={{background:member.color+"0D",borderRadius:"0 0 10px 10px",padding:"10px 14px",marginTop:-4}}>
+              {/* Add Session / Correct Total toggle — only when this activity was already logged today */}
+              {en.alreadyLogged&&en.originalValue>0&&<div style={{display:"flex",gap:6,marginBottom:8}}>
+                <button onClick={()=>switchMode(a.id,"add")} style={{flex:1,padding:"6px 0",borderRadius:7,
+                  border:`1.5px solid ${en.mode==="add"?member.color:C.border}`,
+                  background:en.mode==="add"?member.color+"15":"none",
+                  color:en.mode==="add"?member.color:C.muted,cursor:"pointer",fontWeight:600,fontSize:11}}>
+                  ➕ Add Session
+                </button>
+                <button onClick={()=>switchMode(a.id,"replace")} style={{flex:1,padding:"6px 0",borderRadius:7,
+                  border:`1.5px solid ${en.mode==="replace"?member.color:C.border}`,
+                  background:en.mode==="replace"?member.color+"15":"none",
+                  color:en.mode==="replace"?member.color:C.muted,cursor:"pointer",fontWeight:600,fontSize:11}}>
+                  ✏️ Correct Total
+                </button>
+              </div>}
+              {en.alreadyLogged&&<button onClick={()=>deleteThisEntry(a.id)} style={{
+                background:"none",border:"none",color:C.missed,cursor:"pointer",
+                fontSize:11,fontWeight:600,padding:"4px 0",marginBottom:8,textDecoration:"underline",
+              }}>🗑️ Delete this entry</button>}
+              {en.alreadyLogged&&en.mode==="add"&&en.originalValue>0&&<div style={{fontSize:11,color:C.muted,marginBottom:6}}>
+                Already logged: <strong style={{color:C.text}}>{en.originalValue} {a.unit}</strong> today
+              </div>}
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <input type="number" min={0} step={isDecimal(a.unit)?0.1:1}
+                  value={en.value} onChange={e=>updVal(a.id,parseFloat(e.target.value)||0)}
+                  style={{flex:1,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,fontSize:20,fontWeight:700,outline:"none",background:"#fff"}}/>
+                <span style={{fontSize:13,color:C.muted,fontWeight:600,minWidth:28}}>{a.unit}</span>
+              </div>
+              {en.alreadyLogged&&en.mode==="add"&&en.originalValue>0&&<div style={{fontSize:12,color:member.color,fontWeight:600,marginTop:6}}>
+                New total: {(en.originalValue||0)+(en.value||0)} {a.unit}
+              </div>}
             </div>}
           </div>;
         })}
@@ -1329,21 +1944,12 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onClose}
       {/* Footer */}
       <div style={{display:"flex",gap:8}}>
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={handleSave} disabled={!anySelected&&!isRest} style={{
+        <button onClick={handleSave} disabled={!anySelected&&!isRest&&!entries.some(e=>e.status==="shielded")} style={{
           flex:2,padding:"10px 0",borderRadius:8,border:"none",
-          background:(!anySelected&&!isRest)?C.border:member.color,
-          color:"#fff",cursor:(!anySelected&&!isRest)?"not-allowed":"pointer",fontWeight:700,fontSize:14,
+          background:(!anySelected&&!isRest&&!entries.some(e=>e.status==="shielded"))?C.border:member.color,
+          color:"#fff",cursor:(!anySelected&&!isRest&&!entries.some(e=>e.status==="shielded"))?"not-allowed":"pointer",fontWeight:700,fontSize:14,
         }}>Save</button>
       </div>
-
-      {/* Shield option */}
-      {shieldsLeft>0&&<div style={{marginTop:10,padding:"10px 14px",background:"#E3F2FD",border:"1.5px solid #90CAF9",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
-        <div>
-          <div style={{fontWeight:700,fontSize:13,color:"#1565C0"}}>🛡️ Use a shield</div>
-          <div style={{fontSize:11,color:"#1976D2"}}>{shieldsLeft} of 4 remaining · Protects your streak</div>
-        </div>
-        <button onClick={()=>onSaveAll(acts.map(a=>({actId:a.id,value:0,status:"shielded",target:a.target})))} style={{background:"#1976D2",color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12,whiteSpace:"nowrap"}}>Use shield</button>
-      </div>}
     </div>
   </div>;
 }
@@ -1353,6 +1959,7 @@ function CalCell({dateStr,member,logs,isToday,onClick,ppByDate}){
   const future=isFuture(dateStr)||(member.startDate&&dateStr<member.startDate);
   const status=future?"future":dayStatus(member,logs,dateStr);
   const bg={future:"transparent",empty:C.empty,skipped:C.missed,done:C.done,shielded:"#BBDEFB"}[status]||C.empty;
+  const illnessEntry = !future ? getIllnessLog(logs, member.id)[dateStr] : null;
 
   const acts=member.activities||[];
   let aboveTarget=false;
@@ -1364,15 +1971,17 @@ function CalCell({dateStr,member,logs,isToday,onClick,ppByDate}){
       const al=getActivityLogs(logs,member.id,a.id);
       const l=al[dateStr];
       if(l&&l.status!=="skipped"&&l.value>0){
-        const effectiveTarget=l.target||a.target;
+        const effectiveTarget=getHistoricalTarget(l, a.id, a.target, logs, member.id, dateStr);
         if(l.value>effectiveTarget){
           aboveTarget=true;
           if(acts.length===1) displayVal=`${l.value}${a.unit}`;
         }
+        const sessionVals=l.sessions&&l.sessions.length>0?l.sessions:[l.value];
+        const maxSessionToday=Math.max(...sessionVals);
         const best=allTimeBest(al);
-        if(l.value===best&&l.value>effectiveTarget){
+        if(maxSessionToday===best&&maxSessionToday>effectiveTarget){
           isPB=true;
-          tooltipLines.push(`🏆 PB: ${l.value}${a.unit} (${a.name})`);
+          tooltipLines.push(`🏆 PB: ${maxSessionToday}${a.unit} (${a.name})`);
         } else {
           tooltipLines.push(`${a.name}: ${l.value}${a.unit}`);
         }
@@ -1381,15 +1990,16 @@ function CalCell({dateStr,member,logs,isToday,onClick,ppByDate}){
   }
   if(status==="skipped") tooltipLines.push("❌ Skipped");
   if(status==="shielded") tooltipLines.push("🛡️ Shielded");
+  if(illnessEntry) tooltipLines.push(`🤒 Sick: ${illnessEntry.reason}`);
   const dayPP = ppByDate&&ppByDate[dateStr];
   if(dayPP!==undefined&&dayPP!==0){
     const isMystery = isMysteryBonusDay(member.id, dateStr);
     tooltipLines.push(`⚡ ${dayPP>0?"+":""}${dayPP.toLocaleString()} PP${isMystery?" 🎁 2x Mystery!":""}`);
   }
 
-  const borderColor = aboveTarget?"#C9A800":isToday?member.color:C.border;
-  const borderWidth = aboveTarget||isToday?"2px":"1px";
-  const bgColor = aboveTarget?"#2E8B57":bg;
+  const borderColor = illnessEntry?"#8E5FA8":aboveTarget?"#C9A800":isToday?member.color:C.border;
+  const borderWidth = illnessEntry||aboveTarget||isToday?"2px":"1px";
+  const bgColor = illnessEntry?"#F3E5F5":aboveTarget?"#2E8B57":bg;
 
   const[showTip,setShowTip]=useState(false);
 
@@ -1402,10 +2012,11 @@ function CalCell({dateStr,member,logs,isToday,onClick,ppByDate}){
   }}
   onMouseEnter={e=>{if(!future){e.currentTarget.style.transform="scale(1.07)";setShowTip(true);}}}
   onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)";setShowTip(false);}}>
-    {status==="shielded"&&<span style={{fontSize:16}}>🛡️</span>}
+    {status==="shielded"&&!illnessEntry&&<span style={{fontSize:16}}>🛡️</span>}
+    {illnessEntry&&<span style={{fontSize:16}}>🤒</span>}
     {isPB&&<span style={{position:"absolute",top:1,right:2,fontSize:9,lineHeight:1}}>👑</span>}
     {!isPB&&aboveTarget&&<span style={{position:"absolute",top:2,right:3,fontSize:8,lineHeight:1}}>⭐</span>}
-    <span style={{fontSize:10,color:status==="empty"||future?C.muted:"#fff",fontWeight:600}}>
+    <span style={{fontSize:10,color:(status==="empty"||future||illnessEntry)?C.muted:"#fff",fontWeight:600}}>
       {new Date(dateStr+"T00:00:00").getDate()}
     </span>
     {(isPB||displayVal)&&<span style={{fontSize:8,color:"rgba(255,255,255,0.9)",fontWeight:700,lineHeight:1}}>
@@ -1428,7 +2039,7 @@ function CalCell({dateStr,member,logs,isToday,onClick,ppByDate}){
 
 // ── Badge Drawer ──────────────────────────────────────────────────────────────
 function BadgeDrawer({member, allEarned, acts, logs, onClose}){
-  const personalBadges = BADGES.filter(b=>!FAM_IDS.has(b.id));
+  const personalBadges = getMemberBadges(member);
   const earnedList     = personalBadges.filter(b=>allEarned.has(b.id));
   const lockedList     = personalBadges.filter(b=>!allEarned.has(b.id));
 
@@ -1465,7 +2076,7 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
         if(l.status==="skipped"||!l.value) continue;
         const d=new Date(ds+"T00:00:00"); const dow=(d.getDay()+6)%7;
         const mon=new Date(d); mon.setDate(d.getDate()-dow);
-        const wk=mon.toISOString().slice(0,10);
+        const wk=toLocalDateStr(mon);
         wm[wk]=(wm[wk]||0)+1;
       }
       const wv=Object.values(wm); if(wv.length&&Math.max(...wv)>curWeek) curWeek=Math.max(...wv);
@@ -1621,13 +2232,14 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
 // ── Power Points Drawer ──────────────────────────────────────────────────────
 // ── Power Points Panel (in-flow, tabbed — sits beside the card via flexbox, never fixed/floating) ──
 function PowerPointsPanel({member, logs, onClose}){
-  const {total, breakdown, weekPP, levelHistory, dailyEarned, dailyTags} = computePowerPoints(member, logs);
+  const {total, breakdown, weekPP, levelHistory, dailyEarned, dailyTags, dailyBreakdown} = computePowerPoints(member, logs);
   const projection = projectNextLevel(member, logs);
   const level = getLevel(total);
   const nextLevel = getNextLevel(total);
   const pct = nextLevel ? Math.round(((total - level.pp) / (nextLevel.pp - level.pp)) * 100) : 100;
   const [tab, setTab] = useState("overview"); // overview | history | info
   const [showLevels, setShowLevels] = useState(false);
+  const [expandedDay, setExpandedDay] = useState(null);
 
   // Build complete level crossing dates — fill gaps via cumulative daily sum
   const completeLevelDates = {};
@@ -1656,6 +2268,8 @@ function PowerPointsPanel({member, logs, onClose}){
     pb:{icon:"🌟",label:"PB"}, above:{icon:"💪",label:"Above"}, at:{icon:"✅",label:"At target"},
     below:{icon:"📉",label:"Below"}, shielded:{icon:"🛡️",label:"Shielded"}, skipped:{icon:"❌",label:"Skipped"},
     mystery:{icon:"🎁",label:"Mystery"}, egg:{icon:"🥚",label:"Egg"},
+    gk:{icon:"🧠",label:"GK Quiz"}, gkWeekend:{icon:"🏆",label:"Weekly Review"},
+    bravery:{icon:"🦁",label:"Bravery"}, extraSession:{icon:"➕",label:"Extra Session"}, distance:{icon:"🏃",label:"Distance Bonus"},
   };
 
   return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,
@@ -1713,9 +2327,10 @@ function PowerPointsPanel({member, logs, onClose}){
             <span style={{fontSize:10,fontWeight:700,color:isCur?"#FFD700":C.muted,minWidth:18,textAlign:"right"}}>{l.level}</span>
             <span style={{fontSize:14,minWidth:22}}>{l.icon}</span>
             <span style={{flex:1,fontSize:12,fontWeight:isCur?700:500,color:isCur?"#FFD700":C.text}}>{l.title}</span>
-            {dateLabel
-              ? <span style={{fontSize:9,color:isCur?"rgba(255,255,255,0.4)":C.muted}}>{dateLabel}</span>
-              : <span style={{fontSize:9,color:isCur?"rgba(255,255,255,0.3)":C.muted}}>{l.pp.toLocaleString()}</span>}
+            <span style={{fontSize:9,color:isCur?"rgba(255,255,255,0.4)":C.muted,textAlign:"right"}}>
+              {l.pp.toLocaleString()} PP
+              {isEarned&&dateLabel&&<span style={{display:"block"}}>{dateLabel}</span>}
+            </span>
           </div>;
         })}
       </div>
@@ -1754,6 +2369,11 @@ function PowerPointsPanel({member, logs, onClose}){
             {label:"Shielded",val:breakdown.shielded,show:breakdown.shielded>0},
             {label:"Streak bonus",val:breakdown.streakBonus,show:breakdown.streakBonus>0},
             {label:"🥚 Eggs",val:breakdown.eggBonus,show:breakdown.eggBonus>0},
+            {label:"🧠 GK Learning",val:breakdown.gkBonus,show:breakdown.gkBonus>0},
+            {label:"🦁 Bravery",val:breakdown.braveryBonus,show:breakdown.braveryBonus>0},
+            {label:"🏅 Olympiad",val:breakdown.olympiadBonus,show:breakdown.olympiadBonus>0},
+            {label:"➕ Extra sessions",val:breakdown.extraSessionBonus,show:breakdown.extraSessionBonus>0},
+            {label:"🏃 Distance bonus",val:breakdown.distanceBonus,show:breakdown.distanceBonus>0},
             {label:"Starting bonus",val:100,show:true},
             {label:"Skipped",val:breakdown.skipped,show:breakdown.skipped<0},
             {label:"Streak breaks",val:breakdown.streakBreak,show:breakdown.streakBreak<0},
@@ -1765,6 +2385,57 @@ function PowerPointsPanel({member, logs, onClose}){
             </div>
           ))}
         </div>
+
+        {(()=>{
+          const chartLevels = earnedLevels.filter(l=>completeLevelDates[l.level]||l.level===1);
+          if(chartLevels.length<2) return null;
+          const points = chartLevels.map(l=>({
+            level: l.level,
+            date: completeLevelDates[l.level] || todayStr(),
+          })).sort((a,b)=>a.date.localeCompare(b.date));
+
+          const W=320, H=110, padL=28, padR=12, padT=10, padB=20;
+          const cW=W-padL-padR, cH=H-padT-padB;
+          const firstDate = new Date(points[0].date+"T00:00:00");
+          const lastDate = new Date(points[points.length-1].date+"T00:00:00");
+          const totalDays = Math.max(1,(lastDate-firstDate)/86400000);
+          const maxLevel = points[points.length-1].level;
+          const minLevel = points[0].level;
+          const levelRange = Math.max(1, maxLevel-minLevel);
+
+          function xPos(dateStr){
+            const d = new Date(dateStr+"T00:00:00");
+            return padL + ((d-firstDate)/86400000/totalDays)*cW;
+          }
+          function yPos(lvl){
+            return padT + cH - ((lvl-minLevel)/levelRange)*cH;
+          }
+          const pathD = points.map((p,i)=>{
+            const x=xPos(p.date), y=yPos(p.level);
+            return i===0?`M${x},${y}`:`L${x},${y}`;
+          }).join(" ");
+
+          return <>
+            <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>LEVEL PROGRESSION</div>
+            <div style={{marginBottom:16,background:C.bg,borderRadius:10,padding:"10px 12px"}}>
+              <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto"}}>
+                {[minLevel,Math.round((minLevel+maxLevel)/2),maxLevel].map(lv=>(
+                  <g key={lv}>
+                    <line x1={padL} y1={yPos(lv)} x2={W-padR} y2={yPos(lv)} stroke={C.border} strokeWidth={1} strokeDasharray="3,3"/>
+                    <text x={padL-4} y={yPos(lv)+3} textAnchor="end" fontSize={8} fill={C.muted}>{lv}</text>
+                  </g>
+                ))}
+                <path d={pathD} fill="none" stroke="#FFD700" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+                {points.map((p,i)=>(
+                  <circle key={i} cx={xPos(p.date)} cy={yPos(p.level)} r={i===points.length-1?4:2.5}
+                    fill={i===points.length-1?"#FFD700":"#1a1a2e"} stroke="#fff" strokeWidth={1}/>
+                ))}
+                <text x={padL} y={H-4} fontSize={8} fill={C.muted}>{firstDate.toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</text>
+                <text x={W-padR} y={H-4} textAnchor="end" fontSize={8} fill={C.muted}>{lastDate.toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</text>
+              </svg>
+            </div>
+          </>;
+        })()}
 
         <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>LEVELS UNLOCKED ({earnedLevels.length}/{PP_LEVELS.length})</div>
         <div style={{display:"flex",flexDirection:"column",gap:5}}>
@@ -1794,15 +2465,57 @@ function PowerPointsPanel({member, logs, onClose}){
             const pts = dailyEarned[d]||0;
             const tags = dailyTags[d]||[];
             const dateLabel = new Date(d+"T00:00:00").toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"});
-            return <div key={d} style={{display:"flex",alignItems:"center",justifyContent:"space-between",
-              padding:"9px 4px",borderBottom:i<dates.length-1?`1px solid ${C.border}`:"none"}}>
-              <div>
-                <div style={{fontSize:12,fontWeight:600,color:C.text}}>{dateLabel}</div>
-                <div style={{display:"flex",gap:5,marginTop:2,flexWrap:"wrap"}}>
-                  {tags.map(t=>TAG_INFO[t]&&<span key={t} style={{fontSize:9,color:C.muted}}>{TAG_INFO[t].icon} {TAG_INFO[t].label}</span>)}
+            const details = dailyBreakdown[d]||[];
+            const isExpanded = expandedDay===d;
+            return <div key={d} style={{borderBottom:i<dates.length-1?`1px solid ${C.border}`:"none"}}>
+              <div onClick={()=>details.length>0&&setExpandedDay(isExpanded?null:d)} style={{
+                display:"flex",alignItems:"center",justifyContent:"space-between",
+                padding:"9px 4px",cursor:details.length>0?"pointer":"default",
+              }}>
+                <div>
+                  <div style={{fontSize:12,fontWeight:600,color:C.text,display:"flex",alignItems:"center",gap:5}}>
+                    {dateLabel}
+                    {details.length>0&&<span style={{fontSize:9,color:C.muted}}>{isExpanded?"▾":"▸"}</span>}
+                  </div>
+                  <div style={{display:"flex",gap:5,marginTop:2,flexWrap:"wrap"}}>
+                    {tags.map(t=>TAG_INFO[t]&&<span key={t} style={{fontSize:9,color:C.muted}}>{TAG_INFO[t].icon} {TAG_INFO[t].label}</span>)}
+                  </div>
                 </div>
+                <span style={{fontSize:12,fontWeight:700,color:pts>=0?(pts>0?C.done:C.muted):C.missed}}>{pts>0?"+":""}{pts.toLocaleString()}</span>
               </div>
-              <span style={{fontSize:12,fontWeight:700,color:pts>=0?(pts>0?C.done:C.muted):C.missed}}>{pts>0?"+":""}{pts.toLocaleString()}</span>
+              {isExpanded&&<div style={{background:C.bg,borderRadius:10,padding:"10px 12px",marginBottom:10,display:"flex",flexDirection:"column",gap:10}}>
+                {details.map((det,di)=>(
+                  <div key={di} style={{fontSize:11,paddingBottom:di<details.length-1?8:0,borderBottom:di<details.length-1?`1px solid ${C.border}`:"none"}}>
+                    <div style={{fontWeight:700,color:C.text,marginBottom:4,display:"flex",justifyContent:"space-between"}}>
+                      <span>{det.activityName}</span>
+                      <span style={{color:member.color}}>+{det.total.toLocaleString()}</span>
+                    </div>
+                    {det.shielded ? (
+                      <div style={{color:C.muted}}>🛡️ Shielded — flat +25</div>
+                    ) : (
+                      <div style={{color:C.muted,display:"flex",flexDirection:"column",gap:2}}>
+                        <div>{det.value}{det.activityUnit} vs target {det.target}{det.activityUnit} → {TAG_INFO[det.tierLabel]?.label||det.tierLabel} ({det.rawTier} base{det.ppMultiplier!==1?` × ${det.ppMultiplier} activity multiplier`:""})</div>
+                        <div>
+                          {(det.ppMultiplier!==1?Math.round(det.rawTier*det.ppMultiplier):det.rawTier).toLocaleString()} base
+                          {det.streakMultiplier>1&&<> × {det.streakMultiplier} streak</>}
+                          {det.mysteryMultiplier===2&&<> × 2 🎁 mystery</>}
+                          {" "}= {det.tierEarned.toLocaleString()}
+                        </div>
+                        {det.extraEarned>0&&<div>➕ {det.extraSessions-1} extra session{det.extraSessions-1>1?"s":""} bonus: +{det.extraEarned.toLocaleString()}</div>}
+                        {det.sessions&&det.sessions.length>1&&<div style={{marginTop:3,paddingTop:3,borderTop:`1px solid ${C.border}`,display:"flex",flexWrap:"wrap",gap:4}}>
+                          {det.sessions.map((s,si)=>(
+                            <span key={si} style={{fontSize:10,background:C.bg,border:`1px solid ${C.border}`,
+                              borderRadius:5,padding:"1px 6px",color:C.muted,fontWeight:600}}>
+                              S{si+1}: {s}{det.activityUnit}
+                            </span>
+                          ))}
+                        </div>}
+                        {det.distanceEarned>0&&<div>🏃 Distance bonus: +{det.distanceEarned.toLocaleString()}</div>}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>}
             </div>;
           })}
         </div>;
@@ -1890,17 +2603,150 @@ function MysteryBonusReveal({normalPP, bonusPP, onClose}){
 }
 
 // ── Egg-O-Meter (isolated bonus PP feature) ───────────────────────────────────
+// ── Egg History Drawer — calendar view + monthly total ──────────────────────
+function EggHistoryDrawer({member, logs, onEggChange, onClose}){
+  const now = new Date();
+  const[yr, setYr] = useState(now.getFullYear());
+  const[mo, setMo] = useState(now.getMonth());
+  const[selectedDate, setSelectedDate] = useState(null);
+  const eggLogs = getEggLogs(logs, member.id);
+  const today = todayStr();
+  const isCurMo = yr===now.getFullYear() && mo===now.getMonth();
+
+  const prevMo = ()=>{ setSelectedDate(null); if(mo===0){setYr(y=>y-1);setMo(11);}else setMo(m=>m-1); };
+  const nextMo = ()=>{ setSelectedDate(null); if(mo===11){setYr(y=>y+1);setMo(0);}else setMo(m=>m+1); };
+
+  const monthPrefix = `${yr}-${String(mo+1).padStart(2,"0")}`;
+  const monthTotal = Object.entries(eggLogs)
+    .filter(([d])=>d.startsWith(monthPrefix))
+    .reduce((s,[,c])=>s+(c||0), 0);
+
+  const dCount = daysInMonth(yr, mo);
+  const firstDay = firstDayOfMonth(yr, mo);
+  const cells = [];
+  for(let i=0;i<firstDay;i++) cells.push(null);
+  for(let d=1;d<=dCount;d++) cells.push(d);
+
+  const selectedCount = selectedDate ? (eggLogs[selectedDate] || 0) : 0;
+
+  return <>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
+    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
+      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
+      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+      <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:26}}>{member.emoji}</span>
+            <div>
+              <div style={{fontWeight:800,fontSize:16}}>🥚 Egg History</div>
+              <div style={{fontSize:11,color:C.muted}}>{member.name} · tap any day to edit</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,
+            borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+        </div>
+      </div>
+
+      <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px"}}>
+        {/* Month nav + total */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+          <button onClick={prevMo} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,
+            padding:"4px 10px",cursor:"pointer",fontSize:14,color:C.text}}>‹</button>
+          <div style={{textAlign:"center"}}>
+            <div style={{fontWeight:700,fontSize:14}}>{MONTHS[mo]} {yr}</div>
+          </div>
+          <button onClick={nextMo} disabled={isCurMo} style={{background:"none",border:`1px solid ${C.border}`,
+            borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:14,color:C.text,opacity:isCurMo?0.3:1}}>›</button>
+        </div>
+
+        <div style={{background:"linear-gradient(135deg,#EBF2FC,#DCE9F9)",border:"1.5px solid #5B8FD4",
+          borderRadius:12,padding:"14px 16px",marginBottom:16,textAlign:"center"}}>
+          <div style={{fontSize:10,fontWeight:700,color:"#2C5FA8",letterSpacing:0.5,marginBottom:2}}>MONTHLY TOTAL</div>
+          <div style={{fontSize:24,fontWeight:900,color:"#2C5FA8"}}>{monthTotal % 1 === 0 ? monthTotal : monthTotal.toFixed(1)} <span style={{fontSize:14}}>🥚</span></div>
+          <div style={{fontSize:11,color:"#4A6B94"}}>+{(monthTotal*1000).toLocaleString()} ⚡ this month</div>
+        </div>
+
+        {/* Inline editor for selected date */}
+        {selectedDate&&<div style={{background:"#EBF2FC",border:"1.5px solid #5B8FD4",borderRadius:12,
+          padding:"14px 16px",marginBottom:14}}>
+          <div style={{fontWeight:700,fontSize:13,color:"#2C5FA8",marginBottom:10}}>
+            🥚 {new Date(selectedDate+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"})}
+            {selectedDate===today ? " (Today)" : ""}
+          </div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+            <div style={{display:"flex",gap:6}}>
+              {selectedCount>0&&<button onClick={()=>onEggChange(member.id,selectedDate,-0.5)} style={{
+                background:"none",border:"1.5px solid #5B8FD4",borderRadius:8,padding:"6px 12px",
+                cursor:"pointer",fontWeight:700,fontSize:13,color:"#2C5FA8",
+              }}>−½</button>}
+              {selectedCount>0&&<button onClick={()=>onEggChange(member.id,selectedDate,-1)} style={{
+                background:"none",border:"1.5px solid #5B8FD4",borderRadius:8,padding:"6px 12px",
+                cursor:"pointer",fontWeight:700,fontSize:13,color:"#2C5FA8",
+              }}>−1</button>}
+            </div>
+            <div style={{fontSize:22,fontWeight:900,color:"#2C5FA8",minWidth:40,textAlign:"center"}}>
+              {selectedCount % 1 === 0 ? selectedCount : selectedCount.toFixed(1)} 🥚
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={()=>onEggChange(member.id,selectedDate,0.5)} style={{
+                background:"none",border:"1.5px solid #5B8FD4",borderRadius:8,padding:"6px 12px",
+                cursor:"pointer",fontWeight:700,fontSize:13,color:"#2C5FA8",
+              }}>+½</button>
+              <button onClick={()=>onEggChange(member.id,selectedDate,1)} style={{
+                background:"#5B8FD4",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",
+                cursor:"pointer",fontWeight:700,fontSize:13,
+              }}>+1</button>
+            </div>
+          </div>
+        </div>}
+
+        {/* Calendar grid */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4,marginBottom:4}}>
+          {DAYS.map(d=><div key={d} style={{textAlign:"center",fontSize:10,color:C.muted,fontWeight:600,padding:"4px 0"}}>{d}</div>)}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
+          {cells.map((d,i)=>{
+            if(d===null) return <div key={`e${i}`}/>;
+            const dateStr = `${yr}-${String(mo+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+            const count = eggLogs[dateStr] || 0;
+            const isToday = dateStr===today;
+            const isFutureDate = dateStr>today;
+            const isSelected = selectedDate===dateStr;
+            return <div key={d} onClick={()=>{ if(!isFutureDate) setSelectedDate(isSelected?null:dateStr); }}
+              style={{
+              aspectRatio:"1",borderRadius:7,display:"flex",flexDirection:"column",
+              alignItems:"center",justifyContent:"center",gap:1,
+              background:isSelected?"#2C5FA8":count>0?"#5B8FD4":C.bg,
+              border:isSelected?"2px solid #1A4A8A":isToday?"2px solid #2C5FA8":`1px solid ${C.border}`,
+              opacity:isFutureDate?0.3:1,
+              cursor:isFutureDate?"default":"pointer",
+              transition:"background 0.1s",
+            }}>
+              <span style={{fontSize:10,fontWeight:600,color:(count>0||isSelected)?"#fff":C.muted}}>{d}</span>
+              {count>0&&<span style={{fontSize:9,color:"#fff"}}>🥚{count===0.5?"½":count>1?count:""}</span>}
+            </div>;
+          })}
+        </div>
+      </div>
+    </div>
+  </>;
+}
+
 function EggMeter({member, logs, onEggChange, onNewBadge}){
   const today = todayStr();
   const eggLogs = getEggLogs(logs, member.id);
   const todayCount = eggLogs[today] || 0;
   const totalCount = totalEggCount(logs, member.id);
   const[celebrate,setCelebrate]=useState(false);
+  const[celebrateHalf,setCelebrateHalf]=useState(false);
+  const[showHistory,setShowHistory]=useState(false);
 
   function handleTap(delta){
     if(delta>0){
-      setCelebrate(true);
-      setTimeout(()=>setCelebrate(false),1400);
+      if(delta===0.5){ setCelebrateHalf(true); setTimeout(()=>setCelebrateHalf(false),1400); }
+      else { setCelebrate(true); setTimeout(()=>setCelebrate(false),1400); }
     }
     const prevLevel = getLevel(computePowerPoints(member, logs).total);
     onEggChange(member.id, today, delta);
@@ -1915,12 +2761,15 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
         onNewBadge({id:`pp_level_${newLevel.level}`,e:newLevel.icon,
           label:`Level ${newLevel.level}: ${newLevel.title}!`,
           desc:`You reached ${newLevel.title}! Keep going!`,
-          tier:newLevel.level>=25?'gold':newLevel.level>=15?'silver':'bronze'}, member.name);
+          tier:newLevel.level>=49?'gold':newLevel.level>=29?'silver':'bronze'}, member.name);
       }
     },100);
   }
 
-  return <div style={{
+  const ppLabel = totalCount % 1 === 0 ? `+${(totalCount*1000).toLocaleString()} ⚡ total` : `+${(totalCount*1000).toLocaleString()} ⚡ total`;
+
+  return <>
+  <div style={{
     background:"linear-gradient(135deg,#EBF2FC,#DCE9F9)",border:"1.5px solid #5B8FD4",
     borderRadius:12,padding:"12px 16px",marginBottom:12,position:"relative",overflow:"hidden",
     display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,
@@ -1952,33 +2801,815 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
       <span style={{position:"absolute",top:0,right:-6,fontSize:12,fontWeight:800,color:"#F9A825",
         whiteSpace:"nowrap",animation:"ppFloat 1.2s 0.2s ease-out both"}}>+1,000 ⚡</span>
     </div>}
+    {celebrateHalf&&<div style={{position:"absolute",top:6,right:16,display:"flex",flexDirection:"column",alignItems:"center",pointerEvents:"none",zIndex:5}}>
+      <span style={{fontSize:20,display:"inline-block",animation:"henBounce 0.7s ease-in-out"}}>🐔</span>
+      <span style={{fontSize:13,display:"inline-block",animation:"eggDrop 0.9s 0.3s ease-out both",marginTop:-4}}>🥚½</span>
+      <span style={{position:"absolute",top:0,right:-6,fontSize:12,fontWeight:800,color:"#F9A825",
+        whiteSpace:"nowrap",animation:"ppFloat 1.2s 0.2s ease-out both"}}>+500 ⚡</span>
+    </div>}
     <div>
       <div style={{fontSize:11,fontWeight:700,color:"#2C5FA8",letterSpacing:0.5,marginBottom:2}}>🥚 EGG-O-METER</div>
       <div style={{display:"flex",alignItems:"baseline",gap:8}}>
-        <span style={{fontSize:20,fontWeight:900,color:"#2C5FA8"}}>{totalCount}</span>
-        <span style={{fontSize:11,color:"#4A6B94"}}>eggs · +{(totalCount*1000).toLocaleString()} ⚡ total</span>
+        <span style={{fontSize:20,fontWeight:900,color:"#2C5FA8"}}>{totalCount % 1 === 0 ? totalCount : totalCount.toFixed(1)}</span>
+        <span style={{fontSize:11,color:"#4A6B94"}}>eggs · {ppLabel}</span>
       </div>
-      {todayCount>0&&<div style={{fontSize:11,color:"#4A6B94",marginTop:2}}>{todayCount} today</div>}
+      {todayCount>0&&<div style={{fontSize:11,color:"#4A6B94",marginTop:2}}>{todayCount % 1 === 0 ? todayCount : todayCount.toFixed(1)} today</div>}
     </div>
     <div style={{display:"flex",alignItems:"center",gap:8}}>
+      <button onClick={()=>setShowHistory(true)} style={{
+        background:"none",border:"1.5px solid #5B8FD4",borderRadius:8,
+        width:32,height:32,cursor:"pointer",fontSize:14,color:"#2C5FA8",
+      }}>📅</button>
+      {todayCount>0&&<button onClick={()=>handleTap(-0.5)} style={{
+        background:"none",border:"1.5px solid #5B8FD4",borderRadius:8,
+        width:32,height:32,cursor:"pointer",fontSize:13,color:"#2C5FA8",fontWeight:700,
+      }}>−½</button>}
       {todayCount>0&&<button onClick={()=>handleTap(-1)} style={{
         background:"none",border:"1.5px solid #5B8FD4",borderRadius:8,
         width:32,height:32,cursor:"pointer",fontSize:16,color:"#2C5FA8",fontWeight:700,
       }}>−</button>}
-      <button onClick={()=>handleTap(1)} style={{
-        background:"#5B8FD4",color:"#fff",border:"none",borderRadius:8,
-        padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13,whiteSpace:"nowrap",
-      }}>🥚 +1 Egg</button>
+      <div style={{display:"flex",flexDirection:"column",gap:4}}>
+        <button onClick={()=>handleTap(0.5)} style={{
+          background:"none",border:"1.5px solid #5B8FD4",color:"#2C5FA8",borderRadius:8,
+          padding:"4px 10px",cursor:"pointer",fontWeight:700,fontSize:11,whiteSpace:"nowrap",
+        }}>🥚 +½</button>
+        <button onClick={()=>handleTap(1)} style={{
+          background:"#5B8FD4",color:"#fff",border:"none",borderRadius:8,
+          padding:"4px 10px",cursor:"pointer",fontWeight:700,fontSize:11,whiteSpace:"nowrap",
+        }}>🥚 +1</button>
+      </div>
     </div>
-  </div>;
+  </div>
+  {showHistory&&<EggHistoryDrawer member={member} logs={logs} onEggChange={onEggChange} onClose={()=>setShowHistory(false)}/>}
+  </>;
 }
 
 // ── Member Card ───────────────────────────────────────────────────────────────
-function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP}){
+// ── The Chase — tracks gap between this member and their target ───────────────
+function computeChaseStats(member, target, logs){
+  const today = todayStr();
+  const myPP = computePowerPoints(member, logs);
+  const targetPP = computePowerPoints(target, logs);
+  const gap = targetPP.total - myPP.total;
+
+  // Build weekly PP totals for last 6 weeks — for both members
+  function weeklyHistory(ppResult){
+    const weeks = [];
+    for(let w=5; w>=0; w--){
+      const weekEnd = new Date(today+"T00:00:00");
+      weekEnd.setDate(weekEnd.getDate() - w*7);
+      const weekStart = new Date(weekEnd);
+      weekStart.setDate(weekEnd.getDate() - 6);
+      const weekStartStr = toLocalDateStr(weekStart);
+      const weekEndStr = toLocalDateStr(weekEnd);
+      let total = 0;
+      for(const [d, pp] of Object.entries(ppResult.dailyEarned)){
+        if(d >= weekStartStr && d <= weekEndStr) total += Math.max(0, pp||0);
+      }
+      weeks.push({label: weekEnd.toLocaleDateString("en-IN",{day:"numeric",month:"short"}), pp: Math.round(total)});
+    }
+    return weeks;
+  }
+
+  const myWeeks = weeklyHistory(myPP);
+  const targetWeeks = weeklyHistory(targetPP);
+
+  // Gap this week vs last week
+  const gapThisWeek = targetPP.weekPP - myPP.weekPP;
+  const myLastWeek = myWeeks[myWeeks.length-2]?.pp || 0;
+  const targetLastWeek = targetWeeks[targetWeeks.length-2]?.pp || 0;
+  const gapLastWeek = targetLastWeek - myLastWeek;
+  const gapChange = gapThisWeek - gapLastWeek; // positive = gap widening, negative = gap closing
+
+  // Projection: weeks to close at current pace
+  const netClosingPerWeek = myPP.weekPP - targetPP.weekPP; // positive = closing
+  let weeksToClose = null;
+  let catchDate = null;
+  if(netClosingPerWeek > 0){
+    weeksToClose = Math.ceil(gap / netClosingPerWeek);
+    const cd = new Date(today+"T00:00:00");
+    cd.setDate(cd.getDate() + weeksToClose*7);
+    catchDate = cd.toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"});
+  }
+
+  // What weekly PP needed to close in N weeks
+  function ppNeededToCloseIn(weeks){
+    const targetFuturePP = targetPP.total + targetPP.weekPP * weeks;
+    return Math.round((targetFuturePP - myPP.total) / weeks);
+  }
+
+  return {
+    myTotal: myPP.total, targetTotal: targetPP.total, gap,
+    myWeekPP: myPP.weekPP, targetWeekPP: targetPP.weekPP,
+    gapThisWeek, gapChange,
+    myWeeks, targetWeeks,
+    weeksToClose, catchDate, netClosingPerWeek,
+    ppNeededIn8: ppNeededToCloseIn(8),
+    ppNeededIn12: ppNeededToCloseIn(12),
+    ppNeededIn24: ppNeededToCloseIn(24),
+  };
+}
+
+// ── Weekly Momentum ──────────────────────────────────────────────────────────
+// A weekly gauge (-100 to +100) measuring how this week compares to last week
+// across 4 signals: PP earned, average output vs target, session count, consistency.
+// Resets every Monday. Always dynamic — even peak performers have something to chase.
+function computeWeeklyMomentum(member, logs){
+  const today = todayStr();
+  const acts = member.activities || [];
+  if(acts.length === 0) return null;
+
+  // Get Monday of current week and last week
+  function getMondayOf(dateStr){
+    const d = new Date(dateStr+"T00:00:00");
+    const day = d.getDay(); // 0=Sun
+    const diff = day === 0 ? 6 : day - 1;
+    d.setDate(d.getDate() - diff);
+    return toLocalDateStr(d);
+  }
+  const thisMonday = getMondayOf(today);
+  const lastMondayDate = new Date(thisMonday+"T00:00:00");
+  lastMondayDate.setDate(lastMondayDate.getDate() - 7);
+  const lastMonday = toLocalDateStr(lastMondayDate);
+  const thisSunday = toLocalDateStr(new Date(new Date(thisMonday+"T00:00:00").getTime() + 6*86400000));
+  const lastSunday = toLocalDateStr(new Date(new Date(lastMonday+"T00:00:00").getTime() + 6*86400000));
+
+  // Get days in a week range
+  function getDaysInRange(from, to){
+    const days = [];
+    const d = new Date(from+"T00:00:00");
+    const end = new Date(to+"T00:00:00");
+    while(d <= end){
+      const ds = toLocalDateStr(d);
+      if(ds <= today) days.push(ds);
+      d.setDate(d.getDate()+1);
+    }
+    return days;
+  }
+  const thisWeekDays = getDaysInRange(thisMonday, thisSunday);
+  const lastWeekDays = getDaysInRange(lastMonday, lastSunday);
+
+  if(lastWeekDays.length === 0) return null; // not enough history
+
+  // Signal 1: PP earned — normalize to daily average for fair partial-week comparison
+  const ppData = computePowerPoints(member, logs);
+  function ppForDays(days){ return days.reduce((s,d)=>s+Math.max(0,ppData.dailyEarned[d]||0),0); }
+  const thisPPTotal = ppForDays(thisWeekDays);
+  const lastPPTotal = ppForDays(lastWeekDays);
+  // Use daily average so partial weeks compare fairly against full weeks
+  const thisPP = thisWeekDays.length > 0 ? thisPPTotal / thisWeekDays.length : 0;
+  const lastPP = lastWeekDays.length > 0 ? lastPPTotal / lastWeekDays.length : 0;
+
+  // Signal 2: avg output as % of target
+  function avgOutputForDays(days){
+    const vals = [];
+    for(const d of days){
+      for(const a of acts){
+        const l = getActivityLogs(logs, member.id, a.id)[d];
+        if(l && l.status !== "skipped" && l.status !== "shielded" && l.value > 0){
+          vals.push(l.value / (l.target || a.target));
+        }
+      }
+    }
+    return vals.length > 0 ? vals.reduce((s,v)=>s+v,0)/vals.length : null;
+  }
+  const thisOutput = avgOutputForDays(thisWeekDays);
+  const lastOutput = avgOutputForDays(lastWeekDays);
+
+  // Signal 3: total sessions logged — daily average for fair comparison
+  function sessionCountForDays(days){
+    let total = 0;
+    for(const d of days){
+      for(const a of acts){
+        const l = getActivityLogs(logs, member.id, a.id)[d];
+        if(l && l.status !== "skipped" && l.status !== "shielded" && l.value > 0){
+          total += l.sessions ? l.sessions.length : 1;
+        }
+      }
+    }
+    return days.length > 0 ? total / days.length : 0; // daily average
+  }
+  const thisSessions = sessionCountForDays(thisWeekDays);
+  const lastSessions = sessionCountForDays(lastWeekDays);
+
+  // Signal 4: consistency (% of days with at least one activity logged)
+  function consistencyForDays(days){
+    if(days.length === 0) return 0;
+    let logged = 0;
+    for(const d of days){
+      const anyLogged = acts.some(a => {
+        const l = getActivityLogs(logs, member.id, a.id)[d];
+        return l && l.status !== "skipped" && (l.status === "shielded" || l.value > 0);
+      });
+      if(anyLogged) logged++;
+    }
+    return logged / days.length;
+  }
+  const thisConsistency = consistencyForDays(thisWeekDays);
+  const lastConsistency = consistencyForDays(lastWeekDays);
+
+  // Compute delta for each signal — normalized to -1..+1
+  function safeDelta(curr, prev){
+    if(prev === null || prev === 0) return curr > 0 ? 0.5 : 0;
+    return Math.max(-1, Math.min(1, (curr - prev) / prev));
+  }
+  const ppDelta        = safeDelta(thisPP, lastPP);
+  const outputDelta    = thisOutput!==null&&lastOutput!==null ? safeDelta(thisOutput, lastOutput) : 0;
+  const sessionsDelta  = safeDelta(thisSessions, lastSessions);
+  const consistDelta   = thisConsistency - lastConsistency; // already -1..+1
+
+  // Weighted momentum score: -100 to +100
+  const momentum = Math.round(
+    ppDelta       * 0.35 * 100 +
+    outputDelta   * 0.25 * 100 +
+    sessionsDelta * 0.20 * 100 +
+    consistDelta  * 0.20 * 100
+  );
+  const score = Math.max(-100, Math.min(100, momentum));
+
+  // Pct changes for display
+  function pctChange(curr, prev){
+    if(prev === null || prev === 0) return null;
+    return Math.round((curr - prev) / prev * 100);
+  }
+
+  return {
+    score,
+    signals: {
+      pp:          {this: Math.round(thisPP).toLocaleString(),    last: Math.round(lastPP).toLocaleString(),    pct: pctChange(thisPP, lastPP),             delta: ppDelta},
+      output:      {this: thisOutput ? (thisOutput*100).toFixed(0)+"%" : "—", last: lastOutput ? (lastOutput*100).toFixed(0)+"%" : "—", pct: thisOutput&&lastOutput ? pctChange(thisOutput, lastOutput) : null, delta: outputDelta},
+      sessions:    {this: thisSessions.toFixed(1),   last: lastSessions.toFixed(1),   pct: pctChange(thisSessions, lastSessions), delta: sessionsDelta},
+      consistency: {this: Math.round(thisConsistency*100)+"%", last: Math.round(lastConsistency*100)+"%", pct: Math.round((thisConsistency-lastConsistency)*100), delta: consistDelta},
+    },
+    thisWeek: thisMonday,
+    lastWeek: lastMonday,
+    daysLogged: thisWeekDays.length,
+  };
+}
+
+function WeeklyMomentumCard({member, logs}){
+  const m = computeWeeklyMomentum(member, logs);
+  const [expanded, setExpanded] = useState(false);
+  if(!m) return null;
+
+  const {score, signals} = m;
+  const isPositive = score > 0;
+  const isNeutral = score === 0;
+  const barColor = score >= 40 ? "#4CAF50" : score >= 10 ? "#8BC34A" : score >= -10 ? "#F9A825" : score >= -40 ? "#FF7043" : "#F44336";
+  const label = score >= 40 ? "Surging 🚀" : score >= 10 ? "Building ↑" : score >= -10 ? "Holding steady ⚖️" : score >= -40 ? "Dipping ↓" : "Needs a push ⚠️";
+
+  // Bar width: map -100..+100 to 0..100% with center at 50%
+  const barFill = Math.round(50 + score/2);
+  const barLeft = Math.min(50, barFill);
+  const barWidth = Math.abs(barFill - 50);
+
+  const signalRows = [
+    {label:"PP/day avg",      icon:"⚡", curr:m.signals.pp.this,      prev:m.signals.pp.last,      pct:m.signals.pp.pct},
+    {label:"Avg output",      icon:"💪", curr:m.signals.output.this,   prev:m.signals.output.last,  pct:m.signals.output.pct},
+    {label:"Sessions/day",    icon:"🔁", curr:m.signals.sessions.this, prev:m.signals.sessions.last,pct:m.signals.sessions.pct},
+    {label:"Consistency",     icon:"📅", curr:m.signals.consistency.this,prev:m.signals.consistency.last,pct:m.signals.consistency.pct},
+  ];
+
+  return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,marginBottom:12,overflow:"hidden"}}>
+    <div onClick={()=>setExpanded(e=>!e)} style={{padding:"14px 16px",cursor:"pointer"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+        <div>
+          <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:3}}>📈 WEEKLY MOMENTUM</div>
+          <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+            <span style={{fontSize:26,fontWeight:900,color:barColor}}>{score > 0 ? "+" : ""}{score}</span>
+            <span style={{fontSize:12,fontWeight:600,color:barColor}}>{label}</span>
+          </div>
+        </div>
+        <span style={{color:C.muted,fontSize:14}}>{expanded?"▾":"▸"}</span>
+      </div>
+      {/* Momentum gauge — center bar */}
+      <div style={{position:"relative",height:8,borderRadius:99,background:C.border,overflow:"hidden"}}>
+        {/* Center line */}
+        <div style={{position:"absolute",left:"50%",top:0,width:1,height:"100%",background:C.muted,zIndex:1}}/>
+        {/* Fill */}
+        <div style={{
+          position:"absolute",top:0,height:"100%",
+          left:`${barLeft}%`,width:`${barWidth}%`,
+          background:barColor,borderRadius:99,transition:"all 0.5s ease",
+        }}/>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:3}}>
+        <span style={{fontSize:9,color:C.muted}}>← Last week</span>
+        <span style={{fontSize:9,color:C.muted}}>This week →</span>
+      </div>
+    </div>
+
+    {expanded&&<div style={{padding:"0 16px 14px",borderTop:`1px solid ${C.border}`}}>
+      <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10,marginTop:12}}>THIS WEEK vs LAST WEEK</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {signalRows.map(({label,icon,curr,prev,pct})=>{
+          const up = pct !== null && pct > 0;
+          const down = pct !== null && pct < 0;
+          return <div key={label} style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+            padding:"8px 10px",background:C.bg,borderRadius:8}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:14}}>{icon}</span>
+              <span style={{fontSize:12,fontWeight:600,color:C.text}}>{label}</span>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:11,color:C.muted}}>{prev}</span>
+              <span style={{fontSize:11,color:C.muted}}>→</span>
+              <span style={{fontSize:12,fontWeight:700,color:up?"#4CAF50":down?"#F44336":C.text}}>{curr}</span>
+              {pct !== null && <span style={{fontSize:10,fontWeight:700,
+                color:up?"#4CAF50":down?"#F44336":C.muted,
+                background:up?"rgba(76,175,80,0.1)":down?"rgba(244,67,54,0.1)":"transparent",
+                borderRadius:4,padding:"1px 4px"}}>
+                {up?"+":""}{pct}%
+              </span>}
+            </div>
+          </div>;
+        })}
+      </div>
+    </div>}
+  </div>;
+}
+
+
+// ── Gem Vault ─────────────────────────────────────────────────────────────────
+// 8 collectible gems earned through specific real achievements.
+// Purely prestige — no PP value. Each gem stacks; count grows over time.
+const GEM_DEFS = [
+  {
+    id:"diamond", icon:"💎", name:"Diamond", color:"#00BCD4",
+    rarity:"Legendary",
+    desc:"Perfect month — every day logged, zero misses",
+  },
+  {
+    id:"platinum", icon:"🌟", name:"Platinum", color:"#9E9E9E",
+    rarity:"Epic",
+    desc:"30-day unbroken streak completed",
+  },
+  {
+    id:"gold", icon:"🪙", name:"Gold", color:"#F9A825",
+    rarity:"Rare",
+    desc:"7-day streak completed",
+  },
+  {
+    id:"ruby", icon:"🔴", name:"Ruby", color:"#E53935",
+    rarity:"Rare",
+    desc:"PB beaten by 20%+ over previous best",
+  },
+  {
+    id:"sapphire", icon:"💠", name:"Sapphire", color:"#1E88E5",
+    rarity:"Uncommon",
+    desc:"Above target 7 days in a row",
+  },
+  {
+    id:"silver", icon:"🥈", name:"Silver", color:"#78909C",
+    rarity:"Uncommon",
+    desc:"Any personal best set",
+  },
+  {
+    id:"pearl", icon:"🤍", name:"Pearl", color:"#EC407A",
+    rarity:"Uncommon",
+    desc:"Comeback — logged after a 3+ day miss",
+  },
+  {
+    id:"emerald", icon:"🟢", name:"Emerald", color:"#43A047",
+    rarity:"Common",
+    desc:"3 or more sessions in a single day",
+  },
+];
+
+function computeGemVault(member, logs){
+  const today = todayStr();
+  const acts = member.activities || [];
+  const sd = member.startDate || null;
+  if(acts.length === 0) return {};
+
+  // Collect all dates across all activities
+  const allDates = new Set();
+  for(const a of acts){
+    const al = getActivityLogs(logs, member.id, a.id);
+    for(const d of Object.keys(al)) if(d <= today && (!sd || d >= sd)) allDates.add(d);
+  }
+  const sortedDates = [...allDates].sort();
+  if(sortedDates.length === 0) return {};
+
+  // helpers
+  function dayDone(ds){
+    if(member.alternating && acts.length>1){
+      return acts.some(a=>{
+        const l=getActivityLogs(logs,member.id,a.id)[ds];
+        return l&&(l.status==="shielded"||(l.status!=="skipped"&&l.value>0));
+      });
+    }
+    return acts.some(a=>{
+      const l=getActivityLogs(logs,member.id,a.id)[ds];
+      return l&&l.status!=="skipped"&&l.value>0;
+    });
+  }
+  function daySkipped(ds){
+    return acts.some(a=>{
+      const l=getActivityLogs(logs,member.id,a.id)[ds];
+      return l&&l.status==="skipped";
+    });
+  }
+  function dayAboveTarget(ds){
+    return acts.some(a=>{
+      const l=getActivityLogs(logs,member.id,a.id)[ds];
+      if(!l||l.status==="skipped"||l.status==="shielded") return false;
+      return l.value>(l.target||a.target);
+    });
+  }
+  function sessionCount(ds){
+    let total=0;
+    for(const a of acts){
+      const l=getActivityLogs(logs,member.id,a.id)[ds];
+      if(l&&l.status!=="skipped"&&l.status!=="shielded"&&l.value>0){
+        total += l.sessions&&l.sessions.length>0 ? l.sessions.length : 1;
+      }
+    }
+    return total;
+  }
+
+  const counts = {diamond:0,platinum:0,gold:0,ruby:0,sapphire:0,silver:0,pearl:0,emerald:0};
+
+  // Track all-time bests per activity for PB detection
+  const actBests = {};
+  let streak=0, aboveStreak=0;
+  let prevDone=false, missStart=null;
+
+  // Month tracking for Diamond
+  const monthsSeen = {};
+
+  for(let i=0; i<sortedDates.length; i++){
+    const ds = sortedDates[i];
+    const done = dayDone(ds);
+    const skipped = daySkipped(ds);
+
+    // Track month for Diamond
+    const monthKey = ds.slice(0,7);
+    if(!monthsSeen[monthKey]) monthsSeen[monthKey] = {total:0, done:0, missed:0};
+    monthsSeen[monthKey].total++;
+    if(done) monthsSeen[monthKey].done++;
+    else if(skipped) monthsSeen[monthKey].missed++;
+
+    if(done){
+      // Streak tracking
+      streak++;
+      // Gold: every time streak hits multiple of 7
+      if(streak % 7 === 0) counts.gold++;
+      // Platinum: every time streak hits 30
+      if(streak === 30 || (streak > 30 && streak % 30 === 0)) counts.platinum++;
+
+      // Pearl: comeback after 3+ day miss
+      if(missStart !== null){
+        const gap = Math.round((new Date(ds+"T00:00:00")-new Date(missStart+"T00:00:00"))/86400000);
+        if(gap >= 3) counts.pearl++;
+        missStart = null;
+      }
+
+      // Above target streak
+      if(dayAboveTarget(ds)){
+        aboveStreak++;
+        if(aboveStreak === 7) counts.sapphire++;
+        else if(aboveStreak > 7 && aboveStreak % 7 === 0) counts.sapphire++;
+      } else {
+        aboveStreak = 0;
+      }
+
+      // Silver + Ruby: PB detection per activity
+      for(const a of acts){
+        const l = getActivityLogs(logs,member.id,a.id)[ds];
+        if(!l||l.status==="skipped"||l.status==="shielded"||!l.value) continue;
+        const sessionVals = l.sessions&&l.sessions.length>0 ? l.sessions : [l.value];
+        const maxVal = Math.max(...sessionVals);
+        const prev = actBests[a.id] || 0;
+        if(maxVal > prev && maxVal > (l.target||a.target)){
+          // Silver: any PB
+          counts.silver++;
+          // Ruby: PB beats previous by 20%+
+          if(prev > 0 && maxVal >= prev * 1.2) counts.ruby++;
+          actBests[a.id] = maxVal;
+        } else {
+          if(prev === 0) actBests[a.id] = maxVal;
+        }
+      }
+
+      // Emerald: 3+ sessions in a day
+      if(sessionCount(ds) >= 3) counts.emerald++;
+
+      prevDone = true;
+    } else {
+      if(skipped || (prevDone && ds < today)){
+        if(skipped && missStart === null) missStart = ds;
+        streak = 0;
+        aboveStreak = 0;
+      }
+      prevDone = false;
+    }
+  }
+
+  // Diamond: check completed past months (not current month) for perfection
+  const currentMonth = today.slice(0,7);
+  for(const [month, data] of Object.entries(monthsSeen)){
+    if(month === currentMonth) continue; // current month not complete yet
+    // A perfect month: every day in that month was logged (no skips, no misses)
+    // We check: done === total days in that month and missed === 0
+    const [y, m] = month.split('-').map(Number);
+    const daysInThatMonth = new Date(y, m, 0).getDate();
+    if(data.done === daysInThatMonth && data.missed === 0) counts.diamond++;
+  }
+
+  return counts;
+}
+
+function GemVaultDrawer({member, logs, onClose}){
+  const counts = computeGemVault(member, logs);
+  const total = Object.values(counts).reduce((s,v)=>s+v, 0);
+  const rarityOrder = ["Legendary","Epic","Rare","Uncommon","Common"];
+  const rarityIcons = {Legendary:"🌟",Epic:"🔵",Rare:"🟡",Uncommon:"⚪",Common:"🟤"};
+  const byRarity = {};
+  for(const g of GEM_DEFS){
+    if(!byRarity[g.rarity]) byRarity[g.rarity] = [];
+    byRarity[g.rarity].push({...g, count: counts[g.id]||0});
+  }
+
+  return <>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:400}}/>
+    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(420px,94vw)",
+      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.2)",
+      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+
+      {/* Drawer header */}
+      <div style={{background:"linear-gradient(135deg,#1a1a2e,#16213e)",padding:"20px 20px 16px",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:26}}>{member.emoji}</span>
+            <div>
+              <div style={{fontSize:16,fontWeight:800,color:"#fff"}}>💎 Gem Vault</div>
+              <div style={{fontSize:11,color:"rgba(255,255,255,0.5)"}}>{member.name}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,0.1)",border:"none",
+            borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:18,color:"rgba(255,255,255,0.6)"}}>×</button>
+        </div>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{fontSize:28,fontWeight:900,color:"#F9A825"}}>{total} <span style={{fontSize:13,color:"rgba(255,255,255,0.5)",fontWeight:400}}>gems collected</span></div>
+        </div>
+      </div>
+
+      {/* Drawer content */}
+      <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px"}}>
+        {/* Gems by rarity */}
+        {rarityOrder.map(rarity=>{
+          const gems = byRarity[rarity];
+          if(!gems) return null;
+          return <div key={rarity} style={{marginBottom:18}}>
+            <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>
+              {rarityIcons[rarity]} {rarity.toUpperCase()}
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {gems.map(g=>{
+                const isEarned = g.count > 0;
+                return <div key={g.id} style={{
+                  display:"flex",alignItems:"center",justifyContent:"space-between",
+                  padding:"12px 14px",borderRadius:12,
+                  background:isEarned?`${g.color}12`:C.bg,
+                  border:`1.5px solid ${isEarned?g.color:C.border}`,
+                  opacity:isEarned?1:0.45,
+                }}>
+                  <div style={{display:"flex",alignItems:"center",gap:12}}>
+                    <span style={{fontSize:24,filter:isEarned?"none":"grayscale(100%)"}}>{g.icon}</span>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:700,color:isEarned?g.color:C.muted}}>{g.name}</div>
+                      <div style={{fontSize:11,color:C.muted,marginTop:1}}>{g.desc}</div>
+                    </div>
+                  </div>
+                  <div style={{fontSize:isEarned?22:14,fontWeight:900,
+                    color:isEarned?g.color:C.muted,minWidth:44,textAlign:"right"}}>
+                    {isEarned ? `×${g.count}` : "—"}
+                  </div>
+                </div>;
+              })}
+            </div>
+          </div>;
+        })}
+
+        {/* Legend */}
+        <div style={{background:C.bg,borderRadius:12,padding:"14px 16px",
+          border:`1px solid ${C.border}`,marginTop:4}}>
+          <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>HOW TO EARN</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {GEM_DEFS.map(g=>(
+              <div key={g.id} style={{display:"flex",alignItems:"flex-start",gap:8}}>
+                <span style={{fontSize:14,flexShrink:0}}>{g.icon}</span>
+                <span style={{fontSize:11,color:C.muted,lineHeight:1.4}}>
+                  <span style={{fontWeight:700,color:g.color}}>{g.name}:</span> {g.desc}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  </>;
+}
+
+function GemVaultCard({member, logs}){
+  const counts = computeGemVault(member, logs);
+  const total = Object.values(counts).reduce((s,v)=>s+v, 0);
+  const [showDrawer, setShowDrawer] = useState(false);
+
+  const rarityOrder = ["Legendary","Epic","Rare","Uncommon","Common"];
+  const earned = GEM_DEFS.filter(g=>counts[g.id]>0).sort((a,b)=>
+    rarityOrder.indexOf(a.rarity) - rarityOrder.indexOf(b.rarity)
+  );
+
+  return <>
+    {/* Compact card — tap to open drawer */}
+    <div onClick={()=>setShowDrawer(true)} style={{
+      background:"linear-gradient(135deg,#1a1a2e,#16213e)",
+      border:"1.5px solid #2a2a4e",borderRadius:16,marginBottom:12,
+      padding:"14px 16px",cursor:"pointer",
+    }}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{flex:1}}>
+          <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.5)",
+            letterSpacing:0.5,marginBottom:6}}>💎 GEM VAULT</div>
+          <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}>
+            {earned.length === 0
+              ? <span style={{fontSize:12,color:"rgba(255,255,255,0.35)"}}>No gems yet — start earning!</span>
+              : <>
+                  {earned.slice(0,7).map(g=>(
+                    <span key={g.id} style={{fontSize:20,lineHeight:1}}>
+                      {g.icon}
+                      {counts[g.id]>1&&<sup style={{fontSize:9,color:"rgba(255,255,255,0.7)",
+                        fontWeight:700,marginLeft:1}}>×{counts[g.id]}</sup>}
+                    </span>
+                  ))}
+                  {earned.length>7&&<span style={{fontSize:11,color:"rgba(255,255,255,0.4)",marginLeft:4}}>
+                    +{earned.length-7} more
+                  </span>}
+                </>
+            }
+          </div>
+        </div>
+        <div style={{textAlign:"right",marginLeft:12}}>
+          <div style={{fontSize:22,fontWeight:900,color:"#F9A825"}}>{total}</div>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>total gems</div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,0.35)",marginTop:2}}>Tap to view ›</div>
+        </div>
+      </div>
+    </div>
+    {showDrawer&&<GemVaultDrawer member={member} logs={logs} onClose={()=>setShowDrawer(false)}/>}
+  </>;
+}
+
+function ChaseCard({member, target, logs}){
+  const today = todayStr();
+  const s = computeChaseStats(member, target, logs);
+  const [expanded, setExpanded] = useState(true);
+  const closing = s.netClosingPerWeek > 0;
+  const gapClosingThisWeek = s.gapThisWeek < 0; // negative gap delta = closing
+
+  // Mini bar chart: max value across both members all weeks
+  const maxWeekPP = Math.max(...s.myWeeks.map(w=>w.pp), ...s.targetWeeks.map(w=>w.pp), 1);
+
+  return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,
+    marginBottom:12,overflow:"hidden"}}>
+
+    {/* Header — always visible */}
+    <div onClick={()=>setExpanded(e=>!e)} style={{
+      padding:"12px 16px",cursor:"pointer",
+      background:"linear-gradient(135deg,#1a1a2e,#16213e)",
+      display:"flex",alignItems:"center",justifyContent:"space-between",
+    }}>
+      <div>
+        <div style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.5)",letterSpacing:0.5,marginBottom:2}}>
+          🏃 THE CHASE
+        </div>
+        <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>
+          {closing
+            ? `Closing in on ${target.name} — ${s.gap.toLocaleString()} PP behind`
+            : `${s.gap.toLocaleString()} PP behind ${target.name}`
+          }
+        </div>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:11,color: gapClosingThisWeek?"#4CAF50":"#FF5252",fontWeight:700}}>
+            {gapClosingThisWeek ? "▼ Closing" : "▲ Widening"}
+          </div>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>
+            {Math.abs(s.gapThisWeek).toLocaleString()} PP/wk
+          </div>
+        </div>
+        <span style={{color:"rgba(255,255,255,0.4)",fontSize:14}}>{expanded?"▾":"▸"}</span>
+      </div>
+    </div>
+
+    {expanded&&<div style={{padding:"14px 16px",display:"flex",flexDirection:"column",gap:14}}>
+
+      {/* Gap + pace section */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        <div style={{background:C.bg,borderRadius:10,padding:"10px 12px"}}>
+          <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:4}}>CURRENT GAP</div>
+          <div style={{fontSize:18,fontWeight:900,color:C.text}}>{s.gap.toLocaleString()}</div>
+          <div style={{fontSize:10,color:C.muted}}>PP behind {target.name}</div>
+        </div>
+        <div style={{background:C.bg,borderRadius:10,padding:"10px 12px"}}>
+          <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:4}}>GAP THIS WEEK</div>
+          <div style={{fontSize:18,fontWeight:900,color:gapClosingThisWeek?"#4CAF50":"#FF5252"}}>
+            {gapClosingThisWeek?"↓":"↑"}{Math.abs(s.gapThisWeek).toLocaleString()}
+          </div>
+          <div style={{fontSize:10,color:C.muted}}>{gapClosingThisWeek?"closing":"widening"}</div>
+        </div>
+        <div style={{background:C.bg,borderRadius:10,padding:"10px 12px"}}>
+          <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:4}}>YOUR PACE</div>
+          <div style={{fontSize:18,fontWeight:900,color:C.text}}>{s.myWeekPP.toLocaleString()}</div>
+          <div style={{fontSize:10,color:C.muted}}>PP this week</div>
+        </div>
+        <div style={{background:C.bg,borderRadius:10,padding:"10px 12px"}}>
+          <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:4}}>{target.name.toUpperCase()}'S PACE</div>
+          <div style={{fontSize:18,fontWeight:900,color:C.text}}>{s.targetWeekPP.toLocaleString()}</div>
+          <div style={{fontSize:10,color:C.muted}}>PP this week</div>
+        </div>
+      </div>
+
+      {/* Projection */}
+      <div style={{background:C.bg,borderRadius:10,padding:"12px 14px"}}>
+        <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:10}}>AT THIS PACE</div>
+        {closing && s.catchDate
+          ? <div style={{fontSize:13,fontWeight:700,color:"#4CAF50",marginBottom:6}}>
+              🎯 Catch {target.name} around <strong>{s.catchDate}</strong> (~{s.weeksToClose} weeks)
+            </div>
+          : <div style={{fontSize:13,fontWeight:700,color:"#FF5252",marginBottom:6}}>
+              ⚠️ Gap widening — need to outpace {target.name} by more than {s.targetWeekPP.toLocaleString()} PP/week
+            </div>
+        }
+        <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:8}}>
+          {[{weeks:8,pp:s.ppNeededIn8},{weeks:12,pp:s.ppNeededIn12},{weeks:24,pp:s.ppNeededIn24}].map(({weeks,pp})=>{
+            const feasible = pp <= s.myWeekPP * 2;
+            const d = new Date(today+"T00:00:00");
+            d.setDate(d.getDate()+weeks*7);
+            const dateLabel = d.toLocaleDateString("en-IN",{day:"numeric",month:"short"});
+            return <div key={weeks} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+              padding:"6px 8px",borderRadius:7,background:feasible?"rgba(76,175,80,0.08)":"transparent"}}>
+              <span style={{fontSize:11,color:C.muted}}>Close in {weeks}w ({dateLabel})</span>
+              <span style={{fontSize:11,fontWeight:700,color:feasible?"#4CAF50":C.text}}>
+                {pp.toLocaleString()} PP/wk needed
+              </span>
+            </div>;
+          })}
+        </div>
+      </div>
+
+      {/* Mini bar chart — last 6 weeks */}
+      <div style={{background:C.bg,borderRadius:10,padding:"12px 14px"}}>
+        <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:10}}>WEEKLY PP — LAST 6 WEEKS</div>
+        <div style={{display:"flex",gap:2,alignItems:"flex-end",height:60}}>
+          {s.myWeeks.map((w,i)=>{
+            const tw = s.targetWeeks[i];
+            const myH = Math.round((w.pp/maxWeekPP)*56);
+            const tH = Math.round((tw.pp/maxWeekPP)*56);
+            const isLast = i===s.myWeeks.length-1;
+            return <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+              <div style={{width:"100%",display:"flex",gap:1,alignItems:"flex-end",height:56}}>
+                <div style={{flex:1,height:myH,background:member.color,borderRadius:"2px 2px 0 0",
+                  opacity:isLast?1:0.6,minHeight:w.pp>0?2:0}}/>
+                <div style={{flex:1,height:tH,background:target.color,borderRadius:"2px 2px 0 0",
+                  opacity:isLast?1:0.6,minHeight:tw.pp>0?2:0,
+                  backgroundImage:target.color===member.color?"repeating-linear-gradient(45deg,transparent,transparent 2px,rgba(255,255,255,0.3) 2px,rgba(255,255,255,0.3) 4px)":"none"}}/>
+              </div>
+              <div style={{fontSize:8,color:C.muted,textAlign:"center",lineHeight:1.2}}>{w.label}</div>
+            </div>;
+          })}
+        </div>
+        <div style={{display:"flex",gap:12,marginTop:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:4}}>
+            <div style={{width:10,height:10,borderRadius:2,background:member.color}}/>
+            <span style={{fontSize:10,color:C.muted}}>{member.name}</span>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:4}}>
+            <div style={{width:10,height:10,borderRadius:2,background:target.color,
+              backgroundImage:target.color===member.color?"repeating-linear-gradient(45deg,transparent,transparent 2px,rgba(255,255,255,0.3) 2px,rgba(255,255,255,0.3) 4px)":"none"}}/>
+            <span style={{fontSize:10,color:C.muted}}>{target.name}</span>
+          </div>
+        </div>
+      </div>
+
+    </div>}
+  </div>;
+}
+
+function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onBraverySave,onBraveryDelete,onBraveryUpdate,onIllnessSave,onIllnessDelete,onOlympiadSave,onOlympiadDelete,onOlympiadUpdate,onDeleteEntry}){
   const today=todayStr();
   const[showCal,setShowCal]=useState(true);
   const[showBadges,setShowBadges]=useState(false);
   const[showStats,setShowStats]=useState(false);
+  const[showGrowth,setShowGrowth]=useState(false);
+  const[showGK,setShowGK]=useState(false);
+  const[showBravery,setShowBravery]=useState(false);
+  const[showIllness,setShowIllness]=useState(false);
+  const[showOlympiad,setShowOlympiad]=useState(false);
   const[showHeatmap,setShowHeatmap]=useState(false);
   const[mysteryReveal,setMysteryReveal]=useState(null); // {normalPP, bonusPP}
   const[modal,setModal]=useState(null);
@@ -1997,7 +3628,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
   const fs=computeFamStats(allMembers,logs);
   const memberOverride = (member.alternating && acts.length>1) ? computeMemberLevelStats(member,logs) : {};
   const allEarned=new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,member.id,a.id),a.target,a.unit,{...fs,...memberOverride})));
-  const personalBadges=BADGES.filter(b=>!FAM_IDS.has(b.id));
+  const personalBadges=getMemberBadges(member);
 
   const dCount=daysInMonth(year,month);
   const firstDay=firstDayOfMonth(year,month);
@@ -2069,8 +3700,20 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
       </div>}
     </div>
 
+    {/* Weekly Momentum */}
+    <WeeklyMomentumCard member={member} logs={logs}/>
+
+    {/* Gem Vault */}
+    <GemVaultCard member={member} logs={logs}/>
+
     {/* Egg-O-Meter */}
     {member.eggMeter&&<EggMeter member={member} logs={logs} onEggChange={onEggChange} onNewBadge={onNewBadge}/>}
+
+    {/* The Chase — gap tracker vs chosen target member */}
+    {member.chaseTarget&&(()=>{
+      const target = (allMembers||[]).find(m=>m.id===member.chaseTarget);
+      return target ? <ChaseCard member={member} target={target} logs={logs}/> : null;
+    })()}
 
     {/* Consistency */}
     <div style={{marginBottom:12}}>
@@ -2103,8 +3746,10 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
         const entries=Object.entries(al).filter(([d])=>d<=today);
         let bestVal=0,bestDate=null;
         for(const[d,l]of entries){
-          if(l.status!=="skipped"&&l.status!=="shielded"&&l.value>bestVal){
-            bestVal=l.value;bestDate=d;
+          if(l.status!=="skipped"&&l.status!=="shielded"&&l.value>0){
+            const sessionVals=l.sessions&&l.sessions.length>0?l.sessions:[l.value];
+            const maxSession=Math.max(...sessionVals);
+            if(maxSession>bestVal){bestVal=maxSession;bestDate=d;}
           }
         }
         return bestVal>0?{act:a,val:bestVal,date:bestDate}:null;
@@ -2162,24 +3807,42 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
     </div>}
 
     {/* Badges + Stats footer */}
-    <div style={{borderTop:`1px solid ${C.border}`,marginTop:12,paddingTop:12,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+    <div style={{borderTop:`1px solid ${C.border}`,marginTop:12,paddingTop:12,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
       <span style={{fontSize:12,color:C.muted}}><span style={{fontWeight:700,color:C.text}}>{allEarned.size}</span> / {personalBadges.length} badges earned</span>
-      <div style={{display:"flex",gap:6}}>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
         <button onClick={()=>setShowStats(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:C.muted}}>📊 Stats</button>
+        <button onClick={()=>setShowGrowth(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:C.muted}}>📏 Growth</button>
+        {member.gkEnabled&&<button onClick={()=>setShowGK(true)} style={{background:"none",border:"1px solid #7E57C2",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#7E57C2"}}>🧠 GK</button>}
+        {member.braveryEnabled&&<button onClick={()=>setShowBravery(true)} style={{background:"none",border:"1px solid #F57C00",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#F57C00"}}>🦁 Bravery</button>}
+        {member.illnessEnabled&&<button onClick={()=>setShowIllness(true)} style={{background:"none",border:"1px solid #8E5FA8",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#8E5FA8"}}>🤒 Illness</button>}
+        {member.id==="son"&&<button onClick={()=>setShowOlympiad(true)} style={{background:"none",border:"1px solid #F9A825",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#E65100"}}>🏅 Olympiad</button>}
         <button onClick={()=>setShowBadges(true)} style={{background:member.color,color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12}}>🏆 Badges</button>
       </div>
     </div>
     {showBadges&&<BadgeDrawer member={member} allEarned={allEarned} acts={acts} logs={logs} onClose={()=>setShowBadges(false)}/>}
     {showStats&&<AllTimeStats member={member} logs={logs} onClose={()=>setShowStats(false)}/>}
+    {showGrowth&&<GrowthDrawer member={member} logs={logs} onSave={onGrowthSave} onClose={()=>setShowGrowth(false)}/>}
+    {showGK&&<GKDrawer member={member} logs={logs} onGkSave={onGkSave} onClose={()=>setShowGK(false)}/>}
+    {showBravery&&<BraveryDrawer member={member} logs={logs} onBraverySave={onBraverySave} onBraveryDelete={onBraveryDelete} onBraveryUpdate={onBraveryUpdate} onClose={()=>setShowBravery(false)}/>}
+    {showIllness&&<IllnessDrawer member={member} logs={logs} onIllnessSave={onIllnessSave} onIllnessDelete={onIllnessDelete} onClose={()=>setShowIllness(false)}/>}
+    {showOlympiad&&<OlympiadDrawer member={member} logs={logs} onOlympiadSave={onOlympiadSave} onOlympiadDelete={onOlympiadDelete} onOlympiadUpdate={onOlympiadUpdate} onClose={()=>setShowOlympiad(false)}/>}
     {mysteryReveal&&<MysteryBonusReveal normalPP={mysteryReveal.normalPP} bonusPP={mysteryReveal.bonusPP} onClose={()=>setMysteryReveal(null)}/>}
 
     {modal&&(member.alternating&&acts.length>1
       ?<AlternatingLogModal dateStr={modal} member={member} logs={logs} shieldsLeft={4-shieldsUsed(logs,member.id,acts)}
+      onDeleteEntry={onDeleteEntry}
       onSaveAll={entries=>{
-        // Stamp current target onto each entry so history is preserved
+        // Preserve the correct historical target if this entry already existed (so editing/adding a
+        // session on an old date never gets silently re-stamped with today's current target).
+        // Only stamp today's current target for entries that never existed before.
         const stampedEntries=entries.map(e=>{
           const act=acts.find(a=>a.id===e.actId);
-          return act?{...e,target:act.target}:e;
+          if(!act) return e;
+          const existing=getActivityLogs(logs,member.id,e.actId)[modal];
+          const preservedTarget = existing
+            ? getHistoricalTarget(existing, e.actId, act.target, logs, member.id, modal)
+            : act.target;
+          return{...e,target:preservedTarget};
         });
         const prev=new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,member.id,a.id),a.target,a.unit,computeMemberLevelStats(member,logs))));
         onLogAll(member.id,modal,stampedEntries);
@@ -2212,7 +3875,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
               onNewBadge({id:`pp_level_${newLevel.level}`,e:newLevel.icon,
                 label:`Level ${newLevel.level}: ${newLevel.title}!`,
                 desc:`You reached ${newLevel.title}! Keep going!`,
-                tier:newLevel.level>=25?'gold':newLevel.level>=15?'silver':'bronze'},member.name);
+                tier:newLevel.level>=49?'gold':newLevel.level>=29?'silver':'bronze'},member.name);
             }
           },200);
         },50);
@@ -2220,8 +3883,17 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
       }}
       onClose={()=>setModal(null)}/>
       :<LogModal dateStr={modal} member={member} logs={logs} shieldsLeft={4-shieldsUsed(logs,member.id,acts)}
+        onDeleteEntry={onDeleteEntry}
         onSaveAll={entries=>{
-          const stampedEntries=entries.map(e=>{const act=acts.find(a=>a.id===e.actId);return act?{...e,target:act.target}:e;});
+          const stampedEntries=entries.map(e=>{
+            const act=acts.find(a=>a.id===e.actId);
+            if(!act) return e;
+            const existing=getActivityLogs(logs,member.id,e.actId)[modal];
+            const preservedTarget = existing
+              ? getHistoricalTarget(existing, e.actId, act.target, logs, member.id, modal)
+              : act.target;
+            return{...e,target:preservedTarget};
+          });
           const prev=new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,member.id,a.id),a.target,a.unit)));
           onLogAll(member.id,modal,stampedEntries);
           setTimeout(()=>{
@@ -2249,18 +3921,27 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
 }
 
 // ── Edit Member Modal ─────────────────────────────────────────────────────────
-function EditModal({member,isNew,onSave,onDelete,onClose}){
+function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
   const[name,setName]=useState(member?.name??"");
   const[emoji,setEmoji]=useState(member?.emoji??"🏃");
-  const[color,setColor]=useState(member?.color??"#5B8FD4");
+  const cOpts=["#5B8FD4","#D47B9E","#3D9E6E","#E8A838","#9B6FD4","#E05C5C","#5BC4C4","#E8873A"];
+  const defaultColor=()=>{
+    const usedColors=new Set((allMembers||[]).map(m=>m.color));
+    return cOpts.find(c=>!usedColors.has(c)) ?? cOpts[0]; // fall back to first if all taken
+  };
+  const[color,setColor]=useState(member?.color ?? defaultColor());
   const[acts,setActs]=useState(member?.activities??[{id:Date.now().toString(),name:"",unit:"min",target:30}]);
   const[alternating,setAlternating]=useState(member?.alternating??false);
+  const[stackPoints,setStackPoints]=useState(member?.stackPoints??false);
   const[eggMeter,setEggMeter]=useState(member?.eggMeter??false);
+  const[gkEnabled,setGkEnabled]=useState(member?.gkEnabled??false);
+  const[braveryEnabled,setBraveryEnabled]=useState(member?.braveryEnabled??false);
+  const[illnessEnabled,setIllnessEnabled]=useState(member?.illnessEnabled??false);
+  const[chaseTarget,setChaseTarget]=useState(member?.chaseTarget??null);
   const[startDate,setStartDate]=useState(member?.startDate??"");
   const[memberTheme,setMemberTheme]=useState(member?.memberTheme??"");
   const[memberPattern,setMemberPattern]=useState(member?.memberPattern??"");
   const eOpts=["🧗","🚶","🏃","🚴","🏋️","🤸","🧘","🏊","⚽","🏓","🎯","💪","🧒","👩","👨"];
-  const cOpts=["#5B8FD4","#D47B9E","#3D9E6E","#E8A838","#9B6FD4","#E05C5C","#5BC4C4","#E8873A"];
   const addAct=()=>setActs(a=>[...a,{id:Date.now().toString(),name:"",unit:"reps",target:10}]);
   const remAct=id=>setActs(a=>a.filter(x=>x.id!==id));
   const updAct=(id,f,v)=>setActs(a=>a.map(x=>x.id===id?{...x,[f]:v}:x));
@@ -2337,6 +4018,62 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
         </div>
       </div>
       <div style={{marginBottom:18}}>
+        <div onClick={()=>setGkEnabled(g=>!g)} style={{
+          display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+          background:gkEnabled?"#EDE7F6":"#F7F5F0",border:`1.5px solid ${gkEnabled?"#7E57C2":C.border}`,
+          borderRadius:10,cursor:"pointer",userSelect:"none",
+        }}>
+          <div style={{width:36,height:20,borderRadius:99,background:gkEnabled?"#7E57C2":C.border,position:"relative",transition:"background 0.2s",flexShrink:0}}>
+            <div style={{position:"absolute",top:2,left:gkEnabled?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+          </div>
+          <div>
+            <div style={{fontSize:13,fontWeight:600,color:gkEnabled?"#5E35B1":C.text}}>🧠 General Knowledge</div>
+            <div style={{fontSize:11,color:C.muted}}>Ask questions verbally — tap when aced, earns Power Points</div>
+          </div>
+        </div>
+      </div>
+      <div style={{marginBottom:18}}>
+        <div onClick={()=>setBraveryEnabled(b=>!b)} style={{
+          display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+          background:braveryEnabled?"#FFF3E0":"#F7F5F0",border:`1.5px solid ${braveryEnabled?"#F57C00":C.border}`,
+          borderRadius:10,cursor:"pointer",userSelect:"none",
+        }}>
+          <div style={{width:36,height:20,borderRadius:99,background:braveryEnabled?"#F57C00":C.border,position:"relative",transition:"background 0.2s",flexShrink:0}}>
+            <div style={{position:"absolute",top:2,left:braveryEnabled?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+          </div>
+          <div>
+            <div style={{fontSize:13,fontWeight:600,color:braveryEnabled?"#E65100":C.text}}>🦁 Bravery Points</div>
+            <div style={{fontSize:11,color:C.muted}}>Award points for anything brave — you choose the reason & amount</div>
+          </div>
+        </div>
+      </div>
+      <div style={{marginBottom:18}}>
+        <div onClick={()=>setIllnessEnabled(b=>!b)} style={{
+          display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+          background:illnessEnabled?"#F3E5F5":"#F7F5F0",border:`1.5px solid ${illnessEnabled?"#8E5FA8":C.border}`,
+          borderRadius:10,cursor:"pointer",userSelect:"none",
+        }}>
+          <div style={{width:36,height:20,borderRadius:99,background:illnessEnabled?"#8E5FA8":C.border,position:"relative",transition:"background 0.2s",flexShrink:0}}>
+            <div style={{position:"absolute",top:2,left:illnessEnabled?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+          </div>
+          <div>
+            <div style={{fontSize:13,fontWeight:600,color:illnessEnabled?"#6A3E7C":C.text}}>🤒 Illness Log</div>
+            <div style={{fontSize:11,color:C.muted}}>Note sick days for the record — no effect on Power Points or streaks</div>
+          </div>
+        </div>
+      </div>
+      <div style={{marginBottom:18}}>
+        <label style={lStyle}>🏃 Chase Target <span style={{fontWeight:400,color:C.muted}}>(optional — shows a gap tracker on this card)</span></label>
+        <select value={chaseTarget||""} onChange={e=>setChaseTarget(e.target.value||null)}
+          style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.border}`,
+          fontSize:13,background:C.surface,color:C.text,outline:"none"}}>
+          <option value="">None</option>
+          {(allMembers||[]).filter(m=>m.id!==(member?.id??null)).map(m=>(
+            <option key={m.id} value={m.id}>{m.name}</option>
+          ))}
+        </select>
+      </div>
+      <div style={{marginBottom:18}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
           <label style={{...lStyle,marginBottom:0}}>Activities</label>
           <button onClick={addAct} style={{background:color,color:"#fff",border:"none",borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add</button>
@@ -2354,6 +4091,19 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
             <div style={{fontSize:11,color:C.muted}}>Do at least one per day — not all required</div>
           </div>
         </div>}
+        {acts.length>1&&alternating&&<div onClick={()=>setStackPoints(s=>!s)} style={{
+          display:"flex",alignItems:"center",gap:10,padding:"10px 12px",marginBottom:10,
+          background:stackPoints?"#E3F2FD":"#F7F5F0",border:`1.5px solid ${stackPoints?"#1976D2":C.border}`,
+          borderRadius:10,cursor:"pointer",userSelect:"none",
+        }}>
+          <div style={{width:36,height:20,borderRadius:99,background:stackPoints?"#1976D2":C.border,position:"relative",transition:"background 0.2s",flexShrink:0}}>
+            <div style={{position:"absolute",top:2,left:stackPoints?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+          </div>
+          <div>
+            <div style={{fontSize:13,fontWeight:600,color:stackPoints?"#1565C0":C.text}}>⚡ Stack Points</div>
+            <div style={{fontSize:11,color:C.muted}}>Earn PP for every activity done that day, not just the best one</div>
+          </div>
+        </div>}
         {acts.map((a,i)=><div key={a.id} style={{background:C.bg,borderRadius:10,padding:12,marginBottom:8,border:`1px solid ${C.border}`}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
             <span style={{fontSize:12,fontWeight:700,color:C.muted}}>Activity {i+1}</span>
@@ -2369,12 +4119,22 @@ function EditModal({member,isNew,onSave,onDelete,onClose}){
               </select>
             </div>
           </div>
+          <div style={{marginTop:8}}>
+            <label style={lStyle}>PP Multiplier <span style={{fontWeight:400,color:C.muted}}>(1.0 = normal, e.g. 1.5 = 50% more PP for this activity)</span></label>
+            <input type="number" min={0.1} step={0.1} value={a.ppMultiplier??1}
+              onChange={e=>updAct(a.id,"ppMultiplier",parseFloat(e.target.value)||1)} style={iStyle}/>
+          </div>
+          <div style={{marginTop:8}}>
+            <label style={lStyle}>Bonus PP per extra {a.unit||"unit"} beyond target <span style={{fontWeight:400,color:C.muted}}>(0 = off, e.g. 50 = +50 PP for each {a.unit||"unit"} past target)</span></label>
+            <input type="number" min={0} step={1} value={a.distanceBonusRate??0}
+              onChange={e=>updAct(a.id,"distanceBonusRate",parseFloat(e.target.value)||0)} style={iStyle}/>
+          </div>
         </div>)}
       </div>
       <div style={{display:"flex",gap:8}}>
         {!isNew&&<button onClick={()=>{if(window.confirm("Remove?"))onDelete(member.id);}} style={{padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",cursor:"pointer",color:C.missed,fontWeight:600}}>Delete</button>}
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
+        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,illnessEnabled,stackPoints,chaseTarget})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
       </div>
     </div>
   </div>;
@@ -2394,7 +4154,9 @@ function FamilyFeed({members,logs}){
       for(const[d,l]of Object.entries(al)){
         if(d>today) continue;
         if(l.status==="shielded") continue;
-        entries.push({date:d,member:m,activity:a,log:l,isPB:l.value===best&&l.value>a.target,isAbove:l.value>a.target});
+        const sessionVals=l.sessions&&l.sessions.length>0?l.sessions:[l.value];
+        const maxSession=Math.max(...sessionVals);
+        entries.push({date:d,member:m,activity:a,log:l,isPB:maxSession===best&&maxSession>a.target,isAbove:l.value>a.target});
       }
     }
   }
@@ -2444,6 +4206,759 @@ function FamilyFeed({members,logs}){
 }
 
 // ── All-time Stats Panel ──────────────────────────────────────────────────────
+// ── Growth Tracker ────────────────────────────────────────────────────────────
+function getGrowthLogs(logs, memberId){
+  return (logs[memberId] && logs[memberId].growth) || [];
+}
+
+function GrowthLogModal({member, existing, onSave, onClose}){
+  const now = new Date();
+  const monthStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+  const [height, setHeight] = useState(existing?.height ?? "");
+  const [weight, setWeight] = useState(existing?.weight ?? "");
+  const monthLabel = now.toLocaleDateString("en-IN",{month:"long",year:"numeric"});
+
+  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:500,
+    display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
+    <div style={{background:C.surface,borderRadius:18,padding:24,width:"100%",maxWidth:320,
+      boxShadow:"0 8px 40px rgba(0,0,0,0.2)"}} onClick={e=>e.stopPropagation()}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+        <span style={{fontSize:24}}>{member.emoji}</span>
+        <div>
+          <div style={{fontWeight:700,fontSize:15}}>Log Measurement</div>
+          <div style={{fontSize:11,color:C.muted}}>{monthLabel}</div>
+        </div>
+      </div>
+      <div style={{marginBottom:14}}>
+        <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:6}}>HEIGHT (cm)</label>
+        <input type="number" min={50} max={250} step={0.1} value={height}
+          onChange={e=>setHeight(e.target.value)} placeholder="e.g. 128.5"
+          style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.border}`,
+          fontSize:18,fontWeight:700,outline:"none",boxSizing:"border-box"}}/>
+      </div>
+      <div style={{marginBottom:20}}>
+        <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:6}}>WEIGHT (kg)</label>
+        <input type="number" min={5} max={300} step={0.1} value={weight}
+          onChange={e=>setWeight(e.target.value)} placeholder="e.g. 26.5"
+          style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.border}`,
+          fontSize:18,fontWeight:700,outline:"none",boxSizing:"border-box"}}/>
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,
+          border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",
+          fontWeight:600,color:C.muted}}>Cancel</button>
+        <button onClick={()=>{
+          if(!height&&!weight) return;
+          onSave({month:monthStr,
+            height:height?parseFloat(height):null,
+            weight:weight?parseFloat(weight):null});
+          onClose();
+        }} disabled={!height&&!weight} style={{flex:2,padding:"10px 0",borderRadius:8,
+          border:"none",background:(!height&&!weight)?C.border:member.color,
+          color:"#fff",cursor:(!height&&!weight)?"not-allowed":"pointer",
+          fontWeight:700,fontSize:14}}>Save</button>
+      </div>
+    </div>
+  </div>;
+}
+
+function GrowthDrawer({member, logs, onSave, onClose}){
+  const growthLogs = getGrowthLogs(logs, member.id)
+    .slice().sort((a,b)=>a.month.localeCompare(b.month));
+  const [showLogModal, setShowLogModal] = useState(false);
+
+  const now = new Date();
+  const thisMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+  const thisMonthEntry = growthLogs.find(g=>g.month===thisMonth);
+  const latest = growthLogs[growthLogs.length-1];
+  const prev = growthLogs[growthLogs.length-2];
+
+  const heightDelta = latest?.height&&prev?.height ? (latest.height-prev.height).toFixed(1) : null;
+  const weightDelta = latest?.weight&&prev?.weight ? (latest.weight-prev.weight).toFixed(1) : null;
+
+  // SVG chart dimensions
+  const W=320, H=140, padL=36, padR=16, padT=16, padB=28;
+  const cW=W-padL-padR, cH=H-padT-padB;
+  const hasChart = growthLogs.filter(g=>g.height||g.weight).length >= 1;
+
+  function chartPath(key){
+    const pts = growthLogs.filter(g=>g[key]!=null);
+    if(pts.length===0) return null;
+    const vals = pts.map(g=>g[key]);
+    const minV=Math.min(...vals), maxV=Math.max(...vals);
+    const range = maxV-minV || 10; // avoid divide by zero with single point
+    const totalSlots = Math.max(growthLogs.length-1, 1);
+    const xStep = cW/totalSlots;
+    return pts.map((g)=>{
+      const xi = growthLogs.indexOf(g);
+      const x = padL + (growthLogs.length===1 ? cW/2 : xi*xStep); // center single point
+      const y = padT+cH-(((g[key]-minV)/range)*cH*0.8)-cH*0.1; // add 10% padding top/bottom
+      return {x,y,val:g[key],month:g.month};
+    });
+  }
+
+  const hPts = chartPath("height","#5B8FD4");
+  const wPts = chartPath("weight","#E8873A");
+
+  function buildD(pts){
+    if(!pts||pts.length<2) return "";
+    return pts.map((p,i)=>i===0?`M${p.x},${p.y}`:`L${p.x},${p.y}`).join(" ");
+  }
+
+  function monthLabel(m){
+    const d=new Date(m+"-01");
+    return d.toLocaleDateString("en-IN",{month:"short",year:"2-digit"});
+  }
+
+  return <>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
+    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
+      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
+      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+
+      {/* Header */}
+      <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:26}}>{member.emoji}</span>
+            <div>
+              <div style={{fontWeight:800,fontSize:16}}>📏 Growth</div>
+              <div style={{fontSize:11,color:C.muted}}>{member.name}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,
+            borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+        </div>
+      </div>
+
+      <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px"}}>
+
+        {/* Latest + delta */}
+        {latest ? <div style={{background:C.bg,borderRadius:12,padding:"14px 16px",marginBottom:16}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>
+            LATEST — {monthLabel(latest.month)}
+          </div>
+          <div style={{display:"flex",gap:16}}>
+            {latest.height&&<div>
+              <div style={{fontSize:28,fontWeight:900,color:member.color}}>{latest.height}</div>
+              <div style={{fontSize:11,color:C.muted}}>cm height</div>
+              {heightDelta&&<div style={{fontSize:11,fontWeight:600,
+                color:parseFloat(heightDelta)>=0?C.done:C.missed,marginTop:2}}>
+                {parseFloat(heightDelta)>=0?"↑":"↓"} {Math.abs(heightDelta)}cm
+              </div>}
+            </div>}
+            {latest.height&&latest.weight&&<div style={{width:1,background:C.border}}/>}
+            {latest.weight&&<div>
+              <div style={{fontSize:28,fontWeight:900,color:"#E8873A"}}>{latest.weight}</div>
+              <div style={{fontSize:11,color:C.muted}}>kg weight</div>
+              {weightDelta&&<div style={{fontSize:11,fontWeight:600,
+                color:C.muted,marginTop:2}}>
+                {parseFloat(weightDelta)>=0?"↑":"↓"} {Math.abs(weightDelta)}kg
+              </div>}
+            </div>}
+          </div>
+        </div> : <div style={{background:C.bg,borderRadius:12,padding:20,textAlign:"center",
+          marginBottom:16,color:C.muted,fontSize:13}}>
+          No measurements yet. Log the first one!
+        </div>}
+
+        {/* Chart */}
+        {hasChart&&<div style={{marginBottom:16}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>GROWTH CHART</div>
+          <div style={{display:"flex",gap:12,marginBottom:8}}>
+            <span style={{fontSize:10,color:"#5B8FD4",fontWeight:600}}>— Height (cm)</span>
+            <span style={{fontSize:10,color:"#E8873A",fontWeight:600}}>— Weight (kg)</span>
+          </div>
+          <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto"}}>
+            {/* Grid */}
+            {[0,0.5,1].map(t=><line key={t}
+              x1={padL} y1={padT+cH*(1-t)} x2={W-padR} y2={padT+cH*(1-t)}
+              stroke={C.border} strokeWidth={1} strokeDasharray={t===0?"":"4,4"}/>)}
+            {/* Height line or dot */}
+            {hPts&&<>
+              {hPts.length>=2&&<path d={buildD(hPts)} fill="none" stroke="#5B8FD4" strokeWidth={2.5}
+                strokeLinecap="round" strokeLinejoin="round"/>}
+              {hPts.map((p,i)=><g key={i}>
+                <circle cx={p.x} cy={p.y} r={4} fill="#5B8FD4" stroke="#fff" strokeWidth={2}/>
+                <text x={p.x} y={p.y-8} textAnchor="middle" fontSize={8} fill="#5B8FD4">{p.val}</text>
+              </g>)}
+            </>}
+            {/* Weight line or dot */}
+            {wPts&&<>
+              {wPts.length>=2&&<path d={buildD(wPts)} fill="none" stroke="#E8873A" strokeWidth={2.5}
+                strokeLinecap="round" strokeLinejoin="round"/>}
+              {wPts.map((p,i)=><g key={i}>
+                <circle cx={p.x} cy={p.y} r={4} fill="#E8873A" stroke="#fff" strokeWidth={2}/>
+                <text x={p.x} y={p.y-8} textAnchor="middle" fontSize={8} fill="#E8873A">{p.val}</text>
+              </g>)}
+            </>}
+            {/* X axis labels */}
+            {growthLogs.map((g,i)=>{
+              const totalSlots = Math.max(growthLogs.length-1,1);
+              const xStep=cW/totalSlots;
+              const x = growthLogs.length===1 ? padL+cW/2 : padL+i*xStep;
+              return <text key={g.month} x={x} y={H-6}
+                textAnchor="middle" fontSize={8} fill={C.muted}>{monthLabel(g.month)}</text>;
+            })}
+          </svg>
+        </div>}
+
+        {/* History list */}
+        {growthLogs.length>0&&<div style={{marginBottom:16}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>HISTORY</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {[...growthLogs].reverse().map(g=><div key={g.month} style={{
+              display:"flex",alignItems:"center",justifyContent:"space-between",
+              padding:"8px 12px",background:C.bg,borderRadius:8}}>
+              <span style={{fontSize:12,fontWeight:600,color:C.text}}>{monthLabel(g.month)}</span>
+              <div style={{display:"flex",gap:12}}>
+                {g.height&&<span style={{fontSize:12,color:"#5B8FD4",fontWeight:700}}>{g.height}cm</span>}
+                {g.weight&&<span style={{fontSize:12,color:"#E8873A",fontWeight:700}}>{g.weight}kg</span>}
+              </div>
+            </div>)}
+          </div>
+        </div>}
+
+        {/* Log button */}
+        <button onClick={()=>setShowLogModal(true)} style={{
+          width:"100%",padding:"12px 0",borderRadius:10,border:"none",
+          background:thisMonthEntry?C.bg:member.color,
+          color:thisMonthEntry?C.muted:"#fff",
+          cursor:"pointer",fontWeight:700,fontSize:14,
+          border:thisMonthEntry?`1.5px solid ${C.border}`:"none",
+        }}>
+          {thisMonthEntry?"✏️ Edit this month's measurement":"📏 Log this month's measurement"}
+        </button>
+      </div>
+    </div>
+
+    {showLogModal&&<GrowthLogModal member={member} existing={thisMonthEntry}
+      onSave={entry=>onSave(member.id,entry)} onClose={()=>setShowLogModal(false)}/>}
+  </>;
+}
+
+// ── General Knowledge (GK) View ────────────────────────────────────────────────
+// ── General Knowledge (GK) View — simple verbal-quiz tracker ────────────────────
+// ── GK Drawer (wraps GKView in a slide-in panel) ─────────────────────────────
+function GKDrawer({member, logs, onGkSave, onClose}){
+  return <>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
+    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
+      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
+      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+      <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:26}}>{member.emoji}</span>
+            <div>
+              <div style={{fontWeight:800,fontSize:16}}>🧠 GK</div>
+              <div style={{fontSize:11,color:C.muted}}>{member.name}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,
+            borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px"}}>
+        {(()=>{
+          const gkBonus = computeGkBonus(logs, member.id);
+          return <>
+            <div style={{background:C.bg,borderRadius:12,padding:"12px 16px",marginBottom:14,
+              display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div>
+                <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5}}>🧠 GK CONTRIBUTED</div>
+                <div style={{fontSize:18,fontWeight:900,color:"#7E57C2"}}>{gkBonus.total.toLocaleString()} ⚡</div>
+              </div>
+              <div style={{fontSize:11,color:C.muted,textAlign:"right"}}>
+                {gkBonus.dailyCount>0&&<div>{gkBonus.dailyCount} {gkBonus.dailyCount===1?"day":"days"} done</div>}
+                {gkBonus.weekendCount>0&&<div>{gkBonus.weekendCount} {gkBonus.weekendCount===1?"week":"weeks"} done</div>}
+              </div>
+            </div>
+            <GKView member={member} logs={logs} onGkSave={onGkSave}/>
+          </>;
+        })()}
+      </div>
+    </div>
+  </>;
+}
+
+// ── General Knowledge (GK) View — verbal quiz tracker with tiered credit ────────
+// ── Points Form (used by GKView) — top-level so it never remounts on keystroke ──
+function GkPointsForm({points, setPoints, reason, setReason, onGive, placeholder, reasonPlaceholder}){
+  return <div>
+    <input value={reason} onChange={e=>setReason(e.target.value)}
+      placeholder={reasonPlaceholder} style={{width:"100%",padding:"10px 12px",borderRadius:8,
+      border:"1.5px solid #7E57C2",fontSize:13,outline:"none",
+      boxSizing:"border-box",marginBottom:10,background:"#fff"}}/>
+    <input type="number" min={1} value={points} onChange={e=>setPoints(e.target.value)}
+      placeholder={placeholder} style={{width:"100%",padding:"11px 12px",borderRadius:8,
+      border:"1.5px solid #7E57C2",fontSize:16,fontWeight:700,outline:"none",
+      boxSizing:"border-box",marginBottom:10,background:"#fff",textAlign:"center"}}/>
+    <button disabled={!points||parseInt(points)<=0||!reason.trim()} onClick={()=>{
+      onGive(parseInt(points), reason.trim());
+      setPoints(""); setReason("");
+    }} style={{width:"100%",padding:"11px 0",borderRadius:10,border:"none",
+      background:(!points||parseInt(points)<=0||!reason.trim())?"#D1C4E9":"#7E57C2",
+      color:"#fff",cursor:(!points||parseInt(points)<=0||!reason.trim())?"not-allowed":"pointer",
+      fontWeight:700,fontSize:14}}>Give Points</button>
+  </div>;
+}
+
+function GKView({member, logs, onGkSave}){
+  const today = todayStr();
+  const now = new Date();
+  const isWeekend = now.getDay()===0 || now.getDay()===6;
+  const gk = getGkData(logs, member.id);
+  const[points, setPoints] = useState("");
+  const[reason, setReason] = useState("");
+
+  if(isWeekend){
+    const weekKey = getWeekKey(today);
+    const existing = gk.weekendResults?.[weekKey];
+
+    if(existing){
+      return <div style={{background:"linear-gradient(135deg,#EDE7F6,#D1C4E9)",border:"1.5px solid #7E57C2",
+        borderRadius:16,padding:24,textAlign:"center"}}>
+        <div style={{fontSize:40,marginBottom:8}}>🏆</div>
+        <div style={{fontWeight:800,fontSize:16,color:"#4A148C"}}>Weekly Review Done!</div>
+        <div style={{fontSize:13,color:"#5E35B1",marginTop:4}}>+{existing.points.toLocaleString()} ⚡ earned this week.</div>
+        {existing.reason&&<div style={{fontSize:12,color:"#7E57C2",marginTop:6,fontStyle:"italic"}}>"{existing.reason}"</div>}
+      </div>;
+    }
+
+    return <div style={{background:C.surface,border:"1.5px solid #7E57C2",borderRadius:16,padding:24,textAlign:"center"}}>
+      <div style={{fontSize:36,marginBottom:8}}>🏆</div>
+      <div style={{fontWeight:800,fontSize:16,marginBottom:6}}>Weekly Review Time!</div>
+      <div style={{fontSize:13,color:C.muted,marginBottom:18}}>
+        Quiz {member.name} on everything learned this week — how did it go? Enter what you quizzed and the points to award.
+      </div>
+      <GkPointsForm points={points} setPoints={setPoints} reason={reason} setReason={setReason}
+        placeholder="e.g. 2000" reasonPlaceholder="What topic? (e.g. Indian state capitals)"
+        onGive={(pts,rsn)=>onGkSave(member.id,{type:"weekend", weekKey, date:today, points:pts, reason:rsn})}/>
+    </div>;
+  }
+
+  // Weekday mode
+  const todayEntry = gk.dailyResults?.[today];
+
+  if(todayEntry?.points>0){
+    return <div style={{background:"linear-gradient(135deg,#EDE7F6,#D1C4E9)",border:"1.5px solid #7E57C2",
+      borderRadius:16,padding:24,textAlign:"center"}}>
+      <div style={{fontSize:36,marginBottom:8}}>🧠</div>
+      <div style={{fontWeight:800,fontSize:15,color:"#4A148C"}}>Today's quiz done!</div>
+      <div style={{fontSize:13,color:"#5E35B1",marginTop:4}}>+{todayEntry.points.toLocaleString()} ⚡ earned. Come back tomorrow!</div>
+      {todayEntry.reason&&<div style={{fontSize:12,color:"#7E57C2",marginTop:6,fontStyle:"italic"}}>"{todayEntry.reason}"</div>}
+    </div>;
+  }
+
+  return <div style={{background:C.surface,border:"1.5px solid #7E57C2",borderRadius:16,padding:24,textAlign:"center"}}>
+    <div style={{fontSize:36,marginBottom:8}}>🧠</div>
+    <div style={{fontWeight:800,fontSize:16,marginBottom:6}}>Today's GK Quiz</div>
+    <div style={{fontSize:13,color:C.muted,marginBottom:18}}>
+      Ask {member.name} a few general knowledge questions — how did it go? Enter what you quizzed and the points to award.
+    </div>
+    <GkPointsForm points={points} setPoints={setPoints} reason={reason} setReason={setReason}
+      placeholder="e.g. 1000" reasonPlaceholder="What topic? (e.g. Indian state capitals)"
+      onGive={(pts,rsn)=>onGkSave(member.id,{type:"daily", date:today, points:pts, reason:rsn})}/>
+  </div>;
+}
+
+// ── Bravery Drawer (wraps BraveryView in a slide-in panel) ───────────────────
+function BraveryDrawer({member, logs, onBraverySave, onBraveryDelete, onBraveryUpdate, onClose}){
+  return <>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
+    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
+      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
+      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+      <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:26}}>{member.emoji}</span>
+            <div>
+              <div style={{fontWeight:800,fontSize:16}}>🦁 Bravery</div>
+              <div style={{fontSize:11,color:C.muted}}>{member.name}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,
+            borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px"}}>
+        <BraveryView member={member} logs={logs} onBraverySave={onBraverySave}
+          onBraveryDelete={onBraveryDelete} onBraveryUpdate={onBraveryUpdate}/>
+      </div>
+    </div>
+  </>;
+}
+
+function OlympiadDrawer({member, logs, onOlympiadSave, onOlympiadDelete, onOlympiadUpdate, onClose}){
+  return <>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
+    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
+      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
+      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+      <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:26}}>{member.emoji}</span>
+            <div>
+              <div style={{fontWeight:800,fontSize:16}}>🏅 Olympiad</div>
+              <div style={{fontSize:11,color:C.muted}}>{member.name}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,
+            borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px"}}>
+        <OlympiadView member={member} logs={logs} onOlympiadSave={onOlympiadSave}
+          onOlympiadDelete={onOlympiadDelete} onOlympiadUpdate={onOlympiadUpdate}/>
+      </div>
+    </div>
+  </>;
+}
+
+function OlympiadView({member, logs, onOlympiadSave, onOlympiadDelete, onOlympiadUpdate}){
+  const today = todayStr();
+  const entries = getOlympiadLog(logs, member.id);
+  const total = computeOlympiadBonus(logs, member.id);
+  const[date, setDate] = useState(today);
+  const[subject, setSubject] = useState("");
+  const[points, setPoints] = useState("");
+  const[editingIndex, setEditingIndex] = useState(null);
+  const[editDate, setEditDate] = useState("");
+  const[editSubject, setEditSubject] = useState("");
+  const[editPoints, setEditPoints] = useState("");
+
+  const iStyle = {width:"100%",padding:"10px 12px",borderRadius:8,
+    border:`1.5px solid ${C.border}`,fontSize:13,outline:"none",
+    background:C.surface,color:C.text,boxSizing:"border-box",marginBottom:10};
+
+  const sorted = entries.map((e,i)=>({...e,_origIndex:i}))
+    .sort((a,b)=>b.date.localeCompare(a.date));
+
+  function startEdit(entry, origIndex){
+    setEditingIndex(origIndex);
+    setEditDate(entry.date);
+    setEditSubject(entry.subject);
+    setEditPoints(String(entry.points));
+  }
+  function cancelEdit(){ setEditingIndex(null); }
+  function saveEdit(origIndex){
+    onOlympiadUpdate(member.id, origIndex, {
+      date:editDate, subject:editSubject.trim(), points:parseInt(editPoints)
+    });
+    setEditingIndex(null);
+  }
+
+  return <div style={{display:"flex",flexDirection:"column",gap:14}}>
+    {/* Total summary */}
+    <div style={{background:"linear-gradient(135deg,#FFF8E1,#FFF3CD)",border:"1.5px solid #F9A825",
+      borderRadius:16,padding:20,textAlign:"center"}}>
+      <div style={{fontSize:36,marginBottom:4}}>🏅</div>
+      <div style={{fontWeight:800,fontSize:22,color:"#E65100"}}>{total.total.toLocaleString()} PP</div>
+      <div style={{fontSize:12,color:"#BF6900",marginTop:2}}>{total.count} session{total.count!==1?"s":""} logged</div>
+    </div>
+
+    {/* Log new session */}
+    <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:"14px 16px"}}>
+      <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>LOG SESSION</div>
+      <label style={{fontSize:12,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Date</label>
+      <input type="date" value={date} max={today} onChange={e=>setDate(e.target.value)} style={iStyle}/>
+      <label style={{fontSize:12,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Subject / Topic</label>
+      <input value={subject} onChange={e=>setSubject(e.target.value)}
+        placeholder="e.g. Maths - Geometry, Science - Light" style={iStyle}/>
+      <label style={{fontSize:12,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Points earned</label>
+      <input type="number" value={points} onChange={e=>setPoints(e.target.value)}
+        placeholder="e.g. 500" min="1" style={{...iStyle,marginBottom:14}}/>
+      <button disabled={!subject.trim()||!points||parseInt(points)<=0}
+        onClick={()=>{
+          onOlympiadSave(member.id,{date,subject:subject.trim(),points:parseInt(points)});
+          setSubject(""); setPoints(""); setDate(today);
+        }} style={{
+          width:"100%",padding:"11px 0",borderRadius:10,border:"none",
+          background:(!subject.trim()||!points||parseInt(points)<=0)?"#ccc":"#F9A825",
+          color:(!subject.trim()||!points||parseInt(points)<=0)?"#999":"#fff",
+          cursor:(!subject.trim()||!points||parseInt(points)<=0)?"not-allowed":"pointer",
+          fontWeight:700,fontSize:14,
+        }}>🏅 Log Olympiad Session</button>
+    </div>
+
+    {/* History with edit/delete */}
+    {sorted.length>0&&<div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:"14px 16px"}}>
+      <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>HISTORY</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {sorted.map((e)=>{
+          const origIndex = e._origIndex;
+          const isEditing = editingIndex === origIndex;
+          return <div key={origIndex} style={{
+            padding:"10px 12px",background:"#FFFBF0",borderRadius:8,
+            border:`1px solid ${isEditing?"#F9A825":"#FFE082"}`,
+          }}>
+            {isEditing ? (
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Date</label>
+                <input type="date" value={editDate} max={today} onChange={ev=>setEditDate(ev.target.value)}
+                  style={{...iStyle,marginBottom:8}}/>
+                <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Subject / Topic</label>
+                <input value={editSubject} onChange={ev=>setEditSubject(ev.target.value)}
+                  style={{...iStyle,marginBottom:8}}/>
+                <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Points</label>
+                <input type="number" value={editPoints} onChange={ev=>setEditPoints(ev.target.value)}
+                  min="1" style={{...iStyle,marginBottom:10}}/>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={cancelEdit} style={{flex:1,padding:"8px 0",borderRadius:8,
+                    border:`1px solid ${C.border}`,background:"none",cursor:"pointer",
+                    fontSize:12,fontWeight:600,color:C.muted}}>Cancel</button>
+                  <button disabled={!editSubject.trim()||!editPoints||parseInt(editPoints)<=0}
+                    onClick={()=>saveEdit(origIndex)} style={{flex:2,padding:"8px 0",borderRadius:8,
+                    border:"none",background:"#F9A825",color:"#fff",cursor:"pointer",
+                    fontSize:12,fontWeight:700}}>Save changes</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:C.text}}>🏅 {e.subject}</div>
+                  <div style={{fontSize:10,color:C.muted,marginTop:2}}>
+                    {new Date(e.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}
+                  </div>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{fontSize:16,fontWeight:900,color:"#E65100"}}>+{(e.points||0).toLocaleString()}</div>
+                  <button onClick={()=>startEdit(e,origIndex)} style={{background:"none",border:`1px solid ${C.border}`,
+                    borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.muted,fontWeight:600}}>Edit</button>
+                  <button onClick={()=>{
+                    if(window.confirm("Delete this entry?")) onOlympiadDelete(member.id, origIndex);
+                  }} style={{background:"none",border:"1px solid #E57373",
+                    borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:"#E57373",fontWeight:600}}>✕</button>
+                </div>
+              </div>
+            )}
+          </div>;
+        })}
+      </div>
+    </div>}
+  </div>;
+}
+
+function IllnessDrawer({member, logs, onIllnessSave, onIllnessDelete, onClose}){
+  return <>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
+    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
+      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
+      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+      <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:26}}>{member.emoji}</span>
+            <div>
+              <div style={{fontWeight:800,fontSize:16}}>🤒 Illness</div>
+              <div style={{fontSize:11,color:C.muted}}>{member.name}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,
+            borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px"}}>
+        <IllnessView member={member} logs={logs} onIllnessSave={onIllnessSave} onIllnessDelete={onIllnessDelete}/>
+      </div>
+    </div>
+  </>;
+}
+
+// ── Bravery Points View — parent picks reason + points, feeds same PP pool ──────
+function BraveryView({member, logs, onBraverySave, onBraveryDelete, onBraveryUpdate}){
+  const today = todayStr();
+  const entries = getBraveryLog(logs, member.id);
+  const[reason, setReason] = useState("");
+  const[points, setPoints] = useState("");
+  const bonus = computeBraveryBonus(logs, member.id);
+  const[editingIndex, setEditingIndex] = useState(null);
+  const[editDate, setEditDate] = useState("");
+  const[editReason, setEditReason] = useState("");
+  const[editPoints, setEditPoints] = useState("");
+
+  const iStyle = {width:"100%",padding:"10px 12px",borderRadius:8,
+    border:"1.5px solid #F57C00",fontSize:13,outline:"none",
+    boxSizing:"border-box",marginBottom:8,background:"#fff"};
+
+  const sorted = entries.map((e,i)=>({...e,_origIndex:i}))
+    .sort((a,b)=>b.date.localeCompare(a.date));
+
+  function startEdit(e, origIndex){
+    setEditingIndex(origIndex);
+    setEditDate(e.date);
+    setEditReason(e.reason);
+    setEditPoints(String(e.points));
+  }
+  function cancelEdit(){ setEditingIndex(null); }
+  function saveEdit(origIndex){
+    onBraveryUpdate(member.id, origIndex, {
+      date:editDate, reason:editReason.trim(), points:parseInt(editPoints)
+    });
+    setEditingIndex(null);
+  }
+
+  return <div style={{display:"flex",flexDirection:"column",gap:14}}>
+    <div style={{background:"linear-gradient(135deg,#FFF3E0,#FFE0B2)",border:"1.5px solid #F57C00",
+      borderRadius:16,padding:20,textAlign:"center"}}>
+      <div style={{fontSize:36,marginBottom:6}}>🦁</div>
+      <div style={{fontWeight:800,fontSize:16,color:"#E65100",marginBottom:2}}>Give Bravery Points</div>
+      <div style={{fontSize:12,color:"#F57C00",marginBottom:16}}>
+        Award {member.name} points for anything brave — you choose why and how much
+      </div>
+      <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="What did they do? (e.g. Tried a new food)"
+        style={{...iStyle,marginBottom:10}}/>
+      <input type="number" min={1} value={points} onChange={e=>setPoints(e.target.value)} placeholder="Points (e.g. 500)"
+        style={{...iStyle,fontSize:16,fontWeight:700,marginBottom:12}}/>
+      <button disabled={!reason.trim()||!points||parseInt(points)<=0} onClick={()=>{
+        onBraverySave(member.id, {date:today, reason:reason.trim(), points:parseInt(points)});
+        setReason(""); setPoints("");
+      }} style={{
+        width:"100%",padding:"11px 0",borderRadius:10,border:"none",
+        background:(!reason.trim()||!points||parseInt(points)<=0)?"#E0B080":"#F57C00",
+        color:"#fff",cursor:(!reason.trim()||!points||parseInt(points)<=0)?"not-allowed":"pointer",
+        fontWeight:700,fontSize:14,
+      }}>🦁 Give Bravery Points</button>
+    </div>
+
+    {bonus.total>0&&<div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:"14px 18px",
+      display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <div>
+        <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5}}>🦁 BRAVERY CONTRIBUTED</div>
+        <div style={{fontSize:20,fontWeight:900,color:"#F57C00"}}>{bonus.total.toLocaleString()} ⚡</div>
+      </div>
+      <div style={{fontSize:11,color:C.muted}}>{bonus.count} {bonus.count===1?"award":"awards"}</div>
+    </div>}
+
+    {sorted.length>0&&<div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:"14px 18px"}}>
+      <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>HISTORY</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {sorted.map((e)=>{
+          const origIndex = e._origIndex;
+          const isEditing = editingIndex === origIndex;
+          return <div key={origIndex} style={{
+            padding:"10px 12px",background:"#FFF8F0",borderRadius:8,
+            border:`1px solid ${isEditing?"#F57C00":"#FFD0A0"}`,
+          }}>
+            {isEditing ? (
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Date</label>
+                <input type="date" value={editDate} max={today} onChange={ev=>setEditDate(ev.target.value)}
+                  style={iStyle}/>
+                <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Reason</label>
+                <input value={editReason} onChange={ev=>setEditReason(ev.target.value)}
+                  style={iStyle}/>
+                <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Points</label>
+                <input type="number" value={editPoints} onChange={ev=>setEditPoints(ev.target.value)}
+                  min="1" style={{...iStyle,marginBottom:10}}/>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={cancelEdit} style={{flex:1,padding:"8px 0",borderRadius:8,
+                    border:`1px solid ${C.border}`,background:"none",cursor:"pointer",
+                    fontSize:12,fontWeight:600,color:C.muted}}>Cancel</button>
+                  <button disabled={!editReason.trim()||!editPoints||parseInt(editPoints)<=0}
+                    onClick={()=>saveEdit(origIndex)} style={{flex:2,padding:"8px 0",borderRadius:8,
+                    border:"none",background:"#F57C00",color:"#fff",cursor:"pointer",
+                    fontSize:12,fontWeight:700}}>Save changes</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div>
+                  <div style={{fontSize:12,fontWeight:600,color:C.text}}>{e.reason}</div>
+                  <div style={{fontSize:10,color:C.muted}}>{new Date(e.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</div>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:13,fontWeight:800,color:"#F57C00"}}>+{e.points.toLocaleString()} ⚡</span>
+                  <button onClick={()=>startEdit(e, origIndex)} style={{background:"none",
+                    border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 8px",
+                    cursor:"pointer",fontSize:11,color:C.muted,fontWeight:600}}>Edit</button>
+                  <button onClick={()=>{
+                    if(window.confirm("Delete this bravery entry?")) onBraveryDelete(member.id, origIndex);
+                  }} style={{background:"none",border:"1px solid #E57373",
+                    borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,
+                    color:"#E57373",fontWeight:600}}>✕</button>
+                </div>
+              </div>
+            )}
+          </div>;
+        })}
+      </div>
+    </div>}
+  </div>;
+}
+
+// ── Illness Log — informational only, no PP/streak impact — a reason a day looked the way it did ──
+function IllnessView({member, logs, onIllnessSave, onIllnessDelete}){
+  const today = todayStr();
+  const illness = getIllnessLog(logs, member.id);
+  const[reason, setReason] = useState("");
+  const todayEntry = illness[today];
+
+  const sorted = Object.entries(illness).sort((a,b)=>b[0].localeCompare(a[0]));
+
+  return <div style={{display:"flex",flexDirection:"column",gap:14}}>
+    {todayEntry ? (
+      <div style={{background:"linear-gradient(135deg,#F3E5F5,#E1BEE7)",border:"1.5px solid #8E5FA8",
+        borderRadius:16,padding:20,textAlign:"center"}}>
+        <div style={{fontSize:36,marginBottom:6}}>🤒</div>
+        <div style={{fontWeight:800,fontSize:16,color:"#6A3E7C",marginBottom:2}}>Marked sick today</div>
+        <div style={{fontSize:12,color:"#8E5FA8",marginBottom:14,fontStyle:"italic"}}>"{todayEntry.reason}"</div>
+        <button onClick={()=>onIllnessDelete(member.id, today)} style={{
+          background:"none",border:"1.5px solid #8E5FA8",borderRadius:8,padding:"7px 14px",
+          color:"#8E5FA8",cursor:"pointer",fontWeight:600,fontSize:12,
+        }}>Remove today's entry</button>
+      </div>
+    ) : (
+      <div style={{background:"linear-gradient(135deg,#F3E5F5,#E1BEE7)",border:"1.5px solid #8E5FA8",
+        borderRadius:16,padding:20,textAlign:"center"}}>
+        <div style={{fontSize:36,marginBottom:6}}>🤒</div>
+        <div style={{fontWeight:800,fontSize:16,color:"#6A3E7C",marginBottom:2}}>Mark {member.name} as sick today</div>
+        <div style={{fontSize:12,color:"#8E5FA8",marginBottom:16}}>
+          A note for the record — doesn't affect Power Points or streaks
+        </div>
+        <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="What's going on? (e.g. Fever, stomach bug)"
+          style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #8E5FA8",
+          fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:12,background:"#fff"}}/>
+        <button disabled={!reason.trim()} onClick={()=>{
+          onIllnessSave(member.id, today, reason.trim());
+          setReason("");
+        }} style={{
+          width:"100%",padding:"11px 0",borderRadius:10,border:"none",
+          background:!reason.trim()?"#D0B0DC":"#8E5FA8",
+          color:"#fff",cursor:!reason.trim()?"not-allowed":"pointer",
+          fontWeight:700,fontSize:14,
+        }}>🤒 Mark as Sick</button>
+      </div>
+    )}
+
+    {sorted.length>0&&<div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:"14px 18px"}}>
+      <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>HISTORY</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {sorted.map(([date,e],i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+            padding:"8px 10px",background:"#FAF3FB",borderRadius:8}}>
+            <div>
+              <div style={{fontSize:12,fontWeight:600,color:C.text}}>{e.reason}</div>
+              <div style={{fontSize:10,color:C.muted}}>{new Date(date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</div>
+            </div>
+            {date!==today&&<button onClick={()=>onIllnessDelete(member.id, date)} style={{
+              background:"none",border:"none",color:"#B04A4A",cursor:"pointer",fontSize:11,fontWeight:600,
+            }}>Remove</button>}
+          </div>
+        ))}
+      </div>
+    </div>}
+  </div>;
+}
+
 function AllTimeStats({member,logs,onClose}){
   const today=todayStr();
   const acts=member.activities||[];
@@ -2453,8 +4968,14 @@ function AllTimeStats({member,logs,onClose}){
     const entries=Object.entries(al).filter(([d])=>d<=today).sort(([x],[y])=>x.localeCompare(y));
     const done=entries.filter(([,l])=>l.status!=="skipped"&&l.status!=="shielded"&&l.value>0);
     const totalVol=done.reduce((s,[,l])=>s+l.value,0);
-    const best=done.reduce((b,[,l])=>Math.max(b,l.value),0);
-    const bestDay=done.find(([,l])=>l.value===best)?.[0];
+    const best=done.reduce((b,[,l])=>{
+      const sessionVals=l.sessions&&l.sessions.length>0?l.sessions:[l.value];
+      return Math.max(b,...sessionVals);
+    },0);
+    const bestDay=done.find(([,l])=>{
+      const sessionVals=l.sessions&&l.sessions.length>0?l.sessions:[l.value];
+      return Math.max(...sessionVals)===best;
+    })?.[0];
     const bestStrk=()=>{let b=0,r=0;for(const[,l]of entries){if(l.status!=="skipped"&&l.status!=="shielded"&&l.value>0){r++;b=Math.max(b,r);}else r=0;}return b;};
     // Best month
     const mons=[...new Set(done.map(([d])=>d.slice(0,7)))];
@@ -2464,7 +4985,20 @@ function AllTimeStats({member,logs,onClose}){
     let volStr=`${totalVol}${a.unit}`;
     if(a.unit==="sec"&&totalVol>=3600) volStr=`${(totalVol/3600).toFixed(1)}hrs (${totalVol}sec)`;
     else if(a.unit==="sec"&&totalVol>=60) volStr=`${Math.floor(totalVol/60)}min ${totalVol%60}sec`;
-    return{a,totalDays:done.length,totalVol,volStr,best,bestDay,bestStreak:bestStrk(),bestMon};
+    // PB timeline — walk chronologically, record every time a new all-time single-session record was set
+    const pbTimeline=[];
+    let runningBest=0;
+    for(const[d,l]of done){
+      const effectiveTarget=getHistoricalTarget(l, a.id, a.target, logs, member.id, d);
+      const sessionVals=l.sessions&&l.sessions.length>0?l.sessions:[l.value];
+      for(const v of sessionVals){
+        if(v>runningBest&&v>effectiveTarget){
+          runningBest=v;
+          pbTimeline.push({date:d,value:v});
+        }
+      }
+    }
+    return{a,totalDays:done.length,totalVol,volStr,best,bestDay,bestStreak:bestStrk(),bestMon,pbTimeline};
   });
 
   const overallStreak=memberStreakCount(member,logs);
@@ -2506,6 +5040,39 @@ function AllTimeStats({member,logs,onClose}){
               <div style={{fontSize:11,color:C.muted,marginTop:3}}>{stat.label}</div>
             </div>)}
           </div>
+          {(()=>{
+            const history = (logs[member.id]?.targetHistory?.[s.a.id])||[];
+            if(history.length===0) return null;
+            const sorted = [...history].sort((a,b)=>b.date.localeCompare(a.date));
+            return <div style={{marginTop:10,background:C.bg,borderRadius:12,padding:"10px 14px"}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>🎯 TARGET HISTORY</div>
+              <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                {sorted.map((h,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:12}}>
+                    <span style={{fontWeight:700,color:C.text}}>{h.target} {s.a.unit}</span>
+                    <span style={{color:C.muted,fontSize:11}}>
+                      {i===0?"since":"from"} {new Date(h.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>;
+          })()}
+          {s.pbTimeline.length>0&&<div style={{marginTop:10,background:"#FFFDE7",border:"1px solid #F9A825",borderRadius:12,padding:"10px 14px"}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#F57F17",letterSpacing:0.5,marginBottom:8}}>👑 PB TIMELINE</div>
+            <div style={{display:"flex",flexDirection:"column",gap:5}}>
+              {[...s.pbTimeline].reverse().map((p,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:12}}>
+                  <span style={{fontWeight:700,color:i===0?"#F57F17":C.text}}>
+                    {i===0&&"🏆 "}{p.value} {s.a.unit}
+                  </span>
+                  <span style={{color:C.muted,fontSize:11}}>
+                    {new Date(p.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>}
         </div>)}
       </div>
     </div>
@@ -2617,6 +5184,26 @@ function getEffectiveStart(member, logs){
   return earliest; // null if member has no data at all yet
 }
 
+// Distinguish members that happen to share the same color with different dash patterns,
+// so lines are never visually indistinguishable on multi-member charts.
+// Small positional offset for dots when a member shares a color with another member,
+// so their dots fan out slightly instead of perfectly overlapping and hiding one another.
+function getDotOffset(member, allMembers){
+  const sameColorMembers = allMembers.filter(m=>m.color===member.color);
+  if(sameColorMembers.length<=1) return {dx:0,dy:0};
+  const idx = sameColorMembers.findIndex(m=>m.id===member.id);
+  const offsets=[{dx:0,dy:0},{dx:5,dy:-5},{dx:-5,dy:5},{dx:5,dy:5}];
+  return offsets[idx % offsets.length];
+}
+
+function getLineDash(member, allMembers){
+  const sameColorMembers = allMembers.filter(m=>m.color===member.color);
+  if(sameColorMembers.length<=1) return undefined; // no collision, solid line
+  const idx = sameColorMembers.findIndex(m=>m.id===member.id);
+  const patterns = [undefined, "7,4", "2,3", "10,3,2,3"];
+  return patterns[idx % patterns.length];
+}
+
 function ConsistencyTrend({members, logs}){
   const today = new Date(todayStr());
 
@@ -2629,38 +5216,22 @@ function ConsistencyTrend({members, logs}){
     if(es && (!globalStart || es < globalStart)) globalStart = es;
   }
 
-  // Size the window dynamically: from the earliest activity to now, capped at 12 weeks
-  let weekCount = 8;
-  if(globalStart){
-    const daysSinceStart = Math.round((today - new Date(globalStart+"T00:00:00")) / 86400000);
-    weekCount = Math.min(12, Math.max(1, Math.ceil((daysSinceStart+1)/7)));
-  }
+  // Range selector — weekly buckets for the short view, monthly for longer spans
+  const[range,setRange] = useState("4w");
 
-  // Build weeks of data
-  const weeks = [];
-  for(let w=weekCount-1; w>=0; w--){
-    const weekEnd = new Date(today);
-    weekEnd.setDate(today.getDate() - w*7);
-    const weekStart = new Date(weekEnd);
-    weekStart.setDate(weekEnd.getDate() - 6);
+  // % of applicable days completed for a member within [startDate, endDate]
+  function memberPctForRange(m, startDate, endDate){
+    const acts = m.activities||[];
+    const sd = effectiveStarts[m.id];
+    if(!sd) return null; // member has no data at all — no line
+    const endStr = toLocalDateStr(endDate);
+    if(endStr < sd) return null; // bucket ends before this member's real start
 
-    const label = weekEnd.toLocaleDateString("en-IN",{day:"numeric",month:"short"});
-
-    const memberPcts = members.map(m=>{
-      const acts = m.activities||[];
-      const sd = effectiveStarts[m.id];
-      if(!sd) return null; // member has no data at all — no line
-      // If this entire week ends before the member's start, no point for this week
-      const weekEndStr = weekEnd.toISOString().slice(0,10);
-      if(weekEndStr < sd) return null;
-
-      let done=0, app=0;
-      for(let d=0; d<7; d++){
-        const dt = new Date(weekStart);
-        dt.setDate(weekStart.getDate()+d);
-        const k = dt.toISOString().slice(0,10);
-        if(k > todayStr()) continue;
-        if(k < sd) continue; // before this member's real start
+    let done=0, app=0;
+    const cur = new Date(startDate);
+    while(cur <= endDate){
+      const k = toLocalDateStr(cur);
+      if(k <= todayStr() && k >= sd){
         app++;
         if(m.alternating){
           const anyDone = acts.some(a=>{
@@ -2680,16 +5251,61 @@ function ConsistencyTrend({members, logs}){
           if(anyDone) done++;
         }
       }
-      return app===0 ? null : Math.round((done/app)*100);
-    });
-    weeks.push({label, memberPcts});
+      cur.setDate(cur.getDate()+1);
+    }
+    return app===0 ? null : Math.round((done/app)*100);
+  }
+
+  // Build buckets
+  const weeks = [];
+  let rangeLabel = "";
+  if(range==="4w" || range==="12w"){
+    const maxWeeks = range==="4w" ? 4 : 12;
+    let weekCount = Math.min(maxWeeks, 8);
+    if(globalStart){
+      const daysSinceStart = Math.round((today - new Date(globalStart+"T00:00:00")) / 86400000);
+      weekCount = Math.min(maxWeeks, Math.max(1, Math.ceil((daysSinceStart+1)/7)));
+    }
+    rangeLabel = `LAST ${weekCount} ${weekCount===1?"WEEK":"WEEKS"}`;
+    for(let w=weekCount-1; w>=0; w--){
+      const weekEnd = new Date(today);
+      weekEnd.setDate(today.getDate() - w*7);
+      const weekStart = new Date(weekEnd);
+      weekStart.setDate(weekEnd.getDate() - 6);
+      weeks.push({
+        label: weekEnd.toLocaleDateString("en-IN",{day:"numeric",month:"short"}),
+        memberPcts: members.map(m=>memberPctForRange(m, weekStart, weekEnd)),
+      });
+    }
+  } else {
+    // Monthly buckets — keeps long spans readable instead of cramming 30+ weekly points
+    let firstMonth;
+    if(range==="6m"){
+      firstMonth = new Date(today.getFullYear(), today.getMonth()-5, 1);
+      rangeLabel = "LAST 6 MONTHS";
+    } else {
+      const gs = globalStart ? new Date(globalStart+"T00:00:00") : today;
+      firstMonth = new Date(gs.getFullYear(), gs.getMonth(), 1);
+      rangeLabel = "ALL TIME";
+    }
+    const cursor = new Date(firstMonth);
+    while(cursor <= today){
+      const mStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+      let mEnd = new Date(cursor.getFullYear(), cursor.getMonth()+1, 0);
+      if(mEnd > today) mEnd = new Date(today);
+      weeks.push({
+        label: mStart.toLocaleDateString("en-IN",{month:"short",year:"2-digit"}),
+        memberPcts: members.map(m=>memberPctForRange(m, mStart, mEnd)),
+      });
+      cursor.setMonth(cursor.getMonth()+1);
+    }
   }
 
   // SVG dimensions
   const W=560, H=180, padL=32, padR=16, padT=16, padB=32;
   const chartW=W-padL-padR;
   const chartH=H-padT-padB;
-  const xStep = chartW/(weeks.length-1);
+  const xStep = weeks.length>1 ? chartW/(weeks.length-1) : 0;
 
   // Y gridlines at 0, 25, 50, 75, 100
   const gridLines=[0,25,50,75,100];
@@ -2714,12 +5330,27 @@ function ConsistencyTrend({members, logs}){
   }
 
   return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
-    <div style={{fontWeight:700,fontSize:14,color:C.muted,letterSpacing:0.5,marginBottom:4}}>📈 CONSISTENCY TREND · LAST {weekCount} {weekCount===1?"WEEK":"WEEKS"}</div>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:4}}>
+      <div style={{fontWeight:700,fontSize:14,color:C.muted,letterSpacing:0.5}}>📈 CONSISTENCY TREND · {rangeLabel}</div>
+      <div style={{display:"flex",gap:4}}>
+        {[{id:"4w",label:"4W"},{id:"12w",label:"12W"},{id:"6m",label:"6M"},{id:"all",label:"All"}].map(r=>(
+          <button key={r.id} onClick={()=>setRange(r.id)} style={{
+            padding:"4px 10px",borderRadius:7,fontSize:11,fontWeight:600,cursor:"pointer",
+            border:`1.5px solid ${range===r.id?C.text:C.border}`,
+            background:range===r.id?C.text:"none",
+            color:range===r.id?"#fff":C.muted,
+          }}>{r.label}</button>
+        ))}
+      </div>
+    </div>
     <div style={{display:"flex",gap:16,marginBottom:16,flexWrap:"wrap"}}>
-      {members.map(m=><div key={m.id} style={{display:"flex",alignItems:"center",gap:6}}>
-        <div style={{width:20,height:3,borderRadius:99,background:m.color}}/>
-        <span style={{fontSize:12,color:C.muted}}>{m.name}</span>
-      </div>)}
+      {members.map(m=>{
+        const dashArr=getLineDash(m,members);
+        return <div key={m.id} style={{display:"flex",alignItems:"center",gap:6}}>
+          <svg width={20} height={3}><line x1={0} y1={1.5} x2={20} y2={1.5} stroke={m.color} strokeWidth={3} strokeDasharray={dashArr}/></svg>
+          <span style={{fontSize:12,color:C.muted}}>{m.name}</span>
+        </div>;
+      })}
     </div>
     <div style={{overflowX:"auto"}}>
       <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",minWidth:320,height:"auto"}}>
@@ -2732,12 +5363,14 @@ function ConsistencyTrend({members, logs}){
         {/* Member lines */}
         {members.map((m,mi)=>{
           const {d,points} = buildPath(mi);
+          const dashArr=getLineDash(m,members);
+          const dotOffset=getDotOffset(m,members);
           return <g key={m.id}>
             {/* Line */}
-            {d&&<path d={d} fill="none" stroke={m.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"/>}
-            {/* Dots */}
+            {d&&<path d={d} fill="none" stroke={m.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={dashArr}/>}
+            {/* Dots — offset slightly if this member shares a color with another, so overlapping dots stay visible */}
             {points.map((p,i)=>p&&<g key={i}>
-              <circle cx={p.x} cy={p.y} r={4} fill={m.color} stroke="#fff" strokeWidth={2}/>
+              <circle cx={p.x+dotOffset.dx} cy={p.y+dotOffset.dy} r={4} fill={m.color} stroke="#fff" strokeWidth={2}/>
               {/* Value label on hover via title */}
               <title>{m.name}: {p.pct}%</title>
             </g>)}
@@ -2745,15 +5378,73 @@ function ConsistencyTrend({members, logs}){
         })}
 
         {/* X axis labels */}
-        {weeks.map((w,i)=><text key={i} x={xPos(i)} y={H-6} textAnchor="middle" fontSize={9} fill={C.muted}>
-          {i===weeks.length-1?"Now":w.label}
-        </text>)}
+        {(()=>{
+          const step = Math.ceil(weeks.length/13); // keep labels readable on long ranges
+          return weeks.map((w,i)=>{
+            const isLast = i===weeks.length-1;
+            if(!isLast && i%step!==0) return null;
+            return <text key={i} x={xPos(i)} y={H-6} textAnchor="middle" fontSize={9} fill={C.muted}>
+              {isLast?"Now":w.label}
+            </text>;
+          });
+        })()}
       </svg>
     </div>
   </div>;
 }
 
 // ── Family Dashboard (Family Tab) ────────────────────────────────────────────
+// ── Family Pulse — PP-based insights: level proximity and gaps between members ──
+function computeFamilyPulse(members, logs){
+  if(members.length<2) return [];
+  const today = todayStr();
+  const sevenDaysAgoDate = new Date(today+"T00:00:00");
+  sevenDaysAgoDate.setDate(sevenDaysAgoDate.getDate()-7);
+  const sevenDaysAgo = toLocalDateStr(sevenDaysAgoDate);
+
+  const stats = members.map(m=>{
+    const {total, dailyEarned} = computePowerPoints(m, logs);
+    const nextLevel = getNextLevel(total);
+    const ppToNext = nextLevel ? nextLevel.pp - total : null;
+    let recentEarned = 0;
+    for(const [date, pp] of Object.entries(dailyEarned)){
+      if(date > sevenDaysAgo && date <= today) recentEarned += (pp||0);
+    }
+    return {member:m, total, ppToNext, nextLevelTitle:nextLevel?.title, totalWeekAgo: total-recentEarned};
+  });
+
+  const insights=[];
+
+  // 1. Level proximity — anyone within striking distance of their next level
+  for(const s of stats){
+    if(s.ppToNext!==null && s.ppToNext>0 && s.ppToNext<=500){
+      insights.push({priority:1, text:`🎯 ${s.member.name} is just ${s.ppToNext.toLocaleString()} PP from ${s.nextLevelTitle}!`});
+    }
+  }
+
+  // 2. Pairwise gaps — catching up, pulling ahead, or neck-and-neck
+  for(let i=0;i<stats.length;i++){
+    for(let j=i+1;j<stats.length;j++){
+      const a=stats[i], b=stats[j];
+      const gapNow = Math.abs(a.total-b.total);
+      const gapBefore = Math.abs(a.totalWeekAgo-b.totalWeekAgo);
+      const leader = a.total>=b.total ? a : b;
+      const trailer = a.total>=b.total ? b : a;
+
+      if(gapNow<1000 && gapNow>0){
+        insights.push({priority:1, text:`⚡ ${a.member.name} and ${b.member.name} are neck-and-neck — just ${gapNow.toLocaleString()} PP apart!`});
+      } else if(gapBefore-gapNow>=500){
+        insights.push({priority:2, text:`🏃 ${trailer.member.name} is catching up to ${leader.member.name} — now ${gapNow.toLocaleString()} PP behind (was ${gapBefore.toLocaleString()})`});
+      } else if(gapNow-gapBefore>=500){
+        insights.push({priority:3, text:`🚀 ${leader.member.name} is pulling ahead of ${trailer.member.name} — gap now ${gapNow.toLocaleString()} PP`});
+      }
+    }
+  }
+
+  insights.sort((x,y)=>x.priority-y.priority);
+  return insights.slice(0,2);
+}
+
 function FamilyDashboard({members, logs, yr, mo, MONTHS}){
   const now = new Date();
   const[scoreYr, setScoreYr] = useState(yr);
@@ -2780,7 +5471,7 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
     const shields = shieldsUsed(logs,m.id,acts);
     const familyOverride = (m.alternating && acts.length>1) ? computeMemberLevelStats(m,logs) : {};
     const allEarned = new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,m.id,a.id),a.target,a.unit,familyOverride)));
-    const personalBadges = BADGES.filter(b=>!FAM_IDS.has(b.id));
+    const personalBadges = getMemberBadges(m);
     const volumes = acts.map(a=>{
       const al=getActivityLogs(logs,m.id,a.id);
       let total=0;
@@ -2801,8 +5492,19 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
   const fb = earnedFamBadges(members,logs);
   const famBadgeDefs = BADGES.filter(b=>FAM_IDS.has(b.id));
   const fbIds = new Set(fb.map(b=>b.id));
+  const pulse = computeFamilyPulse(members, logs);
 
   return <div style={{display:"flex",flexDirection:"column",gap:16}}>
+
+    {/* ── Family Pulse — level proximity & PP gaps ── */}
+    {pulse.length>0&&<div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:"14px 20px",boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
+      <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>💫 FAMILY PULSE</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {pulse.map((p,i)=>(
+          <div key={i} style={{fontSize:13,fontWeight:600,color:C.text}}>{p.text}</div>
+        ))}
+      </div>
+    </div>}
 
     {/* ── Month selector + rank chips ── */}
     <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:"16px 20px",boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
@@ -3205,8 +5907,23 @@ export default function App(){
   const handleLogAll=useCallback((mid,dateStr,entries)=>{
     setLogs(prev=>{
       const next={...prev,[mid]:{...prev[mid]}};
-      for(const{actId,value,status}of entries)
-        next[mid][actId]={...next[mid]?.[actId],[dateStr]:{value,status}};
+      for(const{actId,value,status,target,sessions}of entries){
+        const entry={value,status};
+        if(target!==undefined) entry.target=target;
+        if(sessions&&sessions.length>0) entry.sessions=sessions;
+        next[mid][actId]={...next[mid]?.[actId],[dateStr]:entry};
+      }
+      return next;
+    });
+  },[]);
+
+  const handleDeleteEntry=useCallback((mid,actId,dateStr)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...prev[mid]}};
+      if(!next[mid][actId]) return prev;
+      const actLogs={...next[mid][actId]};
+      delete actLogs[dateStr];
+      next[mid][actId]=actLogs;
       return next;
     });
   },[]);
@@ -3222,10 +5939,140 @@ export default function App(){
     });
   },[]);
 
+  const handleGrowthSave=useCallback((mid,entry)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const growth=[...(next[mid].growth||[])];
+      const idx=growth.findIndex(g=>g.month===entry.month);
+      if(idx>=0) growth[idx]=entry; else growth.push(entry);
+      next[mid].growth=growth;
+      return next;
+    });
+  },[]);
+
+  const handleGkSave=useCallback((mid,result)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const gk={dailyResults:{}, weekendResults:{}, ...(next[mid].gk||{})};
+      const dailyResults={...gk.dailyResults};
+      const weekendResults={...gk.weekendResults};
+      if(result.type==="daily"){
+        dailyResults[result.date]={points:result.points, reason:result.reason||""};
+      } else if(result.type==="weekend"){
+        weekendResults[result.weekKey]={date:result.date, points:result.points, reason:result.reason||""};
+      }
+      next[mid].gk={dailyResults, weekendResults};
+      return next;
+    });
+  },[]);
+
+  const handleBraverySave=useCallback((mid,entry)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const bravery=[...(next[mid].bravery||[]), entry];
+      next[mid].bravery=bravery;
+      return next;
+    });
+  },[]);
+
+  const handleBraveryDelete=useCallback((mid,index)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const bravery=[...(next[mid].bravery||[])];
+      bravery.splice(index,1);
+      next[mid].bravery=bravery;
+      return next;
+    });
+  },[]);
+
+  const handleBraveryUpdate=useCallback((mid,index,entry)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const bravery=[...(next[mid].bravery||[])];
+      bravery[index]=entry;
+      next[mid].bravery=bravery;
+      return next;
+    });
+  },[]);
+
+  const handleIllnessSave=useCallback((mid,dateStr,reason)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const illness={...(next[mid].illness||{})};
+      illness[dateStr]={reason};
+      next[mid].illness=illness;
+      return next;
+    });
+  },[]);
+  const handleIllnessDelete=useCallback((mid,dateStr)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      if(!next[mid].illness) return prev;
+      const illness={...next[mid].illness};
+      delete illness[dateStr];
+      next[mid].illness=illness;
+      return next;
+    });
+  },[]);
+
+  const handleOlympiadSave=useCallback((mid,entry)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const olympiad=[...(next[mid].olympiad||[]), entry];
+      next[mid].olympiad=olympiad;
+      return next;
+    });
+  },[]);
+
+  const handleOlympiadDelete=useCallback((mid,index)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const olympiad=[...(next[mid].olympiad||[])];
+      olympiad.splice(index,1);
+      next[mid].olympiad=olympiad;
+      return next;
+    });
+  },[]);
+
+  const handleOlympiadUpdate=useCallback((mid,index,entry)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const olympiad=[...(next[mid].olympiad||[])];
+      olympiad[index]=entry;
+      next[mid].olympiad=olympiad;
+      return next;
+    });
+  },[]);
+
+  const handleTargetChange=useCallback((mid,actId,target,date,prevTarget)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const th={...(next[mid].targetHistory||{})};
+      const list=[...(th[actId]||[])];
+      // Avoid duplicate consecutive entries
+      if(list.length===0||list[list.length-1].target!==target){
+        list.push({date,target,prevTarget:prevTarget??null});
+      }
+      th[actId]=list;
+      next[mid].targetHistory=th;
+      return next;
+    });
+  },[]);
+
   const handleSave=useCallback((m)=>{
+    // Detect target changes vs the member as it was before this edit, and record them
+    if(editM&&editM!=="new"){
+      const today=todayStr();
+      for(const newAct of (m.activities||[])){
+        const oldAct=(editM.activities||[]).find(a=>a.id===newAct.id);
+        if(oldAct&&oldAct.target!==newAct.target){
+          handleTargetChange(m.id,newAct.id,newAct.target,today,oldAct.target);
+        }
+      }
+    }
     setMembers(p=>{const ex=p.find(x=>x.id===m.id);return ex?p.map(x=>x.id===m.id?m:x):[...p,m];});
     setEditM(null);
-  },[]);
+  },[editM,handleTargetChange]);
   const handleDel=useCallback((id)=>{setMembers(p=>p.filter(m=>m.id!==id));setEditM(null);},[]);
   const[celebration,setCelebration]=useState(null);
   const handleBadge=useCallback((b,memberName)=>{
@@ -3263,9 +6110,7 @@ export default function App(){
       <div style={{minWidth:120}}>
         <div style={{fontWeight:800,fontSize:20,letterSpacing:-0.5}}>⚡ Family Fitness</div>
       </div>
-      <div style={{textAlign:"center",flex:1}}>
-        <div style={{fontSize:12,color:C.muted}}>{getSmartGreeting(members,logs)}</div>
-      </div>
+      <div style={{flex:1}}/>
       <div style={{display:"flex",alignItems:"center",gap:10,minWidth:120,justifyContent:"flex-end"}}>
         <button onClick={prevMo} style={navBtn}>‹</button>
         <span style={{fontWeight:700,fontSize:14,minWidth:100,textAlign:"center"}}>{MONTHS[mo]} {yr}</span>
@@ -3308,7 +6153,8 @@ export default function App(){
           <div style={{flex:"1 1 460px",maxWidth:860,minWidth:0}}>
             <MemberCard member={m} logs={logs} allMembers={members}
               onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}
-              onOpenPP={(id)=>setPpPanelFor(id)}/>
+              onOpenPP={(id)=>setPpPanelFor(id)} onGrowthSave={handleGrowthSave}
+              onGkSave={handleGkSave} onBraverySave={handleBraverySave} onBraveryDelete={handleBraveryDelete} onBraveryUpdate={handleBraveryUpdate} onIllnessSave={handleIllnessSave} onIllnessDelete={handleIllnessDelete} onOlympiadSave={handleOlympiadSave} onOlympiadDelete={handleOlympiadDelete} onOlympiadUpdate={handleOlympiadUpdate} onDeleteEntry={handleDeleteEntry}/>
           </div>
           {ppPanelFor===m.id&&<div style={{flex:"1 1 320px",maxWidth:380,minWidth:280}}>
             <PowerPointsPanel member={m} logs={logs} onClose={()=>setPpPanelFor(null)}/>
@@ -3322,6 +6168,6 @@ export default function App(){
 
     {celebration&&<CelebrationScreen badge={celebration} memberName={celebration.memberName} onClose={()=>setCelebration(null)}/>}
     {toasts.length>0&&<Toast badge={toasts[0]} onDismiss={()=>setToasts(q=>q.slice(1))}/>}
-    {editM&&<EditModal member={editM==="new"?null:editM} isNew={editM==="new"} onSave={handleSave} onDelete={handleDel} onClose={()=>setEditM(null)}/>}
+    {editM&&<EditModal member={editM==="new"?null:editM} isNew={editM==="new"} allMembers={members} onSave={handleSave} onDelete={handleDel} onClose={()=>setEditM(null)}/>}
   </div>;
 }
