@@ -3320,104 +3320,147 @@ function computeGemVault(member, logs){
   return counts;
 }
 
-function GemVaultCard({member, logs}){
+function GemVaultDrawer({member, logs, onClose}){
   const counts = computeGemVault(member, logs);
   const total = Object.values(counts).reduce((s,v)=>s+v, 0);
-  const [expanded, setExpanded] = useState(false);
-
   const rarityOrder = ["Legendary","Epic","Rare","Uncommon","Common"];
+  const rarityIcons = {Legendary:"🌟",Epic:"🔵",Rare:"🟡",Uncommon:"⚪",Common:"🟤"};
   const byRarity = {};
   for(const g of GEM_DEFS){
     if(!byRarity[g.rarity]) byRarity[g.rarity] = [];
     byRarity[g.rarity].push({...g, count: counts[g.id]||0});
   }
 
-  // Top gems for collapsed preview (only ones earned)
-  const earned = GEM_DEFS.filter(g=>counts[g.id]>0).sort((a,b)=>{
-    const ro = rarityOrder;
-    return ro.indexOf(a.rarity) - ro.indexOf(b.rarity);
-  });
+  return <>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:400}}/>
+    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(420px,94vw)",
+      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.2)",
+      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
 
-  return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,marginBottom:12,overflow:"hidden"}}>
-    {/* Header */}
-    <div onClick={()=>setExpanded(e=>!e)} style={{padding:"14px 16px",cursor:"pointer",
-      background:"linear-gradient(135deg,#1a1a2e,#16213e)"}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <div>
-          <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.5)",letterSpacing:0.5,marginBottom:4}}>💎 GEM VAULT</div>
-          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-            {earned.length === 0
-              ? <span style={{fontSize:12,color:"rgba(255,255,255,0.4)"}}>No gems yet — start earning!</span>
-              : earned.slice(0,6).map(g=>(
-                <span key={g.id} style={{fontSize:18}}>{g.icon}
-                  {counts[g.id]>1&&<sup style={{fontSize:9,color:"rgba(255,255,255,0.7)",fontWeight:700}}>×{counts[g.id]}</sup>}
-                </span>
-              ))
-            }
-            {earned.length > 6 && <span style={{fontSize:11,color:"rgba(255,255,255,0.4)"}}>+{earned.length-6} more</span>}
+      {/* Drawer header */}
+      <div style={{background:"linear-gradient(135deg,#1a1a2e,#16213e)",padding:"20px 20px 16px",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:26}}>{member.emoji}</span>
+            <div>
+              <div style={{fontSize:16,fontWeight:800,color:"#fff"}}>💎 Gem Vault</div>
+              <div style={{fontSize:11,color:"rgba(255,255,255,0.5)"}}>{member.name}</div>
+            </div>
           </div>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,0.1)",border:"none",
+            borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:18,color:"rgba(255,255,255,0.6)"}}>×</button>
         </div>
-        <div style={{textAlign:"right"}}>
-          <div style={{fontSize:20,fontWeight:900,color:"#F9A825"}}>{total}</div>
-          <div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>total gems</div>
-          <span style={{color:"rgba(255,255,255,0.4)",fontSize:14}}>{expanded?"▾":"▸"}</span>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{fontSize:28,fontWeight:900,color:"#F9A825"}}>{total} <span style={{fontSize:13,color:"rgba(255,255,255,0.5)",fontWeight:400}}>gems collected</span></div>
+        </div>
+      </div>
+
+      {/* Drawer content */}
+      <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px"}}>
+        {/* Gems by rarity */}
+        {rarityOrder.map(rarity=>{
+          const gems = byRarity[rarity];
+          if(!gems) return null;
+          return <div key={rarity} style={{marginBottom:18}}>
+            <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>
+              {rarityIcons[rarity]} {rarity.toUpperCase()}
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {gems.map(g=>{
+                const isEarned = g.count > 0;
+                return <div key={g.id} style={{
+                  display:"flex",alignItems:"center",justifyContent:"space-between",
+                  padding:"12px 14px",borderRadius:12,
+                  background:isEarned?`${g.color}12`:C.bg,
+                  border:`1.5px solid ${isEarned?g.color:C.border}`,
+                  opacity:isEarned?1:0.45,
+                }}>
+                  <div style={{display:"flex",alignItems:"center",gap:12}}>
+                    <span style={{fontSize:24,filter:isEarned?"none":"grayscale(100%)"}}>{g.icon}</span>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:700,color:isEarned?g.color:C.muted}}>{g.name}</div>
+                      <div style={{fontSize:11,color:C.muted,marginTop:1}}>{g.desc}</div>
+                    </div>
+                  </div>
+                  <div style={{fontSize:isEarned?22:14,fontWeight:900,
+                    color:isEarned?g.color:C.muted,minWidth:44,textAlign:"right"}}>
+                    {isEarned ? `×${g.count}` : "—"}
+                  </div>
+                </div>;
+              })}
+            </div>
+          </div>;
+        })}
+
+        {/* Legend */}
+        <div style={{background:C.bg,borderRadius:12,padding:"14px 16px",
+          border:`1px solid ${C.border}`,marginTop:4}}>
+          <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>HOW TO EARN</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {GEM_DEFS.map(g=>(
+              <div key={g.id} style={{display:"flex",alignItems:"flex-start",gap:8}}>
+                <span style={{fontSize:14,flexShrink:0}}>{g.icon}</span>
+                <span style={{fontSize:11,color:C.muted,lineHeight:1.4}}>
+                  <span style={{fontWeight:700,color:g.color}}>{g.name}:</span> {g.desc}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
+  </>;
+}
 
-    {expanded&&<div style={{padding:"16px"}}>
-      {/* Gem grid by rarity */}
-      {rarityOrder.map(rarity=>{
-        const gems = byRarity[rarity];
-        if(!gems) return null;
-        return <div key={rarity} style={{marginBottom:14}}>
-          <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>
-            {rarity==="Legendary"?"🌟":rarity==="Epic"?"🔵":rarity==="Rare"?"🟡":rarity==="Uncommon"?"⚪":"🟤"} {rarity.toUpperCase()}
-          </div>
-          <div style={{display:"flex",flexDirection:"column",gap:6}}>
-            {gems.map(g=>{
-              const earned = g.count > 0;
-              return <div key={g.id} style={{
-                display:"flex",alignItems:"center",justifyContent:"space-between",
-                padding:"10px 12px",borderRadius:10,
-                background:earned?`${g.color}12`:C.bg,
-                border:`1px solid ${earned?g.color:C.border}`,
-                opacity:earned?1:0.5,
-              }}>
-                <div style={{display:"flex",alignItems:"center",gap:10}}>
-                  <span style={{fontSize:22,filter:earned?"none":"grayscale(100%)"}}>{g.icon}</span>
-                  <div>
-                    <div style={{fontSize:13,fontWeight:700,color:earned?g.color:C.muted}}>{g.name}</div>
-                    <div style={{fontSize:10,color:C.muted}}>{g.desc}</div>
-                  </div>
-                </div>
-                <div style={{textAlign:"right",minWidth:40}}>
-                  {earned
-                    ? <div style={{fontSize:18,fontWeight:900,color:g.color}}>×{g.count}</div>
-                    : <div style={{fontSize:11,color:C.muted}}>—</div>
-                  }
-                </div>
-              </div>;
-            })}
-          </div>
-        </div>;
-      })}
+function GemVaultCard({member, logs}){
+  const counts = computeGemVault(member, logs);
+  const total = Object.values(counts).reduce((s,v)=>s+v, 0);
+  const [showDrawer, setShowDrawer] = useState(false);
 
-      {/* Legend footer */}
-      <div style={{marginTop:4,padding:"10px 12px",background:C.bg,borderRadius:10,
-        border:`1px solid ${C.border}`}}>
-        <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:6}}>HOW TO EARN</div>
-        <div style={{display:"flex",flexDirection:"column",gap:3}}>
-          {GEM_DEFS.map(g=>(
-            <div key={g.id} style={{display:"flex",alignItems:"center",gap:6}}>
-              <span style={{fontSize:12}}>{g.icon}</span>
-              <span style={{fontSize:10,color:C.muted}}><span style={{fontWeight:700,color:g.color}}>{g.name}:</span> {g.desc}</span>
-            </div>
-          ))}
+  const rarityOrder = ["Legendary","Epic","Rare","Uncommon","Common"];
+  const earned = GEM_DEFS.filter(g=>counts[g.id]>0).sort((a,b)=>
+    rarityOrder.indexOf(a.rarity) - rarityOrder.indexOf(b.rarity)
+  );
+
+  return <>
+    {/* Compact card — tap to open drawer */}
+    <div onClick={()=>setShowDrawer(true)} style={{
+      background:"linear-gradient(135deg,#1a1a2e,#16213e)",
+      border:"1.5px solid #2a2a4e",borderRadius:16,marginBottom:12,
+      padding:"14px 16px",cursor:"pointer",
+    }}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{flex:1}}>
+          <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.5)",
+            letterSpacing:0.5,marginBottom:6}}>💎 GEM VAULT</div>
+          <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}>
+            {earned.length === 0
+              ? <span style={{fontSize:12,color:"rgba(255,255,255,0.35)"}}>No gems yet — start earning!</span>
+              : <>
+                  {earned.slice(0,7).map(g=>(
+                    <span key={g.id} style={{fontSize:20,lineHeight:1}}>
+                      {g.icon}
+                      {counts[g.id]>1&&<sup style={{fontSize:9,color:"rgba(255,255,255,0.7)",
+                        fontWeight:700,marginLeft:1}}>×{counts[g.id]}</sup>}
+                    </span>
+                  ))}
+                  {earned.length>7&&<span style={{fontSize:11,color:"rgba(255,255,255,0.4)",marginLeft:4}}>
+                    +{earned.length-7} more
+                  </span>}
+                </>
+            }
+          </div>
+        </div>
+        <div style={{textAlign:"right",marginLeft:12}}>
+          <div style={{fontSize:22,fontWeight:900,color:"#F9A825"}}>{total}</div>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>total gems</div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,0.35)",marginTop:2}}>Tap to view ›</div>
         </div>
       </div>
-    </div>}
-  </div>;
+    </div>
+    {showDrawer&&<GemVaultDrawer member={member} logs={logs} onClose={()=>setShowDrawer(false)}/>}
+  </>;
 }
 
 function ChaseCard({member, target, logs}){
