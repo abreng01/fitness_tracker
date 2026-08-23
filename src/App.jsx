@@ -1327,14 +1327,15 @@ let _saveTimer=null;
 function deepMergeLogs(remote, local){
   if(remote == null) return local;
   if(local == null) return remote;
+  // Arrays that are sub-keys of a log entry (like sessions, bravery, olympiad, challenges)
+  // must NOT be merged by union — local always has the authoritative latest version.
+  // Union-by-value would silently drop duplicate session values (e.g. two 20-rep sessions
+  // both stringify to "20" and the second gets treated as a duplicate and dropped).
   if(Array.isArray(local) && Array.isArray(remote)){
-    const seen = new Set(remote.map(x=>JSON.stringify(x)));
-    const merged = [...remote];
-    for(const item of local){
-      const key = JSON.stringify(item);
-      if(!seen.has(key)){ merged.push(item); seen.add(key); }
-    }
-    return merged;
+    // For flat arrays of primitives or objects that are ordered records (sessions, bravery etc),
+    // local wins entirely — it reflects the most recent user action.
+    // We only union for top-level arrays where items are independent (handled by mergeMembers).
+    return local;
   }
   if(typeof local === 'object' && typeof remote === 'object' && !Array.isArray(local) && !Array.isArray(remote)){
     const merged = {...remote};
