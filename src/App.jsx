@@ -1317,12 +1317,9 @@ const JSONBIN_BIN_ID  = import.meta.env.VITE_JSONBIN_BIN_ID;
 const JSONBIN_API_KEY = import.meta.env.VITE_JSONBIN_API_KEY;
 const JSONBIN_URL     = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
 let _saveTimer=null;
+let _saveStatusCb=null;
 
-// Deep-merge two log trees by union of keys, recursing into nested objects/arrays.
-// Prevents the classic "stale tab overwrites newer data" data-loss failure: a tab that
-// hasn't seen today's entries yet would otherwise PUT its incomplete snapshot and erase
-// anything saved elsewhere in the meantime. Only a genuine same-key conflict (same date,
-// different value on both sides) falls back to preferring local — the tab actively saving
+// Deep-merge two log trees
 // right now, which represents the most recent deliberate action.
 function deepMergeLogs(remote, local){
   if(remote == null) return local;
@@ -1385,11 +1382,9 @@ async function loadData(){
   return null;
 }
 async function saveData(p){
+  if(_saveStatusCb) _saveStatusCb("saving");
   if(JSONBIN_BIN_ID&&JSONBIN_API_KEY){
     try{
-      // Fetch the latest remote state first and merge, rather than blindly overwriting —
-      // cache: no-store is essential here: a 304 cached response would cause us to merge
-      // against stale data and silently destroy any entries added from another tab or device.
       const res=await fetch(`${JSONBIN_URL}/latest`,{
         headers:{'X-Master-Key':JSONBIN_API_KEY,'X-Bin-Meta':'false'},
         cache:'no-store',
@@ -1405,18 +1400,27 @@ async function saveData(p){
         const s=JSON.stringify(merged);
         try{localStorage.setItem("ff_data",s);}catch{}
         await fetch(JSONBIN_URL,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_API_KEY},body:s});
+        if(_saveStatusCb) _saveStatusCb("saved");
         return;
       }
     }catch{}
   }
-  // Fallback if remote fetch failed — save local as-is rather than losing the save entirely
   const s=JSON.stringify(p);
   try{localStorage.setItem("ff_data",s);}catch{}
   if(JSONBIN_BIN_ID&&JSONBIN_API_KEY){
-    try{await fetch(JSONBIN_URL,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_API_KEY},body:s});}catch{}
+    try{
+      await fetch(JSONBIN_URL,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_API_KEY},body:s});
+      if(_saveStatusCb) _saveStatusCb("saved");
+    }catch{
+      if(_saveStatusCb) _saveStatusCb("error");
+    }
   }
 }
-function scheduleSave(p){clearTimeout(_saveTimer);_saveTimer=setTimeout(()=>saveData(p),800);}
+function scheduleSave(p){
+  clearTimeout(_saveTimer);
+  if(_saveStatusCb) _saveStatusCb("pending");
+  _saveTimer=setTimeout(()=>saveData(p),1200);
+}
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
 const navBtn={background:"#FFFFFF",border:"1px solid #E8E4DC",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16,color:"#1A1A1A"};
@@ -6247,10 +6251,12 @@ export default function App(){
   const[loaded,setLoaded]=useState(false);
   const[editM,setEditM]=useState(null);
   const[toasts,setToasts]=useState([]);
-  const[activeTab,setActiveTab]=useState(null); // null = show all (family summary)
-  const[ppPanelFor,setPpPanelFor]=useState(null); // memberId whose PP panel is open, or null
+  const[activeTab,setActiveTab]=useState(null);
+  const[ppPanelFor,setPpPanelFor]=useState(null);
   const[theme,setTheme]=useState("forest");
   const[pattern,setPattern]=useState("topo");
+  const[saveStatus,setSaveStatus]=useState("saved"); // "pending"|"saving"|"saved"|"error"
+  useEffect(()=>{ _saveStatusCb = setSaveStatus; return ()=>{ _saveStatusCb=null; }; },[]);
   const mRef=useRef(members);const lRef=useRef(logs);
   const tRef=useRef(theme);const pRef=useRef(pattern);
   mRef.current=members;lRef.current=logs;tRef.current=theme;pRef.current=pattern;
@@ -6513,6 +6519,14 @@ export default function App(){
         <button onClick={prevMo} style={navBtn}>‹</button>
         <span style={{fontWeight:700,fontSize:14,minWidth:100,textAlign:"center"}}>{MONTHS[mo]} {yr}</span>
         <button onClick={nextMo} disabled={isCurMo} style={{...navBtn,opacity:isCurMo?0.3:1}}>›</button>
+        {/* Save status indicator */}
+        <div style={{fontSize:11,fontWeight:600,padding:"4px 8px",borderRadius:6,
+          background:saveStatus==="saving"?"#FFF8E1":saveStatus==="pending"?"#FFF8E1":saveStatus==="error"?"#FFEBEE":"#E8F5E9",
+          color:saveStatus==="saving"?"#F9A825":saveStatus==="pending"?"#F9A825":saveStatus==="error"?"#C62828":"#2E7D32",
+          transition:"all 0.3s",whiteSpace:"nowrap",
+        }}>
+          {saveStatus==="saving"?"⟳ Saving...":saveStatus==="pending"?"⟳ Saving...":saveStatus==="error"?"⚠️ Save failed":"✓ Saved"}
+        </div>
         <ThemePicker theme={theme} setTheme={setTheme}/>
         <PatternPicker pattern={pattern} setPattern={setPattern} accent={currentTheme.accent}/>
         <button onClick={()=>setEditM("new")} style={{background:currentTheme.accent,color:"#fff",border:"none",borderRadius:9,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>+ Add member</button>
