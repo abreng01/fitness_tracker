@@ -1768,7 +1768,7 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDeleteEntry,onClo
         {!allSaved&&<button onClick={()=>onSaveAll(entries.map(e=>{
           const act=member.activities.find(a=>a.id===e.actId);
           const finalValue = (e.mode==="add" && e.status==="done") ? (e.originalValue||0)+(e.value||0) : e.value;
-          return{actId:e.actId,value:finalValue,status:e.status,target:act?.target};
+          return{actId:e.actId,value:finalValue,status:e.status,target:act?.target,sessions:e.sessions||undefined};
         }))} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",
           background:member.color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save all</button>}
       </div>
