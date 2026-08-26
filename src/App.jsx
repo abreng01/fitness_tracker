@@ -1589,7 +1589,10 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDeleteEntry,onClo
       const priorSessions = ex?.sessions || (ex?.value>0 ? [ex.value] : []);
       sessions = [...priorSessions, entry.value||0];
     } else if(entry.status==="done"){
-      sessions = undefined; // "Correct Total" resets to a clean single authoritative value
+      // Preserve existing sessions unless user explicitly changed the value (Correct Total)
+      // If the value matches originalValue, user didn't change anything — keep sessions
+      const valueChanged = entry.value !== entry.originalValue;
+      sessions = valueChanged ? undefined : (entry.sessions||undefined);
     }
     // Build full entries array — for unsaved activities, pass their current logged value or skip
     const toSave=member.activities.map(a=>{
@@ -1791,6 +1794,7 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
       status:ex?.status??"none",
       value:ex?.value??a.target,
       originalValue:ex?.value??0, // snapshot for "add session"
+      sessions:ex?.sessions||null, // MUST preserve existing sessions array
       alreadyLogged:!!alreadyLogged,
       mode:"replace", // 'add' sums onto existing, 'replace' overwrites (default, matches pre-filled value)
     };
@@ -1839,6 +1843,9 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
           const ex=getActivityLogs(logs,member.id,a.id)[dateStr];
           const priorSessions = ex?.sessions || (ex?.value>0 ? [ex.value] : []);
           sessions = [...priorSessions, en.value||0];
+        } else {
+          // Preserve existing sessions array — do NOT wipe it just because mode is "replace"
+          sessions = en.sessions||undefined;
         }
         return{actId:a.id,value:finalValue,status:"done",target:a.target,sessions};
       }
