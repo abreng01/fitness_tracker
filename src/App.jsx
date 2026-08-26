@@ -1825,6 +1825,28 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
       originalValue:0, alreadyLogged:false, mode:"replace",
     }:e));
   };
+
+  const deleteSession=(actId,sessionIdx)=>{
+    const entry=entries.find(e=>e.actId===actId);
+    if(!entry||!entry.sessions) return;
+    const act=acts.find(a=>a.id===actId);
+    const newSessions=entry.sessions.filter((_,i)=>i!==sessionIdx);
+    const newValue=newSessions.reduce((s,v)=>s+v,0);
+    const finalSessions=newSessions.length>1?newSessions:undefined;
+    const toSave=acts.map(a=>{
+      if(a.id===actId) return{actId:a.id,value:newValue,status:newValue>0?"done":"skipped",target:a.target,sessions:finalSessions};
+      const ex=getActivityLogs(logs,member.id,a.id)[dateStr];
+      if(ex) return{actId:a.id,value:ex.value,status:ex.status,target:a.target,sessions:ex.sessions};
+      return null;
+    }).filter(Boolean);
+    onSaveAll(toSave);
+    setEntries(p=>p.map(e=>e.actId===actId?{
+      ...e,value:newValue,originalValue:newValue,
+      sessions:finalSessions||null,
+      status:newValue>0?"done":"skipped",
+      alreadyLogged:newValue>0,
+    }:e));
+  };
   const isDecimal=(u)=>["km","miles","kg","hrs"].includes(u);
   const anySelected=entries.some(e=>e.selected);
 
@@ -1932,6 +1954,17 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
               </div>
               {en.alreadyLogged&&en.mode==="add"&&en.originalValue>0&&<div style={{fontSize:12,color:member.color,fontWeight:600,marginTop:6}}>
                 New total: {(en.originalValue||0)+(en.value||0)} {a.unit}
+              </div>}
+              {/* Session breakdown with per-session delete — shown when 2+ sessions exist */}
+              {en.sessions&&en.sessions.length>1&&<div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:4}}>
+                <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.3,marginBottom:2}}>SESSIONS — tap Remove to delete one</div>
+                {en.sessions.map((sv,si)=>(
+                  <div key={si} style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:11,color:C.muted}}>
+                    <span>S{si+1}: <strong style={{color:C.text}}>{sv} {a.unit}</strong></span>
+                    <button onClick={()=>deleteSession(a.id,si)} style={{background:"none",border:"none",
+                      color:C.missed,cursor:"pointer",fontSize:11,fontWeight:600,padding:"2px 6px"}}>Remove</button>
+                  </div>
+                ))}
               </div>}
             </div>}
           </div>;
