@@ -5698,6 +5698,93 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
   const fbIds = new Set(fb.map(b=>b.id));
   const pulse = computeFamilyPulse(members, logs);
 
+  // ── What-If Simulator state ──
+  const ppResults = members.map(m=>({m, pp:computePowerPoints(m,logs)}));
+  const [simOpen, setSimOpen] = useState(false);
+  const [simChaser, setSimChaser] = useState(members[0]?.id||"");
+  const [simTarget, setSimTarget] = useState(members[1]?.id||"");
+  const [simEggsPerDay, setSimEggsPerDay] = useState(0);
+  const [simActivityLevel, setSimActivityLevel] = useState("above"); // "at"|"above"|"pb"
+
+  function runSimulation(){
+    const chaser = members.find(m=>m.id===simChaser);
+    const target = members.find(m=>m.id===simTarget);
+    if(!chaser||!target) return null;
+
+    const chaserPP = ppResults.find(x=>x.m.id===simChaser)?.pp;
+    const targetPP = ppResults.find(x=>x.m.id===simTarget)?.pp;
+    if(!chaserPP||!targetPP) return null;
+
+    const gap = targetPP.total - chaserPP.total;
+    if(gap <= 0) return {alreadyAhead: true, gap: Math.abs(gap)};
+
+    // Estimate chaser's current weekly PP from dailyEarned
+    const todayD = todayStr();
+    const sevenAgo = toLocalDateStr(new Date(new Date(todayD+"T00:00:00").getTime()-7*86400000));
+    let currentWeeklyPP = 0;
+    let daysWithData = 0;
+    for(const [d,pp] of Object.entries(chaserPP.dailyEarned||{})){
+      if(d > sevenAgo && d <= todayD){ currentWeeklyPP += Math.max(0,pp||0); daysWithData++; }
+    }
+    if(daysWithData > 0) currentWeeklyPP = (currentWeeklyPP/daysWithData)*7;
+    else currentWeeklyPP = chaserPP.weekPP||0;
+
+    // Estimate target's current weekly PP
+    let targetWeeklyPP = 0;
+    let targetDays = 0;
+    for(const [d,pp] of Object.entries(targetPP.dailyEarned||{})){
+      if(d > sevenAgo && d <= todayD){ targetWeeklyPP += Math.max(0,pp||0); targetDays++; }
+    }
+    if(targetDays > 0) targetWeeklyPP = (targetWeeklyPP/targetDays)*7;
+    else targetWeeklyPP = targetPP.weekPP||0;
+
+    // Compute simulated chaser weekly PP
+    // Activity level boost: base PP per activity per day
+    const acts = chaser.activities||[];
+    const tierPP = {at:100, above:200, pb:250};
+    const basePerAct = tierPP[simActivityLevel]||200;
+    // Get streak multiplier
+    const streakMult = chaserPP.total > 0 ? (currentWeeklyPP / Math.max(1, acts.length * basePerAct * 7)) : 1;
+    const clampedMult = Math.max(1, Math.min(5, streakMult));
+
+    // Simulated daily PP from activities
+    const simActivityPPPerDay = acts.length * basePerAct * clampedMult;
+    // Egg PP: flat, no multiplier
+    const simEggPPPerDay = simEggsPerDay * 1000;
+    const simDailyPP = simActivityPPPerDay + simEggPPPerDay;
+    const simWeeklyPP = simDailyPP * 7;
+
+    // Net closing per week
+    const netClose = simWeeklyPP - targetWeeklyPP;
+
+    // Build projection rows for different scenarios
+    const scenarios = [
+      {label:"At current pace", weeklyPP: currentWeeklyPP},
+      {label:"With simulation", weeklyPP: simWeeklyPP, highlight: true},
+    ];
+
+    const results = scenarios.map(s=>{
+      const net = s.weeklyPP - targetWeeklyPP;
+      if(net <= 0) return {...s, net, catchDate:null, weeks:null};
+      const weeks = Math.ceil(gap/net);
+      const d = new Date(todayD+"T00:00:00");
+      d.setDate(d.getDate()+weeks*7);
+      return {...s, net, weeks, catchDate:d.toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})};
+    });
+
+    return {
+      gap, chaser, target,
+      currentWeeklyPP: Math.round(currentWeeklyPP),
+      targetWeeklyPP: Math.round(targetWeeklyPP),
+      simWeeklyPP: Math.round(simWeeklyPP),
+      simEggBoostPerWeek: Math.round(simEggsPerDay*1000*7),
+      netClose: Math.round(netClose),
+      results,
+    };
+  }
+
+  const simResult = simOpen ? runSimulation() : null;
+
   return <div style={{display:"flex",flexDirection:"column",gap:16}}>
 
     {/* ── Family Pulse — level proximity & PP gaps ── */}
@@ -5749,6 +5836,134 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
         </div>
       </div>;
     })()}
+
+    {/* ── What-If Simulator ── */}
+    <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
+      <div onClick={()=>setSimOpen(o=>!o)} style={{padding:"14px 20px",cursor:"pointer",
+        display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div>
+          <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:2}}>🔮 WHAT-IF SIMULATOR</div>
+          <div style={{fontSize:13,fontWeight:600,color:C.text}}>Explore catch-up scenarios</div>
+        </div>
+        <span style={{color:C.muted,fontSize:14}}>{simOpen?"▾":"▸"}</span>
+      </div>
+
+      {simOpen&&<div style={{padding:"0 20px 20px",borderTop:`1px solid ${C.border}`}}>
+        {/* Inputs */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:16,marginBottom:14}}>
+          <div>
+            <label style={{fontSize:11,fontWeight:700,color:C.muted,display:"block",marginBottom:4}}>WHO IS CHASING</label>
+            <select value={simChaser} onChange={e=>setSimChaser(e.target.value)}
+              style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,
+              fontSize:13,background:C.surface,color:C.text,outline:"none"}}>
+              {members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{fontSize:11,fontWeight:700,color:C.muted,display:"block",marginBottom:4}}>CHASING WHO</label>
+            <select value={simTarget} onChange={e=>setSimTarget(e.target.value)}
+              style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,
+              fontSize:13,background:C.surface,color:C.text,outline:"none"}}>
+              {members.filter(m=>m.id!==simChaser).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:11,fontWeight:700,color:C.muted,display:"block",marginBottom:6}}>EGGS PER DAY</label>
+          <div style={{display:"flex",gap:8}}>
+            {[0, 0.5, 1, 2, 3].map(n=>(
+              <button key={n} onClick={()=>setSimEggsPerDay(n)} style={{
+                flex:1,padding:"8px 0",borderRadius:8,border:`1.5px solid ${simEggsPerDay===n?"#F9A825":C.border}`,
+                background:simEggsPerDay===n?"#FFF8E1":"none",
+                color:simEggsPerDay===n?"#E65100":C.muted,
+                cursor:"pointer",fontWeight:700,fontSize:13,
+              }}>{n===0?"None":n}</button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{marginBottom:16}}>
+          <label style={{fontSize:11,fontWeight:700,color:C.muted,display:"block",marginBottom:6}}>ACTIVITY LEVEL</label>
+          <div style={{display:"flex",gap:8}}>
+            {[{id:"at",label:"At target"},{id:"above",label:"Above target"},{id:"pb",label:"PB pace"}].map(o=>(
+              <button key={o.id} onClick={()=>setSimActivityLevel(o.id)} style={{
+                flex:1,padding:"8px 0",borderRadius:8,border:`1.5px solid ${simActivityLevel===o.id?"#5B8FD4":C.border}`,
+                background:simActivityLevel===o.id?"#EBF2FC":"none",
+                color:simActivityLevel===o.id?"#2C5FA8":C.muted,
+                cursor:"pointer",fontWeight:700,fontSize:11,
+              }}>{o.label}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Results */}
+        {simResult&&<>
+          {simResult.alreadyAhead
+            ? <div style={{textAlign:"center",padding:"16px",background:"rgba(76,175,80,0.08)",
+                borderRadius:12,border:"1px solid rgba(76,175,80,0.3)"}}>
+                <div style={{fontSize:16,fontWeight:800,color:"#4CAF50"}}>
+                  {simResult.chaser?.name} is already ahead by {simResult.gap.toLocaleString()} PP! 🏆
+                </div>
+              </div>
+            : <>
+                {/* Gap + pace summary */}
+                <div style={{background:C.bg,borderRadius:12,padding:"12px 14px",marginBottom:10}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,textAlign:"center"}}>
+                    <div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:2}}>GAP</div>
+                      <div style={{fontSize:16,fontWeight:900,color:C.text}}>{simResult.gap.toLocaleString()}</div>
+                      <div style={{fontSize:10,color:C.muted}}>PP behind</div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:2}}>YOUR PACE</div>
+                      <div style={{fontSize:16,fontWeight:900,color:C.text}}>{simResult.simWeeklyPP.toLocaleString()}</div>
+                      <div style={{fontSize:10,color:C.muted}}>PP/week (sim)</div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:2}}>{simResult.target?.name?.toUpperCase()}'S PACE</div>
+                      <div style={{fontSize:16,fontWeight:900,color:C.text}}>{simResult.targetWeeklyPP.toLocaleString()}</div>
+                      <div style={{fontSize:10,color:C.muted}}>PP/week</div>
+                    </div>
+                  </div>
+                  {simResult.simEggBoostPerWeek>0&&<div style={{marginTop:10,padding:"6px 10px",
+                    background:"#FFF8E1",borderRadius:8,fontSize:11,color:"#E65100",fontWeight:600,textAlign:"center"}}>
+                    🥚 Egg boost: +{simResult.simEggBoostPerWeek.toLocaleString()} PP/week
+                  </div>}
+                </div>
+
+                {/* Scenario comparison */}
+                {simResult.results.map((s,i)=>{
+                  const closing = s.net > 0;
+                  return <div key={i} style={{
+                    padding:"12px 14px",borderRadius:12,marginBottom:8,
+                    background:s.highlight?"rgba(76,175,80,0.06)":C.bg,
+                    border:`1.5px solid ${s.highlight?"rgba(76,175,80,0.4)":C.border}`,
+                  }}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:12,fontWeight:700,color:s.highlight?"#2E7D32":C.text,marginBottom:2}}>
+                          {s.highlight?"🔮":""} {s.label}
+                        </div>
+                        <div style={{fontSize:11,color:C.muted}}>
+                          {s.weeklyPP.toLocaleString()} PP/week · {closing?`closing ${s.net.toLocaleString()} PP/wk`:"gap widening"}
+                        </div>
+                      </div>
+                      <div style={{textAlign:"right",minWidth:100}}>
+                        {s.catchDate
+                          ? <><div style={{fontSize:13,fontWeight:800,color:s.highlight?"#4CAF50":"#F9A825"}}>{s.catchDate}</div>
+                              <div style={{fontSize:10,color:C.muted}}>~{s.weeks} weeks</div></>
+                          : <div style={{fontSize:12,fontWeight:700,color:"#F44336"}}>Won't catch</div>
+                        }
+                      </div>
+                    </div>
+                  </div>;
+                })}
+              </>
+          }
+        </>}
+      </div>}
+    </div>
 
     {/* ── Month selector + rank chips ── */}
     <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:"16px 20px",boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
