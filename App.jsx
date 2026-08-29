@@ -1317,24 +1317,22 @@ const JSONBIN_BIN_ID  = import.meta.env.VITE_JSONBIN_BIN_ID;
 const JSONBIN_API_KEY = import.meta.env.VITE_JSONBIN_API_KEY;
 const JSONBIN_URL     = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
 let _saveTimer=null;
+let _saveStatusCb=null;
 
-// Deep-merge two log trees by union of keys, recursing into nested objects/arrays.
-// Prevents the classic "stale tab overwrites newer data" data-loss failure: a tab that
-// hasn't seen today's entries yet would otherwise PUT its incomplete snapshot and erase
-// anything saved elsewhere in the meantime. Only a genuine same-key conflict (same date,
-// different value on both sides) falls back to preferring local — the tab actively saving
+// Deep-merge two log trees
 // right now, which represents the most recent deliberate action.
 function deepMergeLogs(remote, local){
   if(remote == null) return local;
   if(local == null) return remote;
+  // Arrays that are sub-keys of a log entry (like sessions, bravery, olympiad, challenges)
+  // must NOT be merged by union — local always has the authoritative latest version.
+  // Union-by-value would silently drop duplicate session values (e.g. two 20-rep sessions
+  // both stringify to "20" and the second gets treated as a duplicate and dropped).
   if(Array.isArray(local) && Array.isArray(remote)){
-    const seen = new Set(remote.map(x=>JSON.stringify(x)));
-    const merged = [...remote];
-    for(const item of local){
-      const key = JSON.stringify(item);
-      if(!seen.has(key)){ merged.push(item); seen.add(key); }
-    }
-    return merged;
+    // For flat arrays of primitives or objects that are ordered records (sessions, bravery etc),
+    // local wins entirely — it reflects the most recent user action.
+    // We only union for top-level arrays where items are independent (handled by mergeMembers).
+    return local;
   }
   if(typeof local === 'object' && typeof remote === 'object' && !Array.isArray(local) && !Array.isArray(remote)){
     const merged = {...remote};
@@ -1384,11 +1382,9 @@ async function loadData(){
   return null;
 }
 async function saveData(p){
+  if(_saveStatusCb) _saveStatusCb("saving");
   if(JSONBIN_BIN_ID&&JSONBIN_API_KEY){
     try{
-      // Fetch the latest remote state first and merge, rather than blindly overwriting —
-      // cache: no-store is essential here: a 304 cached response would cause us to merge
-      // against stale data and silently destroy any entries added from another tab or device.
       const res=await fetch(`${JSONBIN_URL}/latest`,{
         headers:{'X-Master-Key':JSONBIN_API_KEY,'X-Bin-Meta':'false'},
         cache:'no-store',
@@ -1404,18 +1400,27 @@ async function saveData(p){
         const s=JSON.stringify(merged);
         try{localStorage.setItem("ff_data",s);}catch{}
         await fetch(JSONBIN_URL,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_API_KEY},body:s});
+        if(_saveStatusCb) _saveStatusCb("saved");
         return;
       }
     }catch{}
   }
-  // Fallback if remote fetch failed — save local as-is rather than losing the save entirely
   const s=JSON.stringify(p);
   try{localStorage.setItem("ff_data",s);}catch{}
   if(JSONBIN_BIN_ID&&JSONBIN_API_KEY){
-    try{await fetch(JSONBIN_URL,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_API_KEY},body:s});}catch{}
+    try{
+      await fetch(JSONBIN_URL,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_API_KEY},body:s});
+      if(_saveStatusCb) _saveStatusCb("saved");
+    }catch{
+      if(_saveStatusCb) _saveStatusCb("error");
+    }
   }
 }
-function scheduleSave(p){clearTimeout(_saveTimer);_saveTimer=setTimeout(()=>saveData(p),800);}
+function scheduleSave(p){
+  clearTimeout(_saveTimer);
+  if(_saveStatusCb) _saveStatusCb("pending");
+  _saveTimer=setTimeout(()=>saveData(p),1200);
+}
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
 const navBtn={background:"#FFFFFF",border:"1px solid #E8E4DC",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16,color:"#1A1A1A"};
@@ -1584,7 +1589,10 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDeleteEntry,onClo
       const priorSessions = ex?.sessions || (ex?.value>0 ? [ex.value] : []);
       sessions = [...priorSessions, entry.value||0];
     } else if(entry.status==="done"){
-      sessions = undefined; // "Correct Total" resets to a clean single authoritative value
+      // Preserve existing sessions unless user explicitly changed the value (Correct Total)
+      // If the value matches originalValue, user didn't change anything — keep sessions
+      const valueChanged = entry.value !== entry.originalValue;
+      sessions = valueChanged ? undefined : (entry.sessions||undefined);
     }
     // Build full entries array — for unsaved activities, pass their current logged value or skip
     const toSave=member.activities.map(a=>{
@@ -1763,7 +1771,7 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDeleteEntry,onClo
         {!allSaved&&<button onClick={()=>onSaveAll(entries.map(e=>{
           const act=member.activities.find(a=>a.id===e.actId);
           const finalValue = (e.mode==="add" && e.status==="done") ? (e.originalValue||0)+(e.value||0) : e.value;
-          return{actId:e.actId,value:finalValue,status:e.status,target:act?.target};
+          return{actId:e.actId,value:finalValue,status:e.status,target:act?.target,sessions:e.sessions||undefined};
         }))} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",
           background:member.color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save all</button>}
       </div>
@@ -1786,6 +1794,7 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
       status:ex?.status??"none",
       value:ex?.value??a.target,
       originalValue:ex?.value??0, // snapshot for "add session"
+      sessions:ex?.sessions||null, // MUST preserve existing sessions array
       alreadyLogged:!!alreadyLogged,
       mode:"replace", // 'add' sums onto existing, 'replace' overwrites (default, matches pre-filled value)
     };
@@ -1816,6 +1825,28 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
       originalValue:0, alreadyLogged:false, mode:"replace",
     }:e));
   };
+
+  const deleteSession=(actId,sessionIdx)=>{
+    const entry=entries.find(e=>e.actId===actId);
+    if(!entry||!entry.sessions) return;
+    const act=acts.find(a=>a.id===actId);
+    const newSessions=entry.sessions.filter((_,i)=>i!==sessionIdx);
+    const newValue=newSessions.reduce((s,v)=>s+v,0);
+    const finalSessions=newSessions.length>1?newSessions:undefined;
+    const toSave=acts.map(a=>{
+      if(a.id===actId) return{actId:a.id,value:newValue,status:newValue>0?"done":"skipped",target:a.target,sessions:finalSessions};
+      const ex=getActivityLogs(logs,member.id,a.id)[dateStr];
+      if(ex) return{actId:a.id,value:ex.value,status:ex.status,target:a.target,sessions:ex.sessions};
+      return null;
+    }).filter(Boolean);
+    onSaveAll(toSave);
+    setEntries(p=>p.map(e=>e.actId===actId?{
+      ...e,value:newValue,originalValue:newValue,
+      sessions:finalSessions||null,
+      status:newValue>0?"done":"skipped",
+      alreadyLogged:newValue>0,
+    }:e));
+  };
   const isDecimal=(u)=>["km","miles","kg","hrs"].includes(u);
   const anySelected=entries.some(e=>e.selected);
 
@@ -1834,6 +1865,9 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
           const ex=getActivityLogs(logs,member.id,a.id)[dateStr];
           const priorSessions = ex?.sessions || (ex?.value>0 ? [ex.value] : []);
           sessions = [...priorSessions, en.value||0];
+        } else {
+          // Preserve existing sessions array — do NOT wipe it just because mode is "replace"
+          sessions = en.sessions||undefined;
         }
         return{actId:a.id,value:finalValue,status:"done",target:a.target,sessions};
       }
@@ -1920,6 +1954,17 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
               </div>
               {en.alreadyLogged&&en.mode==="add"&&en.originalValue>0&&<div style={{fontSize:12,color:member.color,fontWeight:600,marginTop:6}}>
                 New total: {(en.originalValue||0)+(en.value||0)} {a.unit}
+              </div>}
+              {/* Session breakdown with per-session delete — shown when 2+ sessions exist */}
+              {en.sessions&&en.sessions.length>1&&<div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:4}}>
+                <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.3,marginBottom:2}}>SESSIONS — tap Remove to delete one</div>
+                {en.sessions.map((sv,si)=>(
+                  <div key={si} style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:11,color:C.muted}}>
+                    <span>S{si+1}: <strong style={{color:C.text}}>{sv} {a.unit}</strong></span>
+                    <button onClick={()=>deleteSession(a.id,si)} style={{background:"none",border:"none",
+                      color:C.missed,cursor:"pointer",fontSize:11,fontWeight:600,padding:"2px 6px"}}>Remove</button>
+                  </div>
+                ))}
               </div>}
             </div>}
           </div>;
@@ -2910,225 +2955,6 @@ function computeChaseStats(member, target, logs){
   };
 }
 
-// ── Weekly Momentum ──────────────────────────────────────────────────────────
-// A weekly gauge (-100 to +100) measuring how this week compares to last week
-// across 4 signals: PP earned, average output vs target, session count, consistency.
-// Resets every Monday. Always dynamic — even peak performers have something to chase.
-function computeWeeklyMomentum(member, logs){
-  const today = todayStr();
-  const acts = member.activities || [];
-  if(acts.length === 0) return null;
-
-  // Get Monday of current week and last week
-  function getMondayOf(dateStr){
-    const d = new Date(dateStr+"T00:00:00");
-    const day = d.getDay(); // 0=Sun
-    const diff = day === 0 ? 6 : day - 1;
-    d.setDate(d.getDate() - diff);
-    return toLocalDateStr(d);
-  }
-  const thisMonday = getMondayOf(today);
-  const lastMondayDate = new Date(thisMonday+"T00:00:00");
-  lastMondayDate.setDate(lastMondayDate.getDate() - 7);
-  const lastMonday = toLocalDateStr(lastMondayDate);
-  const thisSunday = toLocalDateStr(new Date(new Date(thisMonday+"T00:00:00").getTime() + 6*86400000));
-  const lastSunday = toLocalDateStr(new Date(new Date(lastMonday+"T00:00:00").getTime() + 6*86400000));
-
-  // Get days in a week range
-  function getDaysInRange(from, to){
-    const days = [];
-    const d = new Date(from+"T00:00:00");
-    const end = new Date(to+"T00:00:00");
-    while(d <= end){
-      const ds = toLocalDateStr(d);
-      if(ds <= today) days.push(ds);
-      d.setDate(d.getDate()+1);
-    }
-    return days;
-  }
-  const thisWeekDays = getDaysInRange(thisMonday, thisSunday);
-  const lastWeekDays = getDaysInRange(lastMonday, lastSunday);
-
-  if(lastWeekDays.length === 0) return null; // not enough history
-
-  // Signal 1: PP earned — normalize to daily average for fair partial-week comparison
-  const ppData = computePowerPoints(member, logs);
-  function ppForDays(days){ return days.reduce((s,d)=>s+Math.max(0,ppData.dailyEarned[d]||0),0); }
-  const thisPPTotal = ppForDays(thisWeekDays);
-  const lastPPTotal = ppForDays(lastWeekDays);
-  // Use daily average so partial weeks compare fairly against full weeks
-  const thisPP = thisWeekDays.length > 0 ? thisPPTotal / thisWeekDays.length : 0;
-  const lastPP = lastWeekDays.length > 0 ? lastPPTotal / lastWeekDays.length : 0;
-
-  // Signal 2: avg output as % of target
-  function avgOutputForDays(days){
-    const vals = [];
-    for(const d of days){
-      for(const a of acts){
-        const l = getActivityLogs(logs, member.id, a.id)[d];
-        if(l && l.status !== "skipped" && l.status !== "shielded" && l.value > 0){
-          vals.push(l.value / (l.target || a.target));
-        }
-      }
-    }
-    return vals.length > 0 ? vals.reduce((s,v)=>s+v,0)/vals.length : null;
-  }
-  const thisOutput = avgOutputForDays(thisWeekDays);
-  const lastOutput = avgOutputForDays(lastWeekDays);
-
-  // Signal 3: total sessions logged — daily average for fair comparison
-  function sessionCountForDays(days){
-    let total = 0;
-    for(const d of days){
-      for(const a of acts){
-        const l = getActivityLogs(logs, member.id, a.id)[d];
-        if(l && l.status !== "skipped" && l.status !== "shielded" && l.value > 0){
-          total += l.sessions ? l.sessions.length : 1;
-        }
-      }
-    }
-    return days.length > 0 ? total / days.length : 0; // daily average
-  }
-  const thisSessions = sessionCountForDays(thisWeekDays);
-  const lastSessions = sessionCountForDays(lastWeekDays);
-
-  // Signal 4: consistency (% of days with at least one activity logged)
-  function consistencyForDays(days){
-    if(days.length === 0) return 0;
-    let logged = 0;
-    for(const d of days){
-      const anyLogged = acts.some(a => {
-        const l = getActivityLogs(logs, member.id, a.id)[d];
-        return l && l.status !== "skipped" && (l.status === "shielded" || l.value > 0);
-      });
-      if(anyLogged) logged++;
-    }
-    return logged / days.length;
-  }
-  const thisConsistency = consistencyForDays(thisWeekDays);
-  const lastConsistency = consistencyForDays(lastWeekDays);
-
-  // Compute delta for each signal — normalized to -1..+1
-  function safeDelta(curr, prev){
-    if(prev === null || prev === 0) return curr > 0 ? 0.5 : 0;
-    return Math.max(-1, Math.min(1, (curr - prev) / prev));
-  }
-  const ppDelta        = safeDelta(thisPP, lastPP);
-  const outputDelta    = thisOutput!==null&&lastOutput!==null ? safeDelta(thisOutput, lastOutput) : 0;
-  const sessionsDelta  = safeDelta(thisSessions, lastSessions);
-  const consistDelta   = thisConsistency - lastConsistency; // already -1..+1
-
-  // Weighted momentum score: -100 to +100
-  const momentum = Math.round(
-    ppDelta       * 0.35 * 100 +
-    outputDelta   * 0.25 * 100 +
-    sessionsDelta * 0.20 * 100 +
-    consistDelta  * 0.20 * 100
-  );
-  const score = Math.max(-100, Math.min(100, momentum));
-
-  // Pct changes for display
-  function pctChange(curr, prev){
-    if(prev === null || prev === 0) return null;
-    return Math.round((curr - prev) / prev * 100);
-  }
-
-  return {
-    score,
-    signals: {
-      pp:          {this: Math.round(thisPP).toLocaleString(),    last: Math.round(lastPP).toLocaleString(),    pct: pctChange(thisPP, lastPP),             delta: ppDelta},
-      output:      {this: thisOutput ? (thisOutput*100).toFixed(0)+"%" : "—", last: lastOutput ? (lastOutput*100).toFixed(0)+"%" : "—", pct: thisOutput&&lastOutput ? pctChange(thisOutput, lastOutput) : null, delta: outputDelta},
-      sessions:    {this: thisSessions.toFixed(1),   last: lastSessions.toFixed(1),   pct: pctChange(thisSessions, lastSessions), delta: sessionsDelta},
-      consistency: {this: Math.round(thisConsistency*100)+"%", last: Math.round(lastConsistency*100)+"%", pct: Math.round((thisConsistency-lastConsistency)*100), delta: consistDelta},
-    },
-    thisWeek: thisMonday,
-    lastWeek: lastMonday,
-    daysLogged: thisWeekDays.length,
-  };
-}
-
-function WeeklyMomentumCard({member, logs}){
-  const m = computeWeeklyMomentum(member, logs);
-  const [expanded, setExpanded] = useState(false);
-  if(!m) return null;
-
-  const {score, signals} = m;
-  const isPositive = score > 0;
-  const isNeutral = score === 0;
-  const barColor = score >= 40 ? "#4CAF50" : score >= 10 ? "#8BC34A" : score >= -10 ? "#F9A825" : score >= -40 ? "#FF7043" : "#F44336";
-  const label = score >= 40 ? "Surging 🚀" : score >= 10 ? "Building ↑" : score >= -10 ? "Holding steady ⚖️" : score >= -40 ? "Dipping ↓" : "Needs a push ⚠️";
-
-  // Bar width: map -100..+100 to 0..100% with center at 50%
-  const barFill = Math.round(50 + score/2);
-  const barLeft = Math.min(50, barFill);
-  const barWidth = Math.abs(barFill - 50);
-
-  const signalRows = [
-    {label:"PP/day avg",      icon:"⚡", curr:m.signals.pp.this,      prev:m.signals.pp.last,      pct:m.signals.pp.pct},
-    {label:"Avg output",      icon:"💪", curr:m.signals.output.this,   prev:m.signals.output.last,  pct:m.signals.output.pct},
-    {label:"Sessions/day",    icon:"🔁", curr:m.signals.sessions.this, prev:m.signals.sessions.last,pct:m.signals.sessions.pct},
-    {label:"Consistency",     icon:"📅", curr:m.signals.consistency.this,prev:m.signals.consistency.last,pct:m.signals.consistency.pct},
-  ];
-
-  return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,marginBottom:12,overflow:"hidden"}}>
-    <div onClick={()=>setExpanded(e=>!e)} style={{padding:"14px 16px",cursor:"pointer"}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-        <div>
-          <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:3}}>📈 WEEKLY MOMENTUM</div>
-          <div style={{display:"flex",alignItems:"baseline",gap:8}}>
-            <span style={{fontSize:26,fontWeight:900,color:barColor}}>{score > 0 ? "+" : ""}{score}</span>
-            <span style={{fontSize:12,fontWeight:600,color:barColor}}>{label}</span>
-          </div>
-        </div>
-        <span style={{color:C.muted,fontSize:14}}>{expanded?"▾":"▸"}</span>
-      </div>
-      {/* Momentum gauge — center bar */}
-      <div style={{position:"relative",height:8,borderRadius:99,background:C.border,overflow:"hidden"}}>
-        {/* Center line */}
-        <div style={{position:"absolute",left:"50%",top:0,width:1,height:"100%",background:C.muted,zIndex:1}}/>
-        {/* Fill */}
-        <div style={{
-          position:"absolute",top:0,height:"100%",
-          left:`${barLeft}%`,width:`${barWidth}%`,
-          background:barColor,borderRadius:99,transition:"all 0.5s ease",
-        }}/>
-      </div>
-      <div style={{display:"flex",justifyContent:"space-between",marginTop:3}}>
-        <span style={{fontSize:9,color:C.muted}}>← Last week</span>
-        <span style={{fontSize:9,color:C.muted}}>This week →</span>
-      </div>
-    </div>
-
-    {expanded&&<div style={{padding:"0 16px 14px",borderTop:`1px solid ${C.border}`}}>
-      <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10,marginTop:12}}>THIS WEEK vs LAST WEEK</div>
-      <div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {signalRows.map(({label,icon,curr,prev,pct})=>{
-          const up = pct !== null && pct > 0;
-          const down = pct !== null && pct < 0;
-          return <div key={label} style={{display:"flex",alignItems:"center",justifyContent:"space-between",
-            padding:"8px 10px",background:C.bg,borderRadius:8}}>
-            <div style={{display:"flex",alignItems:"center",gap:8}}>
-              <span style={{fontSize:14}}>{icon}</span>
-              <span style={{fontSize:12,fontWeight:600,color:C.text}}>{label}</span>
-            </div>
-            <div style={{display:"flex",alignItems:"center",gap:8}}>
-              <span style={{fontSize:11,color:C.muted}}>{prev}</span>
-              <span style={{fontSize:11,color:C.muted}}>→</span>
-              <span style={{fontSize:12,fontWeight:700,color:up?"#4CAF50":down?"#F44336":C.text}}>{curr}</span>
-              {pct !== null && <span style={{fontSize:10,fontWeight:700,
-                color:up?"#4CAF50":down?"#F44336":C.muted,
-                background:up?"rgba(76,175,80,0.1)":down?"rgba(244,67,54,0.1)":"transparent",
-                borderRadius:4,padding:"1px 4px"}}>
-                {up?"+":""}{pct}%
-              </span>}
-            </div>
-          </div>;
-        })}
-      </div>
-    </div>}
-  </div>;
-}
-
 
 // ── Gem Vault ─────────────────────────────────────────────────────────────────
 // 8 collectible gems earned through specific real achievements.
@@ -3463,6 +3289,383 @@ function GemVaultCard({member, logs}){
   </>;
 }
 
+// ── Personal Challenges ───────────────────────────────────────────────────────
+const CHALLENGE_TYPES = [
+  {id:"pb",          label:"Single session PB",          desc:"Reach a value in one session",          unit:true},
+  {id:"cumulative",  label:"Cumulative total",            desc:"Accumulate a total value",              unit:true},
+  {id:"sessions",    label:"Session count",               desc:"Complete a number of sessions",         unit:false, fixedUnit:"sessions"},
+  {id:"streak",      label:"Streak",                      desc:"Maintain an unbroken streak (days)",    unit:false, fixedUnit:"days"},
+  {id:"consistency", label:"Consistency window",          desc:"Log every day for N days (no misses)",  unit:false, fixedUnit:"days"},
+  {id:"above_run",   label:"Above target run",            desc:"Stay above target for N days in a row", unit:false, fixedUnit:"days"},
+];
+
+function getChallenges(logs, memberId){
+  return (logs[memberId]&&logs[memberId].challenges)||[];
+}
+
+function computeChallengeProgress(challenge, member, logs){
+  const today = todayStr();
+  const acts = member.activities||[];
+  const a = challenge.activityId ? acts.find(x=>x.id===challenge.activityId) : null;
+
+  function dayDone(ds){
+    if(member.alternating&&acts.length>1)
+      return acts.some(a=>{const l=getActivityLogs(logs,member.id,a.id)[ds];return l&&(l.status==="shielded"||(l.status!=="skipped"&&l.value>0));});
+    return acts.some(a=>{const l=getActivityLogs(logs,member.id,a.id)[ds];return l&&l.status!=="skipped"&&l.value>0;});
+  }
+  function daySkipped(ds){
+    return acts.some(ax=>{const l=getActivityLogs(logs,member.id,ax.id)[ds];return l&&l.status==="skipped";});
+  }
+
+  const start = challenge.createdAt.slice(0,10);
+
+  if(challenge.type==="pb"){
+    // Best single session value for this activity since challenge started
+    if(!a) return {current:0, pct:0};
+    const al = getActivityLogs(logs,member.id,a.id);
+    let best = 0;
+    for(const [ds,l] of Object.entries(al)){
+      if(ds<start||ds>today) continue;
+      const vals = l.sessions&&l.sessions.length>0?l.sessions:[l.value||0];
+      best = Math.max(best, ...vals);
+    }
+    return {current:best, pct:Math.min(100,Math.round(best/challenge.targetValue*100))};
+  }
+
+  if(challenge.type==="cumulative"){
+    if(!a) return {current:0, pct:0};
+    const al = getActivityLogs(logs,member.id,a.id);
+    let total = 0;
+    for(const [ds,l] of Object.entries(al)){
+      if(ds<start||ds>today) continue;
+      if(l.status!=="skipped"&&l.status!=="shielded") total += l.value||0;
+    }
+    return {current:Math.round(total*10)/10, pct:Math.min(100,Math.round(total/challenge.targetValue*100))};
+  }
+
+  if(challenge.type==="sessions"){
+    if(!a) return {current:0, pct:0};
+    const al = getActivityLogs(logs,member.id,a.id);
+    let count = 0;
+    for(const [ds,l] of Object.entries(al)){
+      if(ds<start||ds>today) continue;
+      if(l.status!=="skipped"&&l.status!=="shielded"&&l.value>0)
+        count += l.sessions&&l.sessions.length>0?l.sessions.length:1;
+    }
+    return {current:count, pct:Math.min(100,Math.round(count/challenge.targetValue*100))};
+  }
+
+  if(challenge.type==="streak"){
+    // Current streak from today backwards (not limited to challenge start)
+    let streak=0;
+    const d=new Date(today+"T00:00:00");
+    for(let i=0;i<365;i++){
+      const ds=toLocalDateStr(d);
+      if(dayDone(ds)) streak++;
+      else if(daySkipped(ds)) break;
+      else if(ds<today) break;
+      d.setDate(d.getDate()-1);
+    }
+    return {current:streak, pct:Math.min(100,Math.round(streak/challenge.targetValue*100))};
+  }
+
+  if(challenge.type==="consistency"){
+    // Count consecutive logged days in challenge window with no misses
+    let run=0, best=0;
+    const d=new Date(start+"T00:00:00");
+    const end=new Date(Math.min(new Date(today+"T00:00:00"),new Date(challenge.deadline+"T00:00:00")));
+    while(d<=end){
+      const ds=toLocalDateStr(d);
+      if(dayDone(ds)){ run++; best=Math.max(best,run); }
+      else if(daySkipped(ds)) run=0;
+      d.setDate(d.getDate()+1);
+    }
+    return {current:best, pct:Math.min(100,Math.round(best/challenge.targetValue*100))};
+  }
+
+  if(challenge.type==="above_run"){
+    // Longest consecutive above-target run in challenge window
+    function aboveTarget(ds){
+      if(!a) return false;
+      const l=getActivityLogs(logs,member.id,a.id)[ds];
+      if(!l||l.status==="skipped"||l.status==="shielded") return false;
+      return l.value>(l.target||a.target);
+    }
+    let run=0, best=0;
+    const d=new Date(start+"T00:00:00");
+    const end=new Date(Math.min(new Date(today+"T00:00:00"),new Date(challenge.deadline+"T00:00:00")));
+    while(d<=end){
+      const ds=toLocalDateStr(d);
+      if(aboveTarget(ds)){ run++; best=Math.max(best,run); }
+      else if(dayDone(ds)) run=0;
+      d.setDate(d.getDate()+1);
+    }
+    return {current:best, pct:Math.min(100,Math.round(best/challenge.targetValue*100))};
+  }
+
+  return {current:0, pct:0};
+}
+
+function resolveChallenge(challenge, member, logs){
+  const today = todayStr();
+  if(challenge.status!=="active") return challenge;
+  const {current, pct} = computeChallengeProgress(challenge, member, logs);
+  const won = current >= challenge.targetValue;
+  const expired = today > challenge.deadline;
+  if(won) return {...challenge, status:"won", result:{current, achievedOn:today}};
+  if(expired) return {...challenge, status:"lost", result:{current, pct}};
+  return challenge;
+}
+
+function ChallengesDrawer({member, logs, allMembers, onChallengeSave, onChallengeDelete, onChallengeUpdate, onClose}){
+  const today = todayStr();
+  const acts = member.activities||[];
+  const rawChallenges = getChallenges(logs, member.id);
+  const challenges = rawChallenges.map(c=>resolveChallenge(c,member,logs));
+  const active = challenges.filter(c=>c.status==="active");
+  const completed = challenges.filter(c=>c.status!=="active").sort((a,b)=>b.deadline.localeCompare(a.deadline));
+
+  const[showForm, setShowForm] = useState(false);
+  const[type, setType] = useState("pb");
+  const[actId, setActId] = useState(acts[0]?.id||"");
+  const[targetVal, setTargetVal] = useState("");
+  const[deadline, setDeadline] = useState("");
+  const[editingId, setEditingId] = useState(null);
+  const[editTargetVal, setEditTargetVal] = useState("");
+  const[editDeadline, setEditDeadline] = useState("");
+
+  const ct = CHALLENGE_TYPES.find(x=>x.id===type);
+  const selAct = acts.find(a=>a.id===actId);
+  const unitLabel = ct?.unit ? (selAct?.unit||"") : (ct?.fixedUnit||"");
+
+  function handleSave(){
+    const challenge = {
+      id: Date.now().toString(),
+      type, activityId: ct?.unit||type==="sessions"||type==="above_run" ? actId : null,
+      targetValue: parseFloat(targetVal),
+      deadline, createdAt: new Date().toISOString(),
+      status:"active",
+    };
+    onChallengeSave(member.id, challenge);
+    setShowForm(false); setTargetVal(""); setDeadline("");
+  }
+
+  function startEdit(c){
+    setEditingId(c.id);
+    setEditTargetVal(String(c.targetValue));
+    setEditDeadline(c.deadline);
+  }
+  function cancelEdit(){ setEditingId(null); }
+  function saveEdit(c){
+    onChallengeUpdate(member.id, c.id, {
+      ...c,
+      targetValue: parseFloat(editTargetVal),
+      deadline: editDeadline,
+    });
+    setEditingId(null);
+  }
+
+  const iStyle = {width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.border}`,
+    fontSize:13,outline:"none",background:C.surface,color:C.text,boxSizing:"border-box",marginBottom:10};
+
+  function ChallengeRow({c}){
+    const prog = c.status==="active" ? computeChallengeProgress(c,member,logs) : {current:c.result?.current||0,pct:c.result?.pct||100};
+    const a = acts.find(x=>x.id===c.activityId);
+    const ct2 = CHALLENGE_TYPES.find(x=>x.id===c.type);
+    const daysLeft = Math.max(0,Math.round((new Date(c.deadline+"T00:00:00")-new Date(today+"T00:00:00"))/86400000));
+    const unit = ct2?.unit?(a?.unit||""):(ct2?.fixedUnit||"");
+    const barColor = c.status==="won"?"#4CAF50":c.status==="lost"?"#F44336":prog.pct>=70?"#4CAF50":prog.pct>=40?"#F9A825":"#42A5F5";
+    const isEditing = editingId===c.id;
+
+    return <div style={{background:C.bg,borderRadius:12,padding:"12px 14px",marginBottom:8,
+      border:`1.5px solid ${isEditing?"#4CAF50":c.status==="won"?"#4CAF50":c.status==="lost"?"#F44336":C.border}`}}>
+      {isEditing ? <>
+        <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>EDIT CHALLENGE</div>
+        <div style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:8}}>
+          {a?a.name:"All activities"} — {ct2?.label}
+        </div>
+        <label style={{fontSize:12,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>
+          Target {unit?`(${unit})`:""}
+        </label>
+        <input type="number" value={editTargetVal} onChange={e=>setEditTargetVal(e.target.value)} style={iStyle}/>
+        <label style={{fontSize:12,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Deadline</label>
+        <input type="date" value={editDeadline} min={today} onChange={e=>setEditDeadline(e.target.value)} style={{...iStyle,marginBottom:12}}/>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={cancelEdit} style={{flex:1,padding:"8px",borderRadius:8,
+            border:`1px solid ${C.border}`,background:"none",cursor:"pointer",
+            fontSize:12,fontWeight:600,color:C.muted}}>Cancel</button>
+          <button disabled={!editTargetVal||!editDeadline||parseFloat(editTargetVal)<=0}
+            onClick={()=>saveEdit(c)} style={{flex:2,padding:"8px",borderRadius:8,border:"none",
+            background:!editTargetVal||!editDeadline?"#ccc":"#4CAF50",color:"#fff",cursor:"pointer",
+            fontSize:12,fontWeight:700}}>Save changes</button>
+        </div>
+      </> : <>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:12,fontWeight:700,color:C.text}}>
+              {c.status==="won"?"✅":c.status==="lost"?"❌":"🎯"} {a?a.name:"All activities"} — {ct2?.label}
+            </div>
+            <div style={{fontSize:11,color:C.muted,marginTop:1}}>
+              Target: {c.targetValue}{unit} · {c.status==="active"?`${daysLeft}d left`:c.status==="won"?"Conquered!":"Fell short"}
+            </div>
+          </div>
+          {c.status==="active"&&<div style={{display:"flex",gap:4}}>
+            <button onClick={()=>startEdit(c)} style={{background:"none",border:`1px solid ${C.border}`,
+              borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11,color:C.muted,fontWeight:600}}>Edit</button>
+            <button onClick={()=>onChallengeDelete(member.id,c.id)}
+              style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:12,padding:"0 4px"}}>✕</button>
+          </div>}
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <div style={{flex:1,height:6,borderRadius:99,background:C.border,overflow:"hidden"}}>
+            <div style={{height:"100%",width:`${prog.pct}%`,background:barColor,borderRadius:99,transition:"width 0.4s"}}/>
+          </div>
+          <span style={{fontSize:11,fontWeight:700,color:barColor,minWidth:36,textAlign:"right"}}>
+            {prog.current}{unit}
+          </span>
+        </div>
+        {c.status==="won"&&c.result?.achievedOn&&<div style={{fontSize:10,color:"#4CAF50",marginTop:4}}>
+          Achieved on {new Date(c.result.achievedOn+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"})}
+        </div>}
+      </>}
+    </div>;
+  }
+
+  return <>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
+    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(420px,94vw)",
+      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
+      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+      <div style={{padding:"20px 20px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:26}}>{member.emoji}</span>
+            <div>
+              <div style={{fontWeight:800,fontSize:16}}>🎯 Challenges</div>
+              <div style={{fontSize:11,color:C.muted}}>{member.name}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,
+            borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+        </div>
+      </div>
+
+      <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px"}}>
+        {!showForm
+          ? <button onClick={()=>{setShowForm(true);setEditingId(null);}} style={{width:"100%",padding:"12px",borderRadius:10,
+              border:`2px dashed ${C.border}`,background:"none",cursor:"pointer",
+              fontSize:13,fontWeight:700,color:C.muted,marginBottom:16}}>
+              + New Challenge
+            </button>
+          : <div style={{background:C.bg,borderRadius:12,padding:"14px 16px",marginBottom:16,
+              border:`1.5px solid ${C.border}`}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>NEW CHALLENGE</div>
+              <label style={{fontSize:12,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Type</label>
+              <select value={type} onChange={e=>setType(e.target.value)} style={iStyle}>
+                {CHALLENGE_TYPES.map(ct=><option key={ct.id} value={ct.id}>{ct.label}</option>)}
+              </select>
+              {(ct?.unit||type==="sessions"||type==="above_run") && <>
+                <label style={{fontSize:12,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Activity</label>
+                <select value={actId} onChange={e=>setActId(e.target.value)} style={iStyle}>
+                  {acts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </>}
+              <label style={{fontSize:12,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>
+                Target {unitLabel?`(${unitLabel})`:""}
+              </label>
+              <input type="number" value={targetVal} onChange={e=>setTargetVal(e.target.value)}
+                placeholder={`e.g. ${type==="pb"?"120":type==="cumulative"?"100":type==="sessions"?"50":"30"}`}
+                style={iStyle}/>
+              <label style={{fontSize:12,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Deadline</label>
+              <input type="date" value={deadline} min={today} onChange={e=>setDeadline(e.target.value)} style={iStyle}/>
+              <div style={{display:"flex",gap:8,marginTop:4}}>
+                <button onClick={()=>setShowForm(false)} style={{flex:1,padding:"9px",borderRadius:8,
+                  border:`1px solid ${C.border}`,background:"none",cursor:"pointer",
+                  fontSize:12,fontWeight:600,color:C.muted}}>Cancel</button>
+                <button disabled={!targetVal||!deadline||parseFloat(targetVal)<=0}
+                  onClick={handleSave} style={{flex:2,padding:"9px",borderRadius:8,border:"none",
+                  background:!targetVal||!deadline?"#ccc":"#4CAF50",color:"#fff",cursor:"pointer",
+                  fontSize:12,fontWeight:700}}>🎯 Set Challenge</button>
+              </div>
+            </div>
+        }
+
+        {active.length>0&&<>
+          <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>ACTIVE</div>
+          {active.map(c=><ChallengeRow key={c.id} c={c}/>)}
+        </>}
+
+        {completed.length>0&&<>
+          <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8,marginTop:16}}>HISTORY</div>
+          {completed.map(c=><ChallengeRow key={c.id} c={c}/>)}
+        </>}
+
+        {active.length===0&&completed.length===0&&!showForm&&<div style={{textAlign:"center",
+          padding:"40px 20px",color:C.muted,fontSize:13}}>
+          No challenges yet.<br/>Set one to start!
+        </div>}
+      </div>
+    </div>
+  </>;
+}
+
+function ChallengesCard({member, logs, allMembers, onChallengeSave, onChallengeDelete, onChallengeUpdate}){
+  const [showDrawer, setShowDrawer] = useState(false);
+  const rawChallenges = getChallenges(logs, member.id);
+  const challenges = rawChallenges.map(c=>resolveChallenge(c,member,logs));
+  const active = challenges.filter(c=>c.status==="active");
+  const won = challenges.filter(c=>c.status==="won").length;
+  const lost = challenges.filter(c=>c.status==="lost").length;
+
+  return <>
+    <div onClick={()=>setShowDrawer(true)} style={{background:C.surface,
+      border:`1.5px solid ${C.border}`,borderRadius:16,marginBottom:12,
+      padding:"14px 16px",cursor:"pointer"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{flex:1}}>
+          <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:6}}>🎯 CHALLENGES</div>
+          {active.length===0
+            ? <div style={{fontSize:12,color:C.muted}}>No active challenges — tap to set one</div>
+            : active.slice(0,2).map(c=>{
+                const prog = computeChallengeProgress(c,member,logs);
+                const a = (member.activities||[]).find(x=>x.id===c.activityId);
+                const ct2 = CHALLENGE_TYPES.find(x=>x.id===c.type);
+                const today = todayStr();
+                const daysLeft = Math.max(0,Math.round((new Date(c.deadline+"T00:00:00")-new Date(today+"T00:00:00"))/86400000));
+                return <div key={c.id} style={{marginBottom:6}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                    <span style={{fontSize:12,fontWeight:600,color:C.text}}>
+                      {a?a.name:"—"} {ct2?.label}
+                    </span>
+                    <span style={{fontSize:11,color:C.muted}}>{daysLeft}d left</span>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <div style={{flex:1,height:4,borderRadius:99,background:C.border,overflow:"hidden"}}>
+                      <div style={{height:"100%",width:`${prog.pct}%`,
+                        background:prog.pct>=70?"#4CAF50":prog.pct>=40?"#F9A825":"#42A5F5",
+                        borderRadius:99}}/>
+                    </div>
+                    <span style={{fontSize:10,color:C.muted,minWidth:28}}>{prog.pct}%</span>
+                  </div>
+                </div>;
+              })
+          }
+          {active.length>2&&<div style={{fontSize:11,color:C.muted}}>+{active.length-2} more active</div>}
+        </div>
+        <div style={{textAlign:"right",marginLeft:12}}>
+          {won>0&&<div style={{fontSize:11,color:"#4CAF50",fontWeight:700}}>✅ {won} won</div>}
+          {lost>0&&<div style={{fontSize:11,color:"#F44336",fontWeight:700}}>❌ {lost} lost</div>}
+          <div style={{fontSize:11,color:C.muted,marginTop:4}}>Tap to manage ›</div>
+        </div>
+      </div>
+    </div>
+    {showDrawer&&<ChallengesDrawer member={member} logs={logs} allMembers={allMembers}
+      onChallengeSave={onChallengeSave} onChallengeDelete={onChallengeDelete} onChallengeUpdate={onChallengeUpdate}
+      onClose={()=>setShowDrawer(false)}/>}
+  </>;
+}
+
 function ChaseCard({member, target, logs}){
   const today = todayStr();
   const s = computeChaseStats(member, target, logs);
@@ -3600,7 +3803,7 @@ function ChaseCard({member, target, logs}){
   </div>;
 }
 
-function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onBraverySave,onBraveryDelete,onBraveryUpdate,onIllnessSave,onIllnessDelete,onOlympiadSave,onOlympiadDelete,onOlympiadUpdate,onDeleteEntry}){
+function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onBraverySave,onBraveryDelete,onBraveryUpdate,onIllnessSave,onIllnessDelete,onOlympiadSave,onOlympiadDelete,onOlympiadUpdate,onChallengeSave,onChallengeDelete,onChallengeUpdate,onDeleteEntry}){
   const today=todayStr();
   const[showCal,setShowCal]=useState(true);
   const[showBadges,setShowBadges]=useState(false);
@@ -3700,11 +3903,12 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
       </div>}
     </div>
 
-    {/* Weekly Momentum */}
-    <WeeklyMomentumCard member={member} logs={logs}/>
-
     {/* Gem Vault */}
     <GemVaultCard member={member} logs={logs}/>
+
+    {/* Personal Challenges */}
+    <ChallengesCard member={member} logs={logs} allMembers={allMembers}
+      onChallengeSave={onChallengeSave} onChallengeDelete={onChallengeDelete} onChallengeUpdate={onChallengeUpdate}/>
 
     {/* Egg-O-Meter */}
     {member.eggMeter&&<EggMeter member={member} logs={logs} onEggChange={onEggChange} onNewBadge={onNewBadge}/>}
@@ -5494,6 +5698,100 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
   const fbIds = new Set(fb.map(b=>b.id));
   const pulse = computeFamilyPulse(members, logs);
 
+  // ── What-If Simulator state ──
+  const ppResults = members.map(m=>({m, pp:computePowerPoints(m,logs)}));
+  const [simOpen, setSimOpen] = useState(false);
+  const [simChaser, setSimChaser] = useState(members[0]?.id||"");
+  const [simTarget, setSimTarget] = useState(members[1]?.id||"");
+  const [simEggsPerDay, setSimEggsPerDay] = useState(0);
+  const [simActivityLevel, setSimActivityLevel] = useState("above"); // "at"|"above"|"pb"
+
+  function runSimulation(){
+    const chaser = members.find(m=>m.id===simChaser);
+    const target = members.find(m=>m.id===simTarget);
+    if(!chaser||!target) return null;
+
+    const chaserPP = ppResults.find(x=>x.m.id===simChaser)?.pp;
+    const targetPP = ppResults.find(x=>x.m.id===simTarget)?.pp;
+    if(!chaserPP||!targetPP) return null;
+
+    const gap = targetPP.total - chaserPP.total;
+    if(gap <= 0) return {alreadyAhead: true, gap: Math.abs(gap)};
+
+    // Estimate chaser's current weekly PP from dailyEarned
+    const todayD = todayStr();
+    const sevenAgo = toLocalDateStr(new Date(new Date(todayD+"T00:00:00").getTime()-7*86400000));
+    let currentWeeklyPP = 0;
+    let daysWithData = 0;
+    for(const [d,pp] of Object.entries(chaserPP.dailyEarned||{})){
+      if(d > sevenAgo && d <= todayD){ currentWeeklyPP += Math.max(0,pp||0); daysWithData++; }
+    }
+    if(daysWithData > 0) currentWeeklyPP = (currentWeeklyPP/daysWithData)*7;
+    else currentWeeklyPP = chaserPP.weekPP||0;
+
+    // Estimate target's current weekly PP
+    let targetWeeklyPP = 0;
+    let targetDays = 0;
+    for(const [d,pp] of Object.entries(targetPP.dailyEarned||{})){
+      if(d > sevenAgo && d <= todayD){ targetWeeklyPP += Math.max(0,pp||0); targetDays++; }
+    }
+    if(targetDays > 0) targetWeeklyPP = (targetWeeklyPP/targetDays)*7;
+    else targetWeeklyPP = targetPP.weekPP||0;
+
+    // Compute simulated chaser weekly PP
+    // Activity level boost: base PP per activity per day
+    const acts = chaser.activities||[];
+    const tierPP = {at:100, above:200, pb:250};
+    const basePerAct = tierPP[simActivityLevel]||200;
+
+    // Use actual current streak → exact multiplier (same function the scoring engine uses)
+    const chaserStreak = memberStreakCount(chaser, logs);
+    const chaserMult = getStreakMultiplier(chaserStreak);
+
+    // Also get target's actual streak multiplier for their projection
+    const targetStreak = memberStreakCount(target, logs);
+    const targetMult = getStreakMultiplier(targetStreak);
+
+    // Simulated daily PP from activities using real multiplier
+    const simActivityPPPerDay = acts.length * basePerAct * chaserMult;
+    // Egg PP: flat, no multiplier
+    const simEggPPPerDay = simEggsPerDay * 1000;
+    const simDailyPP = simActivityPPPerDay + simEggPPPerDay;
+    const simWeeklyPP = simDailyPP * 7;
+
+    // Net closing per week
+    const netClose = simWeeklyPP - targetWeeklyPP;
+
+    // Build projection rows for different scenarios
+    const scenarios = [
+      {label:"At current pace", weeklyPP: currentWeeklyPP},
+      {label:"With simulation", weeklyPP: simWeeklyPP, highlight: true},
+    ];
+
+    const results = scenarios.map(s=>{
+      const net = s.weeklyPP - targetWeeklyPP;
+      if(net <= 0) return {...s, net, catchDate:null, weeks:null};
+      const weeks = Math.ceil(gap/net);
+      const d = new Date(todayD+"T00:00:00");
+      d.setDate(d.getDate()+weeks*7);
+      return {...s, net, weeks, catchDate:d.toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})};
+    });
+
+    return {
+      gap, chaser, target,
+      chaserStreak, chaserMult,
+      targetStreak, targetMult,
+      currentWeeklyPP: Math.round(currentWeeklyPP),
+      targetWeeklyPP: Math.round(targetWeeklyPP),
+      simWeeklyPP: Math.round(simWeeklyPP),
+      simEggBoostPerWeek: Math.round(simEggsPerDay*1000*7),
+      netClose: Math.round(simWeeklyPP - targetWeeklyPP),
+      results,
+    };
+  }
+
+  const simResult = simOpen ? runSimulation() : null;
+
   return <div style={{display:"flex",flexDirection:"column",gap:16}}>
 
     {/* ── Family Pulse — level proximity & PP gaps ── */}
@@ -5505,6 +5803,188 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
         ))}
       </div>
     </div>}
+
+    {/* ── Family Challenges — all active challenges across members ── */}
+    {(()=>{
+      const allActive = members.flatMap(m=>{
+        const challenges = getChallenges(logs,m.id).map(c=>resolveChallenge(c,m,logs));
+        return challenges.filter(c=>c.status==="active").map(c=>({member:m, challenge:c}));
+      });
+      if(allActive.length===0) return null;
+      return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,
+        padding:"14px 20px",boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
+        <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>🎯 ACTIVE CHALLENGES</div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {allActive.map(({member:m, challenge:c})=>{
+            const prog = computeChallengeProgress(c,m,logs);
+            const a = (m.activities||[]).find(x=>x.id===c.activityId);
+            const ct2 = CHALLENGE_TYPES.find(x=>x.id===c.type);
+            const today = todayStr();
+            const daysLeft = Math.max(0,Math.round((new Date(c.deadline+"T00:00:00")-new Date(today+"T00:00:00"))/86400000));
+            const unit = ct2?.unit?(a?.unit||""):(ct2?.fixedUnit||"");
+            const barColor = prog.pct>=70?"#4CAF50":prog.pct>=40?"#F9A825":"#42A5F5";
+            return <div key={c.id} style={{padding:"10px 12px",background:C.bg,borderRadius:10,
+              border:`1px solid ${C.border}`}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                <span style={{fontSize:16}}>{m.emoji}</span>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:12,fontWeight:700,color:C.text}}>
+                    {m.name} — {a?a.name:"All"} {ct2?.label}
+                  </div>
+                  <div style={{fontSize:10,color:C.muted}}>{daysLeft} days left · Target: {c.targetValue}{unit}</div>
+                </div>
+                <span style={{fontSize:12,fontWeight:700,color:barColor}}>{prog.pct}%</span>
+              </div>
+              <div style={{height:4,borderRadius:99,background:C.border,overflow:"hidden"}}>
+                <div style={{height:"100%",width:`${prog.pct}%`,background:barColor,borderRadius:99}}/>
+              </div>
+            </div>;
+          })}
+        </div>
+      </div>;
+    })()}
+
+    {/* ── What-If Simulator ── */}
+    <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
+      <div onClick={()=>setSimOpen(o=>!o)} style={{padding:"14px 20px",cursor:"pointer",
+        display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div>
+          <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:2}}>🔮 WHAT-IF SIMULATOR</div>
+          <div style={{fontSize:13,fontWeight:600,color:C.text}}>Explore catch-up scenarios</div>
+        </div>
+        <span style={{color:C.muted,fontSize:14}}>{simOpen?"▾":"▸"}</span>
+      </div>
+
+      {simOpen&&<div style={{padding:"0 20px 20px",borderTop:`1px solid ${C.border}`}}>
+        {/* Inputs */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:16,marginBottom:14}}>
+          <div>
+            <label style={{fontSize:11,fontWeight:700,color:C.muted,display:"block",marginBottom:4}}>WHO IS CHASING</label>
+            <select value={simChaser} onChange={e=>setSimChaser(e.target.value)}
+              style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,
+              fontSize:13,background:C.surface,color:C.text,outline:"none"}}>
+              {members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{fontSize:11,fontWeight:700,color:C.muted,display:"block",marginBottom:4}}>CHASING WHO</label>
+            <select value={simTarget} onChange={e=>setSimTarget(e.target.value)}
+              style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,
+              fontSize:13,background:C.surface,color:C.text,outline:"none"}}>
+              {members.filter(m=>m.id!==simChaser).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:11,fontWeight:700,color:C.muted,display:"block",marginBottom:6}}>EGGS PER DAY</label>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <input type="number" min={0} step={0.5} value={simEggsPerDay}
+              onChange={e=>setSimEggsPerDay(Math.max(0,parseFloat(e.target.value)||0))}
+              style={{width:90,padding:"8px 12px",borderRadius:8,border:`1.5px solid ${C.border}`,
+              fontSize:16,fontWeight:700,outline:"none",background:C.surface,color:C.text}}/>
+            <span style={{fontSize:13,color:C.muted}}>eggs/day = <strong style={{color:C.text}}>+{(simEggsPerDay*1000).toLocaleString()} PP/day</strong></span>
+          </div>
+        </div>
+
+        <div style={{marginBottom:16}}>
+          <label style={{fontSize:11,fontWeight:700,color:C.muted,display:"block",marginBottom:6}}>ACTIVITY LEVEL</label>
+          <div style={{display:"flex",gap:8}}>
+            {[{id:"at",label:"At target"},{id:"above",label:"Above target"},{id:"pb",label:"PB pace"}].map(o=>(
+              <button key={o.id} onClick={()=>setSimActivityLevel(o.id)} style={{
+                flex:1,padding:"8px 0",borderRadius:8,border:`1.5px solid ${simActivityLevel===o.id?"#5B8FD4":C.border}`,
+                background:simActivityLevel===o.id?"#EBF2FC":"none",
+                color:simActivityLevel===o.id?"#2C5FA8":C.muted,
+                cursor:"pointer",fontWeight:700,fontSize:11,
+              }}>{o.label}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Results */}
+        {simResult&&<>
+          {simResult.alreadyAhead
+            ? <div style={{textAlign:"center",padding:"16px",background:"rgba(76,175,80,0.08)",
+                borderRadius:12,border:"1px solid rgba(76,175,80,0.3)"}}>
+                <div style={{fontSize:16,fontWeight:800,color:"#4CAF50"}}>
+                  {simResult.chaser?.name} is already ahead by {simResult.gap.toLocaleString()} PP! 🏆
+                </div>
+              </div>
+            : <>
+                {/* Gap + pace summary */}
+                <div style={{background:C.bg,borderRadius:12,padding:"12px 14px",marginBottom:10}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,textAlign:"center"}}>
+                    <div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:2}}>GAP</div>
+                      <div style={{fontSize:16,fontWeight:900,color:C.text}}>{simResult.gap.toLocaleString()}</div>
+                      <div style={{fontSize:10,color:C.muted}}>PP behind</div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:2}}>YOUR PACE</div>
+                      <div style={{fontSize:16,fontWeight:900,color:C.text}}>{simResult.simWeeklyPP.toLocaleString()}</div>
+                      <div style={{fontSize:10,color:C.muted}}>PP/week (sim)</div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:2}}>{simResult.target?.name?.toUpperCase()}'S PACE</div>
+                      <div style={{fontSize:16,fontWeight:900,color:C.text}}>{simResult.targetWeeklyPP.toLocaleString()}</div>
+                      <div style={{fontSize:10,color:C.muted}}>PP/week</div>
+                    </div>
+                  </div>
+                  {/* Multiplier info */}
+                  <div style={{display:"flex",gap:8,marginTop:10}}>
+                    <div style={{flex:1,textAlign:"center",padding:"5px 8px",background:C.surface,borderRadius:7,
+                      border:`1px solid ${C.border}`}}>
+                      <div style={{fontSize:10,color:C.muted}}>{simResult.chaser?.name} streak</div>
+                      <div style={{fontSize:12,fontWeight:700,color:"#F9A825"}}>
+                        {simResult.chaserStreak}d · {simResult.chaserMult}x
+                      </div>
+                    </div>
+                    <div style={{flex:1,textAlign:"center",padding:"5px 8px",background:C.surface,borderRadius:7,
+                      border:`1px solid ${C.border}`}}>
+                      <div style={{fontSize:10,color:C.muted}}>{simResult.target?.name} streak</div>
+                      <div style={{fontSize:12,fontWeight:700,color:"#F9A825"}}>
+                        {simResult.targetStreak}d · {simResult.targetMult}x
+                      </div>
+                    </div>
+                  </div>
+                  {simResult.simEggBoostPerWeek>0&&<div style={{marginTop:8,padding:"6px 10px",
+                    background:"#FFF8E1",borderRadius:8,fontSize:11,color:"#E65100",fontWeight:600,textAlign:"center"}}>
+                    🥚 Egg boost: +{simResult.simEggBoostPerWeek.toLocaleString()} PP/week
+                  </div>}
+                </div>
+
+                {/* Scenario comparison */}
+                {simResult.results.map((s,i)=>{
+                  const closing = s.net > 0;
+                  return <div key={i} style={{
+                    padding:"12px 14px",borderRadius:12,marginBottom:8,
+                    background:s.highlight?"rgba(76,175,80,0.06)":C.bg,
+                    border:`1.5px solid ${s.highlight?"rgba(76,175,80,0.4)":C.border}`,
+                  }}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:12,fontWeight:700,color:s.highlight?"#2E7D32":C.text,marginBottom:2}}>
+                          {s.highlight?"🔮":""} {s.label}
+                        </div>
+                        <div style={{fontSize:11,color:C.muted}}>
+                          {s.weeklyPP.toLocaleString()} PP/week · {closing?`closing ${s.net.toLocaleString()} PP/wk`:"gap widening"}
+                        </div>
+                      </div>
+                      <div style={{textAlign:"right",minWidth:100}}>
+                        {s.catchDate
+                          ? <><div style={{fontSize:13,fontWeight:800,color:s.highlight?"#4CAF50":"#F9A825"}}>{s.catchDate}</div>
+                              <div style={{fontSize:10,color:C.muted}}>~{s.weeks} weeks</div></>
+                          : <div style={{fontSize:12,fontWeight:700,color:"#F44336"}}>Won't catch</div>
+                        }
+                      </div>
+                    </div>
+                  </div>;
+                })}
+              </>
+          }
+        </>}
+      </div>}
+    </div>
 
     {/* ── Month selector + rank chips ── */}
     <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:"16px 20px",boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
@@ -5867,10 +6347,12 @@ export default function App(){
   const[loaded,setLoaded]=useState(false);
   const[editM,setEditM]=useState(null);
   const[toasts,setToasts]=useState([]);
-  const[activeTab,setActiveTab]=useState(null); // null = show all (family summary)
-  const[ppPanelFor,setPpPanelFor]=useState(null); // memberId whose PP panel is open, or null
+  const[activeTab,setActiveTab]=useState(null);
+  const[ppPanelFor,setPpPanelFor]=useState(null);
   const[theme,setTheme]=useState("forest");
   const[pattern,setPattern]=useState("topo");
+  const[saveStatus,setSaveStatus]=useState("saved"); // "pending"|"saving"|"saved"|"error"
+  useEffect(()=>{ _saveStatusCb = setSaveStatus; return ()=>{ _saveStatusCb=null; }; },[]);
   const mRef=useRef(members);const lRef=useRef(logs);
   const tRef=useRef(theme);const pRef=useRef(pattern);
   mRef.current=members;lRef.current=logs;tRef.current=theme;pRef.current=pattern;
@@ -6044,6 +6526,33 @@ export default function App(){
     });
   },[]);
 
+  const handleChallengeSave=useCallback((mid,challenge)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const challenges=[...(next[mid].challenges||[]),challenge];
+      next[mid].challenges=challenges;
+      return next;
+    });
+  },[]);
+
+  const handleChallengeDelete=useCallback((mid,challengeId)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const challenges=(next[mid].challenges||[]).filter(c=>c.id!==challengeId);
+      next[mid].challenges=challenges;
+      return next;
+    });
+  },[]);
+
+  const handleChallengeUpdate=useCallback((mid,challengeId,updated)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const challenges=(next[mid].challenges||[]).map(c=>c.id===challengeId?updated:c);
+      next[mid].challenges=challenges;
+      return next;
+    });
+  },[]);
+
   const handleTargetChange=useCallback((mid,actId,target,date,prevTarget)=>{
     setLogs(prev=>{
       const next={...prev,[mid]:{...(prev[mid]||{})}};
@@ -6115,6 +6624,14 @@ export default function App(){
         <button onClick={prevMo} style={navBtn}>‹</button>
         <span style={{fontWeight:700,fontSize:14,minWidth:100,textAlign:"center"}}>{MONTHS[mo]} {yr}</span>
         <button onClick={nextMo} disabled={isCurMo} style={{...navBtn,opacity:isCurMo?0.3:1}}>›</button>
+        {/* Save status indicator */}
+        <div style={{fontSize:11,fontWeight:600,padding:"4px 8px",borderRadius:6,
+          background:saveStatus==="saving"?"#FFF8E1":saveStatus==="pending"?"#FFF8E1":saveStatus==="error"?"#FFEBEE":"#E8F5E9",
+          color:saveStatus==="saving"?"#F9A825":saveStatus==="pending"?"#F9A825":saveStatus==="error"?"#C62828":"#2E7D32",
+          transition:"all 0.3s",whiteSpace:"nowrap",
+        }}>
+          {saveStatus==="saving"?"⟳ Saving...":saveStatus==="pending"?"⟳ Saving...":saveStatus==="error"?"⚠️ Save failed":"✓ Saved"}
+        </div>
         <ThemePicker theme={theme} setTheme={setTheme}/>
         <PatternPicker pattern={pattern} setPattern={setPattern} accent={currentTheme.accent}/>
         <button onClick={()=>setEditM("new")} style={{background:currentTheme.accent,color:"#fff",border:"none",borderRadius:9,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>+ Add member</button>
@@ -6154,7 +6671,7 @@ export default function App(){
             <MemberCard member={m} logs={logs} allMembers={members}
               onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}
               onOpenPP={(id)=>setPpPanelFor(id)} onGrowthSave={handleGrowthSave}
-              onGkSave={handleGkSave} onBraverySave={handleBraverySave} onBraveryDelete={handleBraveryDelete} onBraveryUpdate={handleBraveryUpdate} onIllnessSave={handleIllnessSave} onIllnessDelete={handleIllnessDelete} onOlympiadSave={handleOlympiadSave} onOlympiadDelete={handleOlympiadDelete} onOlympiadUpdate={handleOlympiadUpdate} onDeleteEntry={handleDeleteEntry}/>
+              onGkSave={handleGkSave} onBraverySave={handleBraverySave} onBraveryDelete={handleBraveryDelete} onBraveryUpdate={handleBraveryUpdate} onIllnessSave={handleIllnessSave} onIllnessDelete={handleIllnessDelete} onOlympiadSave={handleOlympiadSave} onOlympiadDelete={handleOlympiadDelete} onOlympiadUpdate={handleOlympiadUpdate} onChallengeSave={handleChallengeSave} onChallengeDelete={handleChallengeDelete} onChallengeUpdate={handleChallengeUpdate} onDeleteEntry={handleDeleteEntry}/>
           </div>
           {ppPanelFor===m.id&&<div style={{flex:"1 1 320px",maxWidth:380,minWidth:280}}>
             <PowerPointsPanel member={m} logs={logs} onClose={()=>setPpPanelFor(null)}/>
