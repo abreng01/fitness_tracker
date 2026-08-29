@@ -5743,12 +5743,17 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
     const acts = chaser.activities||[];
     const tierPP = {at:100, above:200, pb:250};
     const basePerAct = tierPP[simActivityLevel]||200;
-    // Get streak multiplier
-    const streakMult = chaserPP.total > 0 ? (currentWeeklyPP / Math.max(1, acts.length * basePerAct * 7)) : 1;
-    const clampedMult = Math.max(1, Math.min(5, streakMult));
 
-    // Simulated daily PP from activities
-    const simActivityPPPerDay = acts.length * basePerAct * clampedMult;
+    // Use actual current streak → exact multiplier (same function the scoring engine uses)
+    const chaserStreak = memberStreakCount(chaser, logs);
+    const chaserMult = getStreakMultiplier(chaserStreak);
+
+    // Also get target's actual streak multiplier for their projection
+    const targetStreak = memberStreakCount(target, logs);
+    const targetMult = getStreakMultiplier(targetStreak);
+
+    // Simulated daily PP from activities using real multiplier
+    const simActivityPPPerDay = acts.length * basePerAct * chaserMult;
     // Egg PP: flat, no multiplier
     const simEggPPPerDay = simEggsPerDay * 1000;
     const simDailyPP = simActivityPPPerDay + simEggPPPerDay;
@@ -5774,11 +5779,13 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
 
     return {
       gap, chaser, target,
+      chaserStreak, chaserMult,
+      targetStreak, targetMult,
       currentWeeklyPP: Math.round(currentWeeklyPP),
       targetWeeklyPP: Math.round(targetWeeklyPP),
       simWeeklyPP: Math.round(simWeeklyPP),
       simEggBoostPerWeek: Math.round(simEggsPerDay*1000*7),
-      netClose: Math.round(netClose),
+      netClose: Math.round(simWeeklyPP - targetWeeklyPP),
       results,
     };
   }
@@ -5871,15 +5878,12 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
 
         <div style={{marginBottom:12}}>
           <label style={{fontSize:11,fontWeight:700,color:C.muted,display:"block",marginBottom:6}}>EGGS PER DAY</label>
-          <div style={{display:"flex",gap:8}}>
-            {[0, 0.5, 1, 2, 3].map(n=>(
-              <button key={n} onClick={()=>setSimEggsPerDay(n)} style={{
-                flex:1,padding:"8px 0",borderRadius:8,border:`1.5px solid ${simEggsPerDay===n?"#F9A825":C.border}`,
-                background:simEggsPerDay===n?"#FFF8E1":"none",
-                color:simEggsPerDay===n?"#E65100":C.muted,
-                cursor:"pointer",fontWeight:700,fontSize:13,
-              }}>{n===0?"None":n}</button>
-            ))}
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <input type="number" min={0} step={0.5} value={simEggsPerDay}
+              onChange={e=>setSimEggsPerDay(Math.max(0,parseFloat(e.target.value)||0))}
+              style={{width:90,padding:"8px 12px",borderRadius:8,border:`1.5px solid ${C.border}`,
+              fontSize:16,fontWeight:700,outline:"none",background:C.surface,color:C.text}}/>
+            <span style={{fontSize:13,color:C.muted}}>eggs/day = <strong style={{color:C.text}}>+{(simEggsPerDay*1000).toLocaleString()} PP/day</strong></span>
           </div>
         </div>
 
@@ -5926,7 +5930,24 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
                       <div style={{fontSize:10,color:C.muted}}>PP/week</div>
                     </div>
                   </div>
-                  {simResult.simEggBoostPerWeek>0&&<div style={{marginTop:10,padding:"6px 10px",
+                  {/* Multiplier info */}
+                  <div style={{display:"flex",gap:8,marginTop:10}}>
+                    <div style={{flex:1,textAlign:"center",padding:"5px 8px",background:C.surface,borderRadius:7,
+                      border:`1px solid ${C.border}`}}>
+                      <div style={{fontSize:10,color:C.muted}}>{simResult.chaser?.name} streak</div>
+                      <div style={{fontSize:12,fontWeight:700,color:"#F9A825"}}>
+                        {simResult.chaserStreak}d · {simResult.chaserMult}x
+                      </div>
+                    </div>
+                    <div style={{flex:1,textAlign:"center",padding:"5px 8px",background:C.surface,borderRadius:7,
+                      border:`1px solid ${C.border}`}}>
+                      <div style={{fontSize:10,color:C.muted}}>{simResult.target?.name} streak</div>
+                      <div style={{fontSize:12,fontWeight:700,color:"#F9A825"}}>
+                        {simResult.targetStreak}d · {simResult.targetMult}x
+                      </div>
+                    </div>
+                  </div>
+                  {simResult.simEggBoostPerWeek>0&&<div style={{marginTop:8,padding:"6px 10px",
                     background:"#FFF8E1",borderRadius:8,fontSize:11,color:"#E65100",fontWeight:600,textAlign:"center"}}>
                     🥚 Egg boost: +{simResult.simEggBoostPerWeek.toLocaleString()} PP/week
                   </div>}
