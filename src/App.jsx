@@ -1362,18 +1362,72 @@ function mergeMembers(remote, local){
   return Array.from(byId.values());
 }
 
+// ── Backup & Restore ──────────────────────────────────────────────────────────
+const BACKUP_PREFIX = "ff_backup_";
+const MAX_BACKUPS = 7;
+
+function saveLocalBackup(data){
+  try{
+    const today = todayStr();
+    const key = BACKUP_PREFIX + today;
+    // Only snapshot once per day
+    if(localStorage.getItem(key)) return;
+    localStorage.setItem(key, JSON.stringify(data));
+    // Prune old backups beyond MAX_BACKUPS
+    const keys = [];
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(k&&k.startsWith(BACKUP_PREFIX)) keys.push(k);
+    }
+    keys.sort().reverse(); // newest first
+    for(const old of keys.slice(MAX_BACKUPS)) localStorage.removeItem(old);
+  }catch{}
+}
+
+function getLocalBackups(){
+  const backups = [];
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(k&&k.startsWith(BACKUP_PREFIX)){
+        const dateStr = k.replace(BACKUP_PREFIX,"");
+        backups.push({key:k, date:dateStr});
+      }
+    }
+  }catch{}
+  return backups.sort((a,b)=>b.date.localeCompare(a.date)); // newest first
+}
+
+function getLocalBackup(key){
+  try{
+    const r=localStorage.getItem(key);
+    return r?JSON.parse(r):null;
+  }catch{ return null; }
+}
+
+function downloadBackup(data, dateStr){
+  const blob = new Blob([JSON.stringify(data,null,2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `fitness_backup_${dateStr||todayStr()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 async function loadData(){
   if(JSONBIN_BIN_ID&&JSONBIN_API_KEY){
     try{
       const res=await fetch(`${JSONBIN_URL}/latest`,{
         headers:{'X-Master-Key':JSONBIN_API_KEY,'X-Bin-Meta':'false'},
-        cache:'no-store', // CRITICAL: never serve a cached response — a 304 with stale data
-                          // causes saveData() to merge against old state, destroying newer entries
+        cache:'no-store',
       });
       if(res.ok){
         const raw=await res.json();
         const d=migrateData(raw);
         try{localStorage.setItem("ff_data",JSON.stringify(d));}catch{}
+        // Daily snapshot — silently saves once per day before any writes happen
+        saveLocalBackup(d);
         return d;
       }
     }catch{}
@@ -5822,6 +5876,116 @@ function PatternPicker({pattern, setPattern, accent}){
 }
 
 // ── Theme Picker ──────────────────────────────────────────────────────────────
+function BackupDrawer({logs, members, theme, pattern, onRestore, onClose}){
+  const backups = getLocalBackups();
+  const [confirmRestore, setConfirmRestore] = useState(null);
+  const today = todayStr();
+
+  function handleRestore(backup){
+    const data = getLocalBackup(backup.key);
+    if(!data){ alert("Backup data not found."); return; }
+    if(window.confirm(`Restore backup from ${backup.date}? This will overwrite your current data. Make sure to download the current backup first.`)){
+      onRestore(data);
+      onClose();
+    }
+  }
+
+  const currentData = {members, logs, theme, pattern};
+
+  return <>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
+    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,94vw)",
+      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
+      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+      <div style={{padding:"20px 20px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div>
+            <div style={{fontWeight:800,fontSize:16}}>💾 Backup & Restore</div>
+            <div style={{fontSize:11,color:C.muted,marginTop:2}}>Last 7 days · device-local</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,
+            borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted}}>×</button>
+        </div>
+      </div>
+
+      <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px"}}>
+
+        {/* Download current */}
+        <div style={{background:"linear-gradient(135deg,#E8F5E9,#F1F8E9)",border:"1.5px solid #81C784",
+          borderRadius:14,padding:"14px 16px",marginBottom:20}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#2E7D32",letterSpacing:0.5,marginBottom:6}}>📥 DOWNLOAD CURRENT BACKUP</div>
+          <div style={{fontSize:12,color:"#388E3C",marginBottom:12}}>
+            Save today's full data as a JSON file — store in Google Drive or iCloud for safekeeping.
+          </div>
+          <button onClick={()=>downloadBackup(currentData, today)} style={{
+            width:"100%",padding:"10px",borderRadius:10,border:"none",
+            background:"#4CAF50",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13,
+          }}>⬇️ Download fitness_backup_{today}.json</button>
+        </div>
+
+        {/* Local snapshots */}
+        <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>
+          📅 LOCAL SNAPSHOTS ({backups.length}/7)
+        </div>
+        {backups.length===0
+          ? <div style={{textAlign:"center",padding:"30px 20px",color:C.muted,fontSize:12}}>
+              No snapshots yet — one will be created automatically next time you load the app.
+            </div>
+          : <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {backups.map(b=>{
+                const isToday = b.date===today;
+                const data = getLocalBackup(b.key);
+                const memberCount = data?.members?.length||0;
+                const logCount = data ? Object.values(data.logs||{}).reduce((s,ml)=>s+Object.keys(ml).length,0) : 0;
+                return <div key={b.key} style={{
+                  background:C.bg,borderRadius:12,padding:"12px 14px",
+                  border:`1.5px solid ${isToday?"#4CAF50":C.border}`,
+                }}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:700,color:C.text}}>
+                        {isToday?"📍 Today":"📅"} {b.date}
+                      </div>
+                      <div style={{fontSize:11,color:C.muted,marginTop:1}}>
+                        {memberCount} members · {logCount} activity keys
+                      </div>
+                    </div>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={()=>downloadBackup(data, b.date)} style={{
+                        background:"none",border:`1px solid ${C.border}`,borderRadius:7,
+                        padding:"5px 10px",cursor:"pointer",fontSize:11,color:C.muted,fontWeight:600,
+                      }}>⬇️</button>
+                      {!isToday&&<button onClick={()=>handleRestore(b)} style={{
+                        background:"none",border:"1px solid #E57373",borderRadius:7,
+                        padding:"5px 10px",cursor:"pointer",fontSize:11,color:"#E57373",fontWeight:600,
+                      }}>Restore</button>}
+                    </div>
+                  </div>
+                </div>;
+              })}
+            </div>
+        }
+
+        {/* How it works */}
+        <div style={{marginTop:20,padding:"12px 14px",background:C.bg,borderRadius:10,
+          border:`1px solid ${C.border}`}}>
+          <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>HOW IT WORKS</div>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            {[
+              "A snapshot is saved automatically every day on first load",
+              "Up to 7 daily snapshots kept — oldest removed automatically",
+              "Snapshots are stored on this device only — not in JSONBin",
+              "To recover: tap Restore on any snapshot — it overwrites current data",
+              "For cross-device safety: download a JSON file and store in Drive/iCloud",
+            ].map((t,i)=><div key={i} style={{fontSize:11,color:C.muted}}>• {t}</div>)}
+          </div>
+        </div>
+      </div>
+    </div>
+  </>;
+}
+
 function ThemePicker({theme, setTheme}){
   const[open,setOpen]=useState(false);
   const[customColor,setCustomColor]=useState("#5B8FD4");
@@ -5929,8 +6093,23 @@ export default function App(){
   const[ppPanelFor,setPpPanelFor]=useState(null);
   const[theme,setTheme]=useState("forest");
   const[pattern,setPattern]=useState("topo");
-  const[saveStatus,setSaveStatus]=useState("saved"); // "pending"|"saving"|"saved"|"error"
+  const[saveStatus,setSaveStatus]=useState("saved");
+  const[showBackup,setShowBackup]=useState(false);
   useEffect(()=>{ _saveStatusCb = setSaveStatus; return ()=>{ _saveStatusCb=null; }; },[]);
+
+  function handleRestore(data){
+    if(data.members) setMembers(data.members);
+    if(data.logs) setLogs(data.logs);
+    if(data.theme) setTheme(data.theme);
+    if(data.pattern) setPattern(data.pattern);
+    // Save restored data to JSONBin immediately
+    setTimeout(()=>saveData({
+      members:data.members||members,
+      logs:data.logs||logs,
+      theme:data.theme||theme,
+      pattern:data.pattern||pattern,
+    }), 500);
+  }
   const mRef=useRef(members);const lRef=useRef(logs);
   const tRef=useRef(theme);const pRef=useRef(pattern);
   mRef.current=members;lRef.current=logs;tRef.current=theme;pRef.current=pattern;
@@ -6183,9 +6362,14 @@ export default function App(){
         }}>
           {saveStatus==="saving"?"⟳ Saving...":saveStatus==="pending"?"⟳ Saving...":saveStatus==="error"?"⚠️ Save failed":"✓ Saved"}
         </div>
+        <button onClick={()=>setShowBackup(true)} style={{background:"none",border:`1px solid ${C.border}`,
+          borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:13,color:C.muted,fontWeight:600,
+          whiteSpace:"nowrap"}} title="Backup & Restore">💾</button>
         <ThemePicker theme={theme} setTheme={setTheme}/>
         <PatternPicker pattern={pattern} setPattern={setPattern} accent={currentTheme.accent}/>
         <button onClick={()=>setEditM("new")} style={{background:currentTheme.accent,color:"#fff",border:"none",borderRadius:9,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>+ Add member</button>
+        {showBackup&&<BackupDrawer logs={logs} members={members} theme={theme} pattern={pattern}
+          onRestore={handleRestore} onClose={()=>setShowBackup(false)}/>}
       </div>
     </div>
 
