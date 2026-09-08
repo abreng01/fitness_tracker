@@ -5412,25 +5412,41 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
     else targetWeeklyPP = targetPP.weekPP||0;
 
     // Compute simulated chaser weekly PP
-    // Activity level boost: base PP per activity per day
+    // Start from ACTUAL current weekly pace (same as The Chase uses)
+    // then add the simulation deltas on top — not replace with a theoretical formula
     const acts = chaser.activities||[];
     const tierPP = {at:100, above:200, pb:250};
     const basePerAct = tierPP[simActivityLevel]||200;
 
-    // Use actual current streak → exact multiplier (same function the scoring engine uses)
+    // Use actual current streak → exact multiplier
     const chaserStreak = memberStreakCount(chaser, logs);
     const chaserMult = getStreakMultiplier(chaserStreak);
 
-    // Also get target's actual streak multiplier for their projection
+    // Target's actual streak multiplier
     const targetStreak = memberStreakCount(target, logs);
     const targetMult = getStreakMultiplier(targetStreak);
 
-    // Simulated daily PP from activities using real multiplier
+    // Activity level adjustment: difference between selected level and current actual pace
+    // Current activity PP/day = (currentWeeklyPP - current egg PP) / 7
+    const currentEggPPPerDay = (Object.values(getEggLogs(logs,chaser.id))
+      .filter((_,i,arr)=>{ 
+        const dates = Object.keys(getEggLogs(logs,chaser.id));
+        return dates[i] > sevenAgo && dates[i] <= todayD;
+      }).reduce((s,v)=>s+(v||0),0) * 1000) / Math.max(1, daysWithData);
+    const currentActivityPPPerDay = (currentWeeklyPP/7) - currentEggPPPerDay;
+
+    // Simulated activity PP/day using selected level × real multiplier
     const simActivityPPPerDay = acts.length * basePerAct * chaserMult;
-    // Egg PP: flat, no multiplier
+
+    // Activity delta (how much more/less vs current)
+    const activityDelta = simActivityPPPerDay - currentActivityPPPerDay;
+
+    // Egg boost delta (simulated - current)
     const simEggPPPerDay = simEggsPerDay * 1000;
-    const simDailyPP = simActivityPPPerDay + simEggPPPerDay;
-    const simWeeklyPP = simDailyPP * 7;
+    const eggDelta = simEggPPPerDay - currentEggPPPerDay;
+
+    // Simulated weekly = actual + deltas
+    const simWeeklyPP = Math.max(0, currentWeeklyPP + (activityDelta + eggDelta) * 7);
 
     // Net closing per week
     const netClose = simWeeklyPP - targetWeeklyPP;
@@ -5457,7 +5473,7 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
       currentWeeklyPP: Math.round(currentWeeklyPP),
       targetWeeklyPP: Math.round(targetWeeklyPP),
       simWeeklyPP: Math.round(simWeeklyPP),
-      simEggBoostPerWeek: Math.round(simEggsPerDay*1000*7),
+      simEggBoostPerWeek: Math.round(eggDelta * 7),
       netClose: Math.round(simWeeklyPP - targetWeeklyPP),
       results,
     };
