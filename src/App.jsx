@@ -5425,17 +5425,14 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
     const targetStreak = memberStreakCount(target, logs);
     const targetMult = getStreakMultiplier(targetStreak);
 
-    // Egg boost: pure addition on top of current pace
+    // Egg boost: pure addition on top of actual pace (flat PP, no multiplier)
     const simEggBoostPerWeek = simEggsPerDay * 1000 * 7;
 
-    // Activity level adjustment: ratio vs "above" (the default/neutral level)
-    // above = 1.0x (no change), at = 0.5x reduction, pb = 1.25x boost
-    const activityRatios = {at: 0.5, above: 1.0, pb: 1.25};
+    // Activity level: ratio adjustment relative to "above" baseline (neutral)
+    // above = no change, at = -25%, pb = +25%
+    const activityRatios = {at: 0.75, above: 1.0, pb: 1.25};
     const activityRatio = activityRatios[simActivityLevel] || 1.0;
-    // Apply ratio only to the activity component (exclude eggs and bonuses)
-    // Estimate current activity PP = currentWeeklyPP * 0.8 (rough: 80% from activities)
-    const estimatedActivityWeekly = currentWeeklyPP * 0.8;
-    const activityAdjustment = estimatedActivityWeekly * (activityRatio - 1.0);
+    const activityAdjustment = currentWeeklyPP * (activityRatio - 1.0);
 
     // Simulated = actual + egg boost + activity adjustment
     const simWeeklyPP = Math.max(0, currentWeeklyPP + simEggBoostPerWeek + activityAdjustment);
