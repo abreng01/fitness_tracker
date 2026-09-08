@@ -5377,7 +5377,7 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
   const [simChaser, setSimChaser] = useState(members[0]?.id||"");
   const [simTarget, setSimTarget] = useState(members[1]?.id||"");
   const [simEggsPerDay, setSimEggsPerDay] = useState(0);
-  const [simActivityLevel, setSimActivityLevel] = useState("above"); // "at"|"above"|"pb"
+  const [simActivityLevel, setSimActivityLevel] = useState("above");
 
   function runSimulation(){
     const chaser = members.find(m=>m.id===simChaser);
@@ -5412,8 +5412,9 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
     else targetWeeklyPP = targetPP.weekPP||0;
 
     // Compute simulated chaser weekly PP
-    // Start from ACTUAL current weekly pace (same as The Chase uses)
-    // then add the simulation deltas on top — not replace with a theoretical formula
+    // Core principle: start from ACTUAL current weekly PP (same as The Chase)
+    // and add only the egg boost delta on top.
+    // Activity level selector is for context/projection but doesn't replace actual pace.
     const acts = chaser.activities||[];
     const tierPP = {at:100, above:200, pb:250};
     const basePerAct = tierPP[simActivityLevel]||200;
@@ -5421,32 +5422,23 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
     // Use actual current streak → exact multiplier
     const chaserStreak = memberStreakCount(chaser, logs);
     const chaserMult = getStreakMultiplier(chaserStreak);
-
-    // Target's actual streak multiplier
     const targetStreak = memberStreakCount(target, logs);
     const targetMult = getStreakMultiplier(targetStreak);
 
-    // Activity level adjustment: difference between selected level and current actual pace
-    // Current activity PP/day = (currentWeeklyPP - current egg PP) / 7
-    const currentEggPPPerDay = (Object.values(getEggLogs(logs,chaser.id))
-      .filter((_,i,arr)=>{ 
-        const dates = Object.keys(getEggLogs(logs,chaser.id));
-        return dates[i] > sevenAgo && dates[i] <= todayD;
-      }).reduce((s,v)=>s+(v||0),0) * 1000) / Math.max(1, daysWithData);
-    const currentActivityPPPerDay = (currentWeeklyPP/7) - currentEggPPPerDay;
+    // Egg boost: pure addition on top of current pace
+    const simEggBoostPerWeek = simEggsPerDay * 1000 * 7;
 
-    // Simulated activity PP/day using selected level × real multiplier
-    const simActivityPPPerDay = acts.length * basePerAct * chaserMult;
+    // Activity level adjustment: ratio vs "above" (the default/neutral level)
+    // above = 1.0x (no change), at = 0.5x reduction, pb = 1.25x boost
+    const activityRatios = {at: 0.5, above: 1.0, pb: 1.25};
+    const activityRatio = activityRatios[simActivityLevel] || 1.0;
+    // Apply ratio only to the activity component (exclude eggs and bonuses)
+    // Estimate current activity PP = currentWeeklyPP * 0.8 (rough: 80% from activities)
+    const estimatedActivityWeekly = currentWeeklyPP * 0.8;
+    const activityAdjustment = estimatedActivityWeekly * (activityRatio - 1.0);
 
-    // Activity delta (how much more/less vs current)
-    const activityDelta = simActivityPPPerDay - currentActivityPPPerDay;
-
-    // Egg boost delta (simulated - current)
-    const simEggPPPerDay = simEggsPerDay * 1000;
-    const eggDelta = simEggPPPerDay - currentEggPPPerDay;
-
-    // Simulated weekly = actual + deltas
-    const simWeeklyPP = Math.max(0, currentWeeklyPP + (activityDelta + eggDelta) * 7);
+    // Simulated = actual + egg boost + activity adjustment
+    const simWeeklyPP = Math.max(0, currentWeeklyPP + simEggBoostPerWeek + activityAdjustment);
 
     // Net closing per week
     const netClose = simWeeklyPP - targetWeeklyPP;
@@ -5473,7 +5465,7 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
       currentWeeklyPP: Math.round(currentWeeklyPP),
       targetWeeklyPP: Math.round(targetWeeklyPP),
       simWeeklyPP: Math.round(simWeeklyPP),
-      simEggBoostPerWeek: Math.round(eggDelta * 7),
+      simEggBoostPerWeek: Math.round(simEggBoostPerWeek),
       netClose: Math.round(simWeeklyPP - targetWeeklyPP),
       results,
     };
