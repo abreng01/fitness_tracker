@@ -2142,6 +2142,19 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
   const earnedList     = personalBadges.filter(b=>allEarned.has(b.id));
   const lockedList     = personalBadges.filter(b=>!allEarned.has(b.id));
 
+  // Level badges — one per level reached, from levelHistory
+  const {levelHistory} = computePowerPoints(member, logs);
+  const earnedLevels = [...levelHistory].sort((a,b)=>a.level-b.level);
+
+  // Level badge tier by level number
+  function levelBadgeTier(lvl){
+    if(lvl >= 50) return {bg:"#E8F4FD",bd:"#1565C0",tx:"#0D47A1",label:"Diamond"};
+    if(lvl >= 30) return {bg:"#FFF9E6",bd:"#F9A825",tx:"#E65100",label:"Gold"};
+    if(lvl >= 20) return {bg:"#F5F5F5",bd:"#9E9E9E",tx:"#424242",label:"Silver"};
+    if(lvl >= 10) return {bg:"#FBF0E6",bd:"#A0522D",tx:"#795548",label:"Bronze"};
+    return {bg:C.bg,bd:C.border,tx:C.muted,label:"Iron"};
+  }
+
   // Compute "next up" — locked badges with computable progress
   function getProgress(badge){
     // Only for volume/streak/days badges that have numeric thresholds
@@ -2261,6 +2274,31 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
 
       {/* Scrollable content */}
       <div style={{flex:1,overflowY:"auto",padding:"0 24px 24px"}}>
+
+        {/* Level Badges */}
+        {earnedLevels.length>0&&<div style={{marginTop:20}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>
+            🎖️ LEVEL BADGES ({earnedLevels.length})
+          </div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+            {earnedLevels.map(lv=>{
+              const t = levelBadgeTier(lv.level);
+              return <div key={lv.level} title={`Level ${lv.level}: ${lv.title} — ${lv.date}`}
+                style={{
+                  display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+                  width:56,height:56,borderRadius:12,
+                  background:t.bg,border:`2px solid ${t.bd}`,
+                  cursor:"default",position:"relative",
+                }}>
+                <span style={{fontSize:20,lineHeight:1}}>{lv.icon}</span>
+                <span style={{fontSize:9,fontWeight:800,color:t.tx,marginTop:1}}>{lv.level}</span>
+              </div>;
+            })}
+          </div>
+          <div style={{fontSize:10,color:C.muted,marginTop:8}}>
+            🟤 Iron (1-9) · 🥉 Bronze (10-19) · 🥈 Silver (20-29) · 🥇 Gold (30-49) · 💎 Diamond (50+)
+          </div>
+        </div>}
 
         {/* Coming up next */}
         {nextUp.length>0&&<div style={{marginTop:20}}>
@@ -3200,6 +3238,209 @@ function computeGemVault(member, logs){
   return counts;
 }
 
+// ── Golden Goal ───────────────────────────────────────────────────────────────
+// One audacious activity PB goal per member, with a deadline up to a year out.
+function getGoldenGoal(logs, memberId){
+  return (logs[memberId]&&logs[memberId].goldenGoal) || null;
+}
+
+function computeGoldenGoalProgress(goal, member, logs){
+  if(!goal) return null;
+  const today = todayStr();
+  const a = (member.activities||[]).find(x=>x.id===goal.activityId);
+  if(!a) return null;
+  const al = getActivityLogs(logs, member.id, a.id);
+  // Best single session value since goal was set
+  let bestSinceSet = 0;
+  let bestAllTime = 0;
+  for(const [ds,l] of Object.entries(al)){
+    if(ds > today) continue;
+    const vals = l.sessions&&l.sessions.length>0 ? l.sessions : [l.value||0];
+    const max = Math.max(...vals);
+    if(max > bestAllTime) bestAllTime = max;
+    if(ds >= goal.createdAt.slice(0,10) && max > bestSinceSet) bestSinceSet = max;
+  }
+  const pct = Math.min(100, Math.round(bestAllTime / goal.targetValue * 100));
+  const daysLeft = Math.max(0, Math.round((new Date(goal.deadline+"T00:00:00") - new Date(today+"T00:00:00")) / 86400000));
+  const daysTotal = Math.max(1, Math.round((new Date(goal.deadline+"T00:00:00") - new Date(goal.createdAt.slice(0,10)+"T00:00:00")) / 86400000));
+  const daysElapsed = daysTotal - daysLeft;
+  const timeProgress = Math.round(daysElapsed / daysTotal * 100);
+  const achieved = bestAllTime >= goal.targetValue;
+  const expired = !achieved && today > goal.deadline;
+  return {a, bestAllTime, bestSinceSet, pct, daysLeft, daysTotal, timeProgress, achieved, expired};
+}
+
+function GoldenGoalDrawer({member, logs, onSave, onDelete, onClose}){
+  const today = todayStr();
+  const acts = member.activities||[];
+  const goal = getGoldenGoal(logs, member.id);
+  const prog = computeGoldenGoalProgress(goal, member, logs);
+  const [editing, setEditing] = useState(!goal);
+  const [actId, setActId] = useState(acts[0]?.id||"");
+  const [targetVal, setTargetVal] = useState("");
+  const [deadline, setDeadline] = useState("");
+
+  const selAct = acts.find(a=>a.id===actId);
+  const iStyle = {width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid #F9A825`,
+    fontSize:13,outline:"none",background:"#FFFDF0",color:C.text,boxSizing:"border-box",marginBottom:10};
+
+  function handleSave(){
+    onSave(member.id, {
+      activityId:actId, targetValue:parseFloat(targetVal),
+      deadline, createdAt:new Date().toISOString(), status:"active",
+    });
+    setEditing(false);
+  }
+
+  return <>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:400}}/>
+    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(420px,94vw)",
+      background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.2)",
+      display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
+      <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+
+      {/* Header */}
+      <div style={{background:"linear-gradient(135deg,#7B4F00,#C8860A)",padding:"20px 20px 18px",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:28}}>{member.emoji}</span>
+            <div>
+              <div style={{fontWeight:800,fontSize:16,color:"#fff"}}>🥇 Golden Goal</div>
+              <div style={{fontSize:11,color:"rgba(255,255,255,0.6)"}}>{member.name} · One audacious target</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",
+            borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:18,color:"#fff"}}>×</button>
+        </div>
+      </div>
+
+      <div style={{flex:1,overflowY:"auto",padding:"20px"}}>
+        {/* Current goal display */}
+        {goal && prog && !editing && <>
+          {prog.achieved
+            ? <div style={{background:"linear-gradient(135deg,#FFF8E1,#FFF3CD)",border:"2px solid #F9A825",
+                borderRadius:16,padding:"20px",textAlign:"center",marginBottom:16}}>
+                <div style={{fontSize:40,marginBottom:6}}>🏆</div>
+                <div style={{fontSize:18,fontWeight:900,color:"#E65100"}}>GOLDEN GOAL ACHIEVED!</div>
+                <div style={{fontSize:13,color:"#BF6900",marginTop:4}}>
+                  {prog.a.name} — reached {goal.targetValue}{prog.a.unit}
+                </div>
+              </div>
+            : prog.expired
+              ? <div style={{background:"#FFF5F5",border:"1.5px solid #FFCDD2",borderRadius:12,
+                  padding:"14px",textAlign:"center",marginBottom:16}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#C62828"}}>⏰ Goal expired — best was {prog.bestAllTime}{prog.a.unit}</div>
+                </div>
+              : null
+          }
+
+          {/* Progress card */}
+          <div style={{background:"linear-gradient(135deg,#FFF8E1,#FFFDF0)",border:"2px solid #F9A825",
+            borderRadius:16,padding:"18px",marginBottom:14}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#BF6900",letterSpacing:0.5,marginBottom:4}}>🥇 THE GOLDEN GOAL</div>
+            <div style={{fontSize:22,fontWeight:900,color:"#7B4F00",marginBottom:2}}>
+              {prog.a.name} → {goal.targetValue}{prog.a.unit}
+            </div>
+            <div style={{fontSize:12,color:"#BF6900",marginBottom:14}}>
+              {prog.daysLeft > 0 ? `${prog.daysLeft} days remaining` : "Deadline passed"}
+              {" · "}Deadline: {new Date(goal.deadline+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}
+            </div>
+
+            {/* PB progress bar */}
+            <div style={{marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                <span style={{fontSize:12,color:"#7B4F00",fontWeight:600}}>Best: {prog.bestAllTime}{prog.a.unit}</span>
+                <span style={{fontSize:12,fontWeight:800,color:"#E65100"}}>{prog.pct}%</span>
+              </div>
+              <div style={{height:10,borderRadius:99,background:"rgba(0,0,0,0.1)",overflow:"hidden"}}>
+                <div style={{height:"100%",width:`${prog.pct}%`,
+                  background:prog.pct>=100?"#4CAF50":"linear-gradient(90deg,#F9A825,#E65100)",
+                  borderRadius:99,transition:"width 0.6s"}}/>
+              </div>
+            </div>
+
+            {/* Time progress bar */}
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                <span style={{fontSize:11,color:"#BF6900"}}>Time elapsed</span>
+                <span style={{fontSize:11,color:"#BF6900"}}>{prog.timeProgress}% of deadline</span>
+              </div>
+              <div style={{height:5,borderRadius:99,background:"rgba(0,0,0,0.1)",overflow:"hidden"}}>
+                <div style={{height:"100%",width:`${prog.timeProgress}%`,
+                  background:"rgba(0,0,0,0.2)",borderRadius:99}}/>
+              </div>
+            </div>
+
+            {/* Pace insight */}
+            <div style={{marginTop:12,padding:"8px 12px",background:"rgba(0,0,0,0.05)",borderRadius:8,fontSize:11,color:"#7B4F00"}}>
+              {prog.pct >= prog.timeProgress
+                ? `✅ On track — PB progress (${prog.pct}%) ahead of time elapsed (${prog.timeProgress}%)`
+                : `⚠️ Behind pace — PB at ${prog.pct}% but ${prog.timeProgress}% of time used`
+              }
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>{setActId(goal.activityId);setTargetVal(String(goal.targetValue));setDeadline(goal.deadline);setEditing(true);}}
+              style={{flex:1,padding:"10px",borderRadius:10,border:`1.5px solid #F9A825`,
+              background:"none",cursor:"pointer",fontWeight:700,fontSize:13,color:"#E65100"}}>
+              ✏️ Edit Goal
+            </button>
+            <button onClick={()=>{if(window.confirm("Delete this Golden Goal?")) onDelete(member.id);}}
+              style={{padding:"10px 14px",borderRadius:10,border:"1px solid #FFCDD2",
+              background:"none",cursor:"pointer",fontSize:12,color:"#E57373"}}>
+              Delete
+            </button>
+          </div>
+        </>}
+
+        {/* Set / Edit form */}
+        {(editing || !goal) && <div style={{background:"#FFFDF0",border:"1.5px solid #F9A825",
+          borderRadius:14,padding:"16px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#BF6900",letterSpacing:0.5,marginBottom:14}}>
+            {goal ? "EDIT GOLDEN GOAL" : "SET YOUR GOLDEN GOAL"}
+          </div>
+          <div style={{fontSize:12,color:"#BF6900",marginBottom:16,fontStyle:"italic"}}>
+            Make it ambitious — something that takes months of real effort to achieve.
+          </div>
+          <label style={{fontSize:12,fontWeight:600,color:"#7B4F00",display:"block",marginBottom:4}}>Activity</label>
+          <select value={actId} onChange={e=>setActId(e.target.value)} style={iStyle}>
+            {acts.map(a=><option key={a.id} value={a.id}>{a.name} (current best: {
+              Math.max(0,...Object.values(getActivityLogs(logs,member.id,a.id)).map(l=>{
+                const vals=l.sessions&&l.sessions.length>0?l.sessions:[l.value||0];
+                return Math.max(...vals);
+              }))
+            }{a.unit})</option>)}
+          </select>
+          <label style={{fontSize:12,fontWeight:600,color:"#7B4F00",display:"block",marginBottom:4}}>
+            Target value ({selAct?.unit||""})
+          </label>
+          <input type="number" value={targetVal} onChange={e=>setTargetVal(e.target.value)}
+            placeholder={`e.g. ${selAct?.target ? selAct.target*2 : 100}`}
+            style={iStyle}/>
+          <label style={{fontSize:12,fontWeight:600,color:"#7B4F00",display:"block",marginBottom:4}}>Deadline</label>
+          <input type="date" value={deadline} min={today}
+            max={new Date(new Date().setFullYear(new Date().getFullYear()+1)).toISOString().slice(0,10)}
+            onChange={e=>setDeadline(e.target.value)} style={{...iStyle,marginBottom:16}}/>
+          <div style={{display:"flex",gap:8}}>
+            {goal&&<button onClick={()=>setEditing(false)} style={{flex:1,padding:"10px",borderRadius:10,
+              border:`1px solid ${C.border}`,background:"none",cursor:"pointer",fontSize:12,fontWeight:600,color:C.muted}}>
+              Cancel
+            </button>}
+            <button disabled={!targetVal||!deadline||parseFloat(targetVal)<=0}
+              onClick={handleSave} style={{flex:2,padding:"11px",borderRadius:10,border:"none",
+              background:!targetVal||!deadline?"#ccc":"linear-gradient(135deg,#F9A825,#E65100)",
+              color:"#fff",cursor:!targetVal||!deadline?"not-allowed":"pointer",fontWeight:800,fontSize:14}}>
+              🥇 Set Golden Goal
+            </button>
+          </div>
+        </div>}
+      </div>
+    </div>
+  </>;
+}
+
 function GemVaultDrawer({member, logs, onClose}){
   const counts = computeGemVault(member, logs);
   const total = Object.values(counts).reduce((s,v)=>s+v, 0);
@@ -3480,10 +3721,11 @@ function ChaseCard({member, target, logs}){
   </div>;
 }
 
-function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onBraverySave,onBraveryDelete,onBraveryUpdate,onIllnessSave,onIllnessDelete,onOlympiadSave,onOlympiadDelete,onOlympiadUpdate,onDeleteEntry}){
+function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onBraverySave,onBraveryDelete,onBraveryUpdate,onIllnessSave,onIllnessDelete,onOlympiadSave,onOlympiadDelete,onOlympiadUpdate,onGoldenGoalSave,onGoldenGoalDelete,onDeleteEntry}){
   const today=todayStr();
   const[showCal,setShowCal]=useState(true);
   const[showBadges,setShowBadges]=useState(false);
+  const[showGoldenGoal,setShowGoldenGoal]=useState(false);
   const[showStats,setShowStats]=useState(false);
   const[showGrowth,setShowGrowth]=useState(false);
   const[showGK,setShowGK]=useState(false);
@@ -3693,10 +3935,13 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
         {member.braveryEnabled&&<button onClick={()=>setShowBravery(true)} style={{background:"none",border:"1px solid #F57C00",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#F57C00"}}>🦁 Bravery</button>}
         {member.illnessEnabled&&<button onClick={()=>setShowIllness(true)} style={{background:"none",border:"1px solid #8E5FA8",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#8E5FA8"}}>🤒 Illness</button>}
         {member.id==="son"&&<button onClick={()=>setShowOlympiad(true)} style={{background:"none",border:"1px solid #F9A825",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#E65100"}}>🏅 Olympiad</button>}
+        <button onClick={()=>setShowGoldenGoal(true)} style={{background:"none",border:"1.5px solid #C8860A",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:700,fontSize:12,color:"#7B4F00"}}>🥇 Golden Goal</button>
         <button onClick={()=>setShowBadges(true)} style={{background:member.color,color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12}}>🏆 Badges</button>
       </div>
     </div>
     {showBadges&&<BadgeDrawer member={member} allEarned={allEarned} acts={acts} logs={logs} onClose={()=>setShowBadges(false)}/>}
+    {showGoldenGoal&&<GoldenGoalDrawer member={member} logs={logs}
+      onSave={onGoldenGoalSave} onDelete={onGoldenGoalDelete} onClose={()=>setShowGoldenGoal(false)}/>}
     {showStats&&<AllTimeStats member={member} logs={logs} onClose={()=>setShowStats(false)}/>}
     {showGrowth&&<GrowthDrawer member={member} logs={logs} onSave={onGrowthSave} onClose={()=>setShowGrowth(false)}/>}
     {showGK&&<GKDrawer member={member} logs={logs} onGkSave={onGkSave} onClose={()=>setShowGK(false)}/>}
@@ -6288,6 +6533,22 @@ export default function App(){
     });
   },[]);
 
+  const handleGoldenGoalSave=useCallback((mid,goal)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      next[mid].goldenGoal=goal;
+      return next;
+    });
+  },[]);
+
+  const handleGoldenGoalDelete=useCallback((mid)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      delete next[mid].goldenGoal;
+      return next;
+    });
+  },[]);
+
   const handleTargetChange=useCallback((mid,actId,target,date,prevTarget)=>{
     setLogs(prev=>{
       const next={...prev,[mid]:{...(prev[mid]||{})}};
@@ -6411,7 +6672,7 @@ export default function App(){
             <MemberCard member={m} logs={logs} allMembers={members}
               onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}
               onOpenPP={(id)=>setPpPanelFor(id)} onGrowthSave={handleGrowthSave}
-              onGkSave={handleGkSave} onBraverySave={handleBraverySave} onBraveryDelete={handleBraveryDelete} onBraveryUpdate={handleBraveryUpdate} onIllnessSave={handleIllnessSave} onIllnessDelete={handleIllnessDelete} onOlympiadSave={handleOlympiadSave} onOlympiadDelete={handleOlympiadDelete} onOlympiadUpdate={handleOlympiadUpdate} onDeleteEntry={handleDeleteEntry}/>
+              onGkSave={handleGkSave} onBraverySave={handleBraverySave} onBraveryDelete={handleBraveryDelete} onBraveryUpdate={handleBraveryUpdate} onIllnessSave={handleIllnessSave} onIllnessDelete={handleIllnessDelete} onOlympiadSave={handleOlympiadSave} onOlympiadDelete={handleOlympiadDelete} onOlympiadUpdate={handleOlympiadUpdate} onGoldenGoalSave={handleGoldenGoalSave} onGoldenGoalDelete={handleGoldenGoalDelete} onDeleteEntry={handleDeleteEntry}/>
           </div>
           {ppPanelFor===m.id&&<div style={{flex:"1 1 320px",maxWidth:380,minWidth:280}}>
             <PowerPointsPanel member={m} logs={logs} onClose={()=>setPpPanelFor(null)}/>
