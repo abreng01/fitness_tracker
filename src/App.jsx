@@ -2142,103 +2142,82 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
   const earnedList     = personalBadges.filter(b=>allEarned.has(b.id));
   const lockedList     = personalBadges.filter(b=>!allEarned.has(b.id));
 
-  // Level badges — one per level reached, from levelHistory
+  // Level badges from levelHistory — merged into earned total
   const {levelHistory} = computePowerPoints(member, logs);
   const earnedLevels = [...levelHistory].sort((a,b)=>a.level-b.level);
 
-  // Level badge tier by level number
   function levelBadgeTier(lvl){
-    if(lvl >= 50) return {bg:"#E8F4FD",bd:"#1565C0",tx:"#0D47A1",label:"Diamond"};
-    if(lvl >= 30) return {bg:"#FFF9E6",bd:"#F9A825",tx:"#E65100",label:"Gold"};
-    if(lvl >= 20) return {bg:"#F5F5F5",bd:"#9E9E9E",tx:"#424242",label:"Silver"};
-    if(lvl >= 10) return {bg:"#FBF0E6",bd:"#A0522D",tx:"#795548",label:"Bronze"};
-    return {bg:C.bg,bd:C.border,tx:C.muted,label:"Iron"};
+    if(lvl>=50) return {bg:"#E8F4FD",bd:"#1565C0",tx:"#0D47A1",tier:"Diamond"};
+    if(lvl>=30) return {bg:"#FFF9E6",bd:"#F9A825",tx:"#E65100",tier:"Gold"};
+    if(lvl>=20) return {bg:"#F5F5F5",bd:"#9E9E9E",tx:"#424242",tier:"Silver"};
+    if(lvl>=10) return {bg:"#FBF0E6",bd:"#A0522D",tx:"#795548",tier:"Bronze"};
+    return {bg:C.bg,bd:C.border,tx:C.muted,tier:"Iron"};
   }
 
-  // Compute "next up" — locked badges with computable progress
-  function getProgress(badge){
-    // Only for volume/streak/days badges that have numeric thresholds
-    const s = badge.check.toString();
-    // Extract threshold from check function e.g. s=>s.streak>=7
-    const streakM   = s.match(/s\.bestStreak>=([\d]+)/);
-    const daysM     = s.match(/s\.totalDone>=([\d]+)/);
-    const trackM    = s.match(/s\.trackDays>=([\d]+)/);
-    const weekM     = s.match(/s\.bestWeek>=([\d]+)/);
-    const perfM     = s.match(/s\.bestPerf>=([\d]+)/);
-    const volSecM   = s.match(/s\.unit==="sec"&&s\.totalVol>=([\d]+)/);
-    const volKmM    = s.match(/s\.unit==="km"&&s\.totalVol>=([\d.]+)/);
+  // Total earned = activity badges + level badges
+  const totalEarned = earnedList.length + earnedLevels.length;
+  const totalBadges = personalBadges.length + earnedLevels.length;
 
-    // Compute current values across all activities
+  function getProgress(badge){
+    const s = badge.check.toString();
+    const streakM  = s.match(/s\.bestStreak>=([\d]+)/);
+    const daysM    = s.match(/s\.totalDone>=([\d]+)/);
+    const trackM   = s.match(/s\.trackDays>=([\d]+)/);
+    const weekM    = s.match(/s\.bestWeek>=([\d]+)/);
+    const perfM    = s.match(/s\.bestPerf>=([\d]+)/);
+    const volSecM  = s.match(/s\.unit==="sec"&&s\.totalVol>=([\d]+)/);
+    const volKmM   = s.match(/s\.unit==="km"&&s\.totalVol>=([\d.]+)/);
     const today = todayStr();
-    let curStreak=0, curDays=0, curTrack=0, curWeek=0, curPerf=0, curVolSec=0, curVolKm=0;
+    let curStreak=0,curDays=0,curTrack=0,curWeek=0,curPerf=0,curVolSec=0,curVolKm=0;
     for(const a of acts){
-      const al = getActivityLogs(logs, member.id, a.id);
-      const entries = Object.entries(al).filter(([d])=>d<=today).sort(([x],[y])=>x.localeCompare(y));
-      const sc = streakCount(al);
-      if(sc>curStreak) curStreak=sc;
-      const done = entries.filter(([,l])=>l.status!=="skipped"&&l.value>0);
-      curDays += done.length;
-      if(entries.length>0){
-        const td = Math.round((new Date(today)-new Date(entries[0][0]))/86400000)+1;
-        if(td>curTrack) curTrack=td;
-      }
-      // Best week
+      const al=getActivityLogs(logs,member.id,a.id);
+      const entries=Object.entries(al).filter(([d])=>d<=today).sort(([x],[y])=>x.localeCompare(y));
+      const sc=streakCount(al); if(sc>curStreak) curStreak=sc;
+      const done=entries.filter(([,l])=>l.status!=="skipped"&&l.value>0);
+      curDays+=done.length;
+      if(entries.length>0){const td=Math.round((new Date(today)-new Date(entries[0][0]))/86400000)+1;if(td>curTrack)curTrack=td;}
       const wm={};
       for(const[ds,l]of entries){
         if(l.status==="skipped"||!l.value) continue;
-        const d=new Date(ds+"T00:00:00"); const dow=(d.getDay()+6)%7;
-        const mon=new Date(d); mon.setDate(d.getDate()-dow);
-        const wk=toLocalDateStr(mon);
-        wm[wk]=(wm[wk]||0)+1;
+        const d=new Date(ds+"T00:00:00");const dow=(d.getDay()+6)%7;
+        const mon=new Date(d);mon.setDate(d.getDate()-dow);
+        const wk=toLocalDateStr(mon);wm[wk]=(wm[wk]||0)+1;
       }
-      const wv=Object.values(wm); if(wv.length&&Math.max(...wv)>curWeek) curWeek=Math.max(...wv);
-      // Best perfect streak
+      const wv=Object.values(wm);if(wv.length&&Math.max(...wv)>curWeek)curWeek=Math.max(...wv);
       let bp=0,cp=0;
       for(const[,l]of entries){if(l.status!=="skipped"&&l.value>=a.target){cp++;if(cp>bp)bp=cp;}else cp=0;}
       if(bp>curPerf) curPerf=bp;
-      // Volume
       if(a.unit==="sec") for(const[,l]of done) curVolSec+=l.value;
       if(a.unit==="km")  for(const[,l]of done) curVolKm+=l.value;
     }
-
     if(streakM){
-      // For bestStreak, compute best historical streak across activities
-      let best=0,run=0;
+      let best=0;
       for(const a of acts){
         const al=getActivityLogs(logs,member.id,a.id);
         const es=Object.entries(al).filter(([d])=>d<=today).sort(([x],[y])=>x.localeCompare(y));
-        let r=0;
-        for(const[,l]of es){if(l.status!=="skipped"&&l.value>0){r++;if(r>best)best=r;}else r=0;}
+        let r=0;for(const[,l]of es){if(l.status!=="skipped"&&l.value>0){r++;if(r>best)best=r;}else r=0;}
       }
-      return {cur:best, max:parseInt(streakM[1]), label:"day streak"};
+      return {cur:best,max:parseInt(streakM[1]),label:"day streak"};
     }
-    if(daysM)   return {cur:curDays,   max:parseInt(daysM[1]),   label:"days logged"};
-    if(trackM)  return {cur:curTrack,  max:parseInt(trackM[1]),  label:"days tracking"};
-    if(weekM)   return {cur:curWeek,   max:parseInt(weekM[1]),   label:"days in a week"};
-    if(perfM)   return {cur:curPerf,   max:parseInt(perfM[1]),   label:"days at target"};
+    if(daysM)  return {cur:curDays,  max:parseInt(daysM[1]),  label:"days logged"};
+    if(trackM) return {cur:curTrack, max:parseInt(trackM[1]), label:"days tracking"};
+    if(weekM)  return {cur:curWeek,  max:parseInt(weekM[1]),  label:"days in a week"};
+    if(perfM)  return {cur:curPerf,  max:parseInt(perfM[1]),  label:"days at target"};
     if(volSecM){const sec=parseInt(volSecM[1]);return {cur:curVolSec,max:sec,label:`sec (${Math.round(sec/60)}min)`};}
     if(volKmM) {const km=parseFloat(volKmM[1]);return {cur:Math.round(curVolKm*10)/10,max:km,label:"km"};}
     return null;
   }
 
-  const nextUp = lockedList
-    .map(b=>({b, prog:getProgress(b)}))
-    .filter(x=>x.prog&&x.prog.cur>0)
-    .sort((a,b)=>(b.prog.cur/b.prog.max)-(a.prog.cur/a.prog.max))
-    .slice(0,5);
-
+  const nextUp=lockedList.map(b=>({b,prog:getProgress(b)})).filter(x=>x.prog&&x.prog.cur>0)
+    .sort((a,b)=>(b.prog.cur/b.prog.max)-(a.prog.cur/a.prog.max)).slice(0,5);
   const tierOrder={bronze:0,silver:1,gold:2};
 
   return <>
-    {/* Overlay */}
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
-    {/* Drawer */}
     <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(480px,92vw)",
       background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
       display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
       <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
-
-      {/* Drawer header */}
       <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -2251,56 +2230,25 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
           <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,
             padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.muted,lineHeight:1}}>×</button>
         </div>
-        {/* Hero stat */}
         <div style={{display:"flex",gap:12}}>
           {[
-            {label:"Earned",val:earnedList.length,color:C.done},
+            {label:"Earned",val:totalEarned,color:C.done},
             {label:"Locked",val:lockedList.length,color:C.muted},
-            {label:"Total",val:personalBadges.length,color:C.text},
+            {label:"Total",val:totalBadges,color:C.text},
           ].map(x=><div key={x.label} style={{flex:1,background:C.bg,borderRadius:10,padding:"10px 0",textAlign:"center"}}>
             <div style={{fontWeight:800,fontSize:22,color:x.color}}>{x.val}</div>
             <div style={{fontSize:11,color:C.muted}}>{x.label}</div>
           </div>)}
         </div>
-        {/* Progress bar */}
         <div style={{marginTop:12,background:C.border,borderRadius:99,height:6,overflow:"hidden"}}>
-          <div style={{height:"100%",width:`${Math.round((earnedList.length/personalBadges.length)*100)}%`,
+          <div style={{height:"100%",width:`${Math.round((totalEarned/totalBadges)*100)}%`,
             background:C.done,borderRadius:99,transition:"width 0.6s"}}/>
         </div>
         <div style={{fontSize:10,color:C.muted,marginTop:4,textAlign:"right"}}>
-          {Math.round((earnedList.length/personalBadges.length)*100)}% complete
+          {Math.round((totalEarned/totalBadges)*100)}% complete
         </div>
       </div>
-
-      {/* Scrollable content */}
       <div style={{flex:1,overflowY:"auto",padding:"0 24px 24px"}}>
-
-        {/* Level Badges */}
-        {earnedLevels.length>0&&<div style={{marginTop:20}}>
-          <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>
-            🎖️ LEVEL BADGES ({earnedLevels.length})
-          </div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-            {earnedLevels.map(lv=>{
-              const t = levelBadgeTier(lv.level);
-              return <div key={lv.level} title={`Level ${lv.level}: ${lv.title} — ${lv.date}`}
-                style={{
-                  display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-                  width:56,height:56,borderRadius:12,
-                  background:t.bg,border:`2px solid ${t.bd}`,
-                  cursor:"default",position:"relative",
-                }}>
-                <span style={{fontSize:20,lineHeight:1}}>{lv.icon}</span>
-                <span style={{fontSize:9,fontWeight:800,color:t.tx,marginTop:1}}>{lv.level}</span>
-              </div>;
-            })}
-          </div>
-          <div style={{fontSize:10,color:C.muted,marginTop:8}}>
-            🟤 Iron (1-9) · 🥉 Bronze (10-19) · 🥈 Silver (20-29) · 🥇 Gold (30-49) · 💎 Diamond (50+)
-          </div>
-        </div>}
-
-        {/* Coming up next */}
         {nextUp.length>0&&<div style={{marginTop:20}}>
           <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>🔜 COMING UP NEXT</div>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -2326,10 +2274,8 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
             })}
           </div>
         </div>}
-
-        {/* Earned badges */}
         {earnedList.length>0&&<div style={{marginTop:24}}>
-          <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>🏆 EARNED ({earnedList.length})</div>
+          <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>🏆 EARNED — ACTIVITY BADGES ({earnedList.length})</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
             {[...earnedList].sort((a,b)=>tierOrder[b.tier]-tierOrder[a.tier]).map(b=>{
               const tc=TC[b.tier];
@@ -2345,8 +2291,22 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
             })}
           </div>
         </div>}
-
-        {/* Locked badges */}
+        {earnedLevels.length>0&&<div style={{marginTop:24}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>🎖️ EARNED — LEVEL BADGES ({earnedLevels.length})</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+            {earnedLevels.map(lv=>{
+              const t=levelBadgeTier(lv.level);
+              return <div key={lv.level}
+                title={`Level ${lv.level}: ${lv.title} — ${new Date(lv.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}`}
+                style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+                  width:56,height:56,borderRadius:12,background:t.bg,border:`2px solid ${t.bd}`,cursor:"default"}}>
+                <span style={{fontSize:18,lineHeight:1}}>{lv.icon}</span>
+                <span style={{fontSize:9,fontWeight:800,color:t.tx,marginTop:1}}>{lv.level}</span>
+              </div>;
+            })}
+          </div>
+          <div style={{fontSize:10,color:C.muted,marginTop:8}}>🟤 Iron (1–9) · 🥉 Bronze (10–19) · 🥈 Silver (20–29) · 🥇 Gold (30–49) · 💎 Diamond (50+)</div>
+        </div>}
         {lockedList.length>0&&<div style={{marginTop:24}}>
           <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>🔒 LOCKED ({lockedList.length})</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
@@ -2365,6 +2325,7 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
     </div>
   </>;
 }
+
 
 // ── Power Points Drawer ──────────────────────────────────────────────────────
 // ── Power Points Panel (in-flow, tabbed — sits beside the card via flexbox, never fixed/floating) ──
@@ -5294,227 +5255,6 @@ function HeatmapView({member,logs}){
   </div>;
 }
 
-// ── Consistency Trend Line ───────────────────────────────────────────────────
-// ── Infer a member's real tracking start (explicit startDate, or first-ever log) ──
-function getEffectiveStart(member, logs){
-  if(member.startDate) return member.startDate;
-  let earliest = null;
-  for(const a of (member.activities||[])){
-    const al = getActivityLogs(logs, member.id, a.id);
-    for(const d of Object.keys(al)) if(!earliest || d < earliest) earliest = d;
-  }
-  return earliest; // null if member has no data at all yet
-}
-
-// Distinguish members that happen to share the same color with different dash patterns,
-// so lines are never visually indistinguishable on multi-member charts.
-// Small positional offset for dots when a member shares a color with another member,
-// so their dots fan out slightly instead of perfectly overlapping and hiding one another.
-function getDotOffset(member, allMembers){
-  const sameColorMembers = allMembers.filter(m=>m.color===member.color);
-  if(sameColorMembers.length<=1) return {dx:0,dy:0};
-  const idx = sameColorMembers.findIndex(m=>m.id===member.id);
-  const offsets=[{dx:0,dy:0},{dx:5,dy:-5},{dx:-5,dy:5},{dx:5,dy:5}];
-  return offsets[idx % offsets.length];
-}
-
-function getLineDash(member, allMembers){
-  const sameColorMembers = allMembers.filter(m=>m.color===member.color);
-  if(sameColorMembers.length<=1) return undefined; // no collision, solid line
-  const idx = sameColorMembers.findIndex(m=>m.id===member.id);
-  const patterns = [undefined, "7,4", "2,3", "10,3,2,3"];
-  return patterns[idx % patterns.length];
-}
-
-function ConsistencyTrend({members, logs}){
-  const today = new Date(todayStr());
-
-  // Figure out each member's real start, and the earliest across the family
-  const effectiveStarts = {};
-  let globalStart = null;
-  for(const m of members){
-    const es = getEffectiveStart(m, logs);
-    effectiveStarts[m.id] = es;
-    if(es && (!globalStart || es < globalStart)) globalStart = es;
-  }
-
-  // Range selector — weekly buckets for the short view, monthly for longer spans
-  const[range,setRange] = useState("4w");
-
-  // % of applicable days completed for a member within [startDate, endDate]
-  function memberPctForRange(m, startDate, endDate){
-    const acts = m.activities||[];
-    const sd = effectiveStarts[m.id];
-    if(!sd) return null; // member has no data at all — no line
-    const endStr = toLocalDateStr(endDate);
-    if(endStr < sd) return null; // bucket ends before this member's real start
-
-    let done=0, app=0;
-    const cur = new Date(startDate);
-    while(cur <= endDate){
-      const k = toLocalDateStr(cur);
-      if(k <= todayStr() && k >= sd){
-        app++;
-        if(m.alternating){
-          const anyDone = acts.some(a=>{
-            const l=getActivityLogs(logs,m.id,a.id)[k];
-            return l&&l.status!=="skipped"&&l.status!=="shielded"&&l.value>0;
-          });
-          const anyShielded = acts.some(a=>{
-            const l=getActivityLogs(logs,m.id,a.id)[k];
-            return l&&l.status==="shielded";
-          });
-          if(anyDone||anyShielded) done++;
-        } else {
-          const anyDone = acts.some(a=>{
-            const l=getActivityLogs(logs,m.id,a.id)[k];
-            return l&&l.status!=="skipped"&&l.value>0;
-          });
-          if(anyDone) done++;
-        }
-      }
-      cur.setDate(cur.getDate()+1);
-    }
-    return app===0 ? null : Math.round((done/app)*100);
-  }
-
-  // Build buckets
-  const weeks = [];
-  let rangeLabel = "";
-  if(range==="4w" || range==="12w"){
-    const maxWeeks = range==="4w" ? 4 : 12;
-    let weekCount = Math.min(maxWeeks, 8);
-    if(globalStart){
-      const daysSinceStart = Math.round((today - new Date(globalStart+"T00:00:00")) / 86400000);
-      weekCount = Math.min(maxWeeks, Math.max(1, Math.ceil((daysSinceStart+1)/7)));
-    }
-    rangeLabel = `LAST ${weekCount} ${weekCount===1?"WEEK":"WEEKS"}`;
-    for(let w=weekCount-1; w>=0; w--){
-      const weekEnd = new Date(today);
-      weekEnd.setDate(today.getDate() - w*7);
-      const weekStart = new Date(weekEnd);
-      weekStart.setDate(weekEnd.getDate() - 6);
-      weeks.push({
-        label: weekEnd.toLocaleDateString("en-IN",{day:"numeric",month:"short"}),
-        memberPcts: members.map(m=>memberPctForRange(m, weekStart, weekEnd)),
-      });
-    }
-  } else {
-    // Monthly buckets — keeps long spans readable instead of cramming 30+ weekly points
-    let firstMonth;
-    if(range==="6m"){
-      firstMonth = new Date(today.getFullYear(), today.getMonth()-5, 1);
-      rangeLabel = "LAST 6 MONTHS";
-    } else {
-      const gs = globalStart ? new Date(globalStart+"T00:00:00") : today;
-      firstMonth = new Date(gs.getFullYear(), gs.getMonth(), 1);
-      rangeLabel = "ALL TIME";
-    }
-    const cursor = new Date(firstMonth);
-    while(cursor <= today){
-      const mStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
-      let mEnd = new Date(cursor.getFullYear(), cursor.getMonth()+1, 0);
-      if(mEnd > today) mEnd = new Date(today);
-      weeks.push({
-        label: mStart.toLocaleDateString("en-IN",{month:"short",year:"2-digit"}),
-        memberPcts: members.map(m=>memberPctForRange(m, mStart, mEnd)),
-      });
-      cursor.setMonth(cursor.getMonth()+1);
-    }
-  }
-
-  // SVG dimensions
-  const W=560, H=180, padL=32, padR=16, padT=16, padB=32;
-  const chartW=W-padL-padR;
-  const chartH=H-padT-padB;
-  const xStep = weeks.length>1 ? chartW/(weeks.length-1) : 0;
-
-  // Y gridlines at 0, 25, 50, 75, 100
-  const gridLines=[0,25,50,75,100];
-
-  function xPos(i){ return padL + i*xStep; }
-  function yPos(pct){ return padT + chartH - (pct/100)*chartH; }
-
-  // Build path for each member
-  function buildPath(memberIdx){
-    const points = weeks.map((w,i)=>{
-      const pct = w.memberPcts[memberIdx];
-      if(pct===null) return null;
-      return {x:xPos(i), y:yPos(pct), pct};
-    });
-    let d="";
-    points.forEach((p,i)=>{
-      if(!p) return;
-      if(d===""||points.slice(0,i).every(x=>x===null)) d+=`M${p.x},${p.y}`;
-      else d+=`L${p.x},${p.y}`;
-    });
-    return {d, points};
-  }
-
-  return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:24,boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
-    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:4}}>
-      <div style={{fontWeight:700,fontSize:14,color:C.muted,letterSpacing:0.5}}>📈 CONSISTENCY TREND · {rangeLabel}</div>
-      <div style={{display:"flex",gap:4}}>
-        {[{id:"4w",label:"4W"},{id:"12w",label:"12W"},{id:"6m",label:"6M"},{id:"all",label:"All"}].map(r=>(
-          <button key={r.id} onClick={()=>setRange(r.id)} style={{
-            padding:"4px 10px",borderRadius:7,fontSize:11,fontWeight:600,cursor:"pointer",
-            border:`1.5px solid ${range===r.id?C.text:C.border}`,
-            background:range===r.id?C.text:"none",
-            color:range===r.id?"#fff":C.muted,
-          }}>{r.label}</button>
-        ))}
-      </div>
-    </div>
-    <div style={{display:"flex",gap:16,marginBottom:16,flexWrap:"wrap"}}>
-      {members.map(m=>{
-        const dashArr=getLineDash(m,members);
-        return <div key={m.id} style={{display:"flex",alignItems:"center",gap:6}}>
-          <svg width={20} height={3}><line x1={0} y1={1.5} x2={20} y2={1.5} stroke={m.color} strokeWidth={3} strokeDasharray={dashArr}/></svg>
-          <span style={{fontSize:12,color:C.muted}}>{m.name}</span>
-        </div>;
-      })}
-    </div>
-    <div style={{overflowX:"auto"}}>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",minWidth:320,height:"auto"}}>
-        {/* Grid lines */}
-        {gridLines.map(g=><g key={g}>
-          <line x1={padL} y1={yPos(g)} x2={W-padR} y2={yPos(g)} stroke={C.border} strokeWidth={1} strokeDasharray={g===0?"":"4,4"}/>
-          <text x={padL-4} y={yPos(g)+4} textAnchor="end" fontSize={9} fill={C.muted}>{g}%</text>
-        </g>)}
-
-        {/* Member lines */}
-        {members.map((m,mi)=>{
-          const {d,points} = buildPath(mi);
-          const dashArr=getLineDash(m,members);
-          const dotOffset=getDotOffset(m,members);
-          return <g key={m.id}>
-            {/* Line */}
-            {d&&<path d={d} fill="none" stroke={m.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={dashArr}/>}
-            {/* Dots — offset slightly if this member shares a color with another, so overlapping dots stay visible */}
-            {points.map((p,i)=>p&&<g key={i}>
-              <circle cx={p.x+dotOffset.dx} cy={p.y+dotOffset.dy} r={4} fill={m.color} stroke="#fff" strokeWidth={2}/>
-              {/* Value label on hover via title */}
-              <title>{m.name}: {p.pct}%</title>
-            </g>)}
-          </g>;
-        })}
-
-        {/* X axis labels */}
-        {(()=>{
-          const step = Math.ceil(weeks.length/13); // keep labels readable on long ranges
-          return weeks.map((w,i)=>{
-            const isLast = i===weeks.length-1;
-            if(!isLast && i%step!==0) return null;
-            return <text key={i} x={xPos(i)} y={H-6} textAnchor="middle" fontSize={9} fill={C.muted}>
-              {isLast?"Now":w.label}
-            </text>;
-          });
-        })()}
-      </svg>
-    </div>
-  </div>;
-}
-
 // ── Family Dashboard (Family Tab) ────────────────────────────────────────────
 // ── Family Pulse — PP-based insights: level proximity and gaps between members ──
 function computeFamilyPulse(members, logs){
@@ -5944,9 +5684,6 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
         </>;
       })()}
     </div>
-
-    {/* ── Trend chart ── */}
-    <ConsistencyTrend members={members} logs={logs}/>
 
     {/* ── Per-member stat cards + volume side by side ── */}
     <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"start"}}>
