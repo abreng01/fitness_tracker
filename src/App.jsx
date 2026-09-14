@@ -2143,9 +2143,16 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
   const earnedList     = personalBadges.filter(b=>allEarned.has(b.id));
   const lockedList     = personalBadges.filter(b=>!allEarned.has(b.id));
 
-  // Level badges from levelHistory — merged into earned total
-  const {levelHistory} = computePowerPoints(member, logs);
-  const earnedLevels = [...levelHistory].sort((a,b)=>a.level-b.level);
+  // Level badges — use PP total to determine earned/locked (same as PowerPointsPanel)
+  // This ensures Level 1 is always earned (0 PP threshold) and no gaps from levelHistory
+  const {total: memberPPTotal, levelHistory} = computePowerPoints(member, logs);
+  const earnedLevels = PP_LEVELS.filter(l => memberPPTotal >= l.pp)
+    .map(l => {
+      // Enrich with date from levelHistory if available
+      const hist = levelHistory.find(h => h.level === l.level);
+      return {...l, date: hist?.date || null};
+    });
+  const lockedLevelsList = PP_LEVELS.filter(l => memberPPTotal < l.pp);
 
   function levelBadgeTier(lvl){
     if(lvl>=50) return {bg:"#E8F4FD",bd:"#1565C0",tx:"#0D47A1",tier:"Diamond"};
@@ -2155,7 +2162,7 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
     return {bg:C.bg,bd:C.border,tx:C.muted,tier:"Iron"};
   }
 
-  // Total earned = activity badges + level badges reached
+  // Total earned = activity badges + earned level badges
   const totalEarned = earnedList.length + earnedLevels.length;
   // Total possible = activity badges + all 60 levels
   const totalBadges = personalBadges.length + PP_LEVELS.length;
@@ -2309,9 +2316,7 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
         </div>}
         {(()=>{
           // Locked levels = all PP_LEVELS not yet reached
-          const earnedLevelNums = new Set(earnedLevels.map(l=>l.level));
-          const lockedLevels = PP_LEVELS.filter(l=>l.level > 1 && !earnedLevelNums.has(l.level));
-          const totalLocked = lockedList.length + lockedLevels.length;
+          const totalLocked = lockedList.length + lockedLevelsList.length;
           if(totalLocked===0) return null;
           return <div style={{marginTop:24}}>
             <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>🔒 LOCKED ({totalLocked})</div>
@@ -2325,7 +2330,7 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
                   <div style={{fontSize:10,color:C.muted,marginTop:1,lineHeight:1.3}}>{b.desc}</div>
                 </div>
               </div>)}
-              {lockedLevels.map(lv=>{
+              {lockedLevelsList.map(lv=>{
                 const t=levelBadgeTier(lv.level);
                 return <div key={`locked-lvl-${lv.level}`} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",
                   display:"flex",alignItems:"center",gap:10,opacity:0.4,filter:"grayscale(1)"}}>
