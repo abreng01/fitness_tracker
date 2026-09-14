@@ -2276,8 +2276,8 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
         </div>}
         {(earnedList.length>0||earnedLevels.length>0)&&<div style={{marginTop:24}}>
           <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>🏆 EARNED ({totalEarned})</div>
-          {/* Activity badges grid */}
-          {earnedList.length>0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:earnedLevels.length>0?12:0}}>
+          {/* All earned badges in one unified 2-col grid — activity badges first, then level badges */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
             {[...earnedList].sort((a,b)=>tierOrder[b.tier]-tierOrder[a.tier]).map(b=>{
               const tc=TC[b.tier];
               return <div key={b.id} style={{background:tc.bg,border:`1.5px solid ${tc.bd}`,borderRadius:12,padding:"12px 14px",
@@ -2290,24 +2290,20 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
                 </div>
               </div>;
             })}
-          </div>}
-          {/* Level badges — merged into same earned section */}
-          {earnedLevels.length>0&&<>
-            {earnedList.length>0&&<div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.3,marginBottom:8}}>🎖️ LEVEL BADGES</div>}
-            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-              {earnedLevels.map(lv=>{
-                const t=levelBadgeTier(lv.level);
-                return <div key={lv.level}
-                  title={`Level ${lv.level}: ${lv.title} — ${new Date(lv.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}`}
-                  style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-                    width:56,height:56,borderRadius:12,background:t.bg,border:`2px solid ${t.bd}`,cursor:"default"}}>
-                  <span style={{fontSize:18,lineHeight:1}}>{lv.icon}</span>
-                  <span style={{fontSize:9,fontWeight:800,color:t.tx,marginTop:1}}>{lv.level}</span>
-                </div>;
-              })}
-            </div>
-            <div style={{fontSize:10,color:C.muted,marginTop:8}}>🟤 Iron (1–9) · 🥉 Bronze (10–19) · 🥈 Silver (20–29) · 🥇 Gold (30–49) · 💎 Diamond (50+)</div>
-          </>}
+            {earnedLevels.map(lv=>{
+              const t=levelBadgeTier(lv.level);
+              const dateLabel=new Date(lv.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"});
+              return <div key={`lvl-${lv.level}`} style={{background:t.bg,border:`1.5px solid ${t.bd}`,borderRadius:12,padding:"12px 14px",
+                display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:24,flexShrink:0}}>{lv.icon}</span>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:11,fontWeight:700,color:t.tx,textTransform:"uppercase",letterSpacing:0.3,opacity:0.6}}>{t.tier} · Lv {lv.level}</div>
+                  <div style={{fontSize:13,fontWeight:700,color:t.tx,lineHeight:1.3}}>{lv.title}</div>
+                  <div style={{fontSize:10,color:t.tx,opacity:0.6,marginTop:1,lineHeight:1.3}}>{dateLabel}</div>
+                </div>
+              </div>;
+            })}
+          </div>
         </div>}
         {lockedList.length>0&&<div style={{marginTop:24}}>
           <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>🔒 LOCKED ({lockedList.length})</div>
@@ -3714,6 +3710,8 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
   const memberOverride = (member.alternating && acts.length>1) ? computeMemberLevelStats(member,logs) : {};
   const allEarned=new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,member.id,a.id),a.target,a.unit,{...fs,...memberOverride})));
   const personalBadges=getMemberBadges(member);
+  const {levelHistory:memberLevelHistory} = computePowerPoints(member, logs);
+  const levelCount = memberLevelHistory.length; // one badge per level reached
 
   const dCount=daysInMonth(year,month);
   const firstDay=firstDayOfMonth(year,month);
@@ -3890,7 +3888,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
 
     {/* Badges + Stats footer */}
     <div style={{borderTop:`1px solid ${C.border}`,marginTop:12,paddingTop:12,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
-      <span style={{fontSize:12,color:C.muted}}><span style={{fontWeight:700,color:C.text}}>{allEarned.size}</span> / {personalBadges.length} badges earned</span>
+      <span style={{fontSize:12,color:C.muted}}><span style={{fontWeight:700,color:C.text}}>{allEarned.size + levelCount}</span> / {personalBadges.length + levelCount} badges earned</span>
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
         <button onClick={()=>setShowStats(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:C.muted}}>📊 Stats</button>
         <button onClick={()=>setShowGrowth(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:C.muted}}>📏 Growth</button>
@@ -5336,13 +5334,15 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
     const familyOverride = (m.alternating && acts.length>1) ? computeMemberLevelStats(m,logs) : {};
     const allEarned = new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,m.id,a.id),a.target,a.unit,familyOverride)));
     const personalBadges = getMemberBadges(m);
+    const {levelHistory:mLevelHistory} = computePowerPoints(m, logs);
+    const mLevelCount = mLevelHistory.length;
     const volumes = acts.map(a=>{
       const al=getActivityLogs(logs,m.id,a.id);
       let total=0;
       for(const[d,l]of Object.entries(al)) if(d<=today&&l.status!=="skipped"&&l.status!=="shielded"&&l.value>0) total+=l.value;
       return{act:a,total,formatted:formatVol(total,a.unit)};
     }).filter(v=>v.total>0);
-    return{m,avgPct,done,missed,curStreak,bestEver,shields,badgeCount:allEarned.size,totalBadges:personalBadges.length,volumes};
+    return{m,avgPct,done,missed,curStreak,bestEver,shields,badgeCount:allEarned.size+mLevelCount,totalBadges:personalBadges.length+mLevelCount,volumes};
   });
 
   const ranked = [...memberStats].sort((a,b)=>b.avgPct-a.avgPct);
