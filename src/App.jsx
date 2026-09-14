@@ -2155,9 +2155,10 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
     return {bg:C.bg,bd:C.border,tx:C.muted,tier:"Iron"};
   }
 
-  // Total earned = activity badges + level badges
+  // Total earned = activity badges + level badges reached
   const totalEarned = earnedList.length + earnedLevels.length;
-  const totalBadges = personalBadges.length + earnedLevels.length;
+  // Total possible = activity badges + all 60 levels
+  const totalBadges = personalBadges.length + PP_LEVELS.length;
 
   function getProgress(badge){
     const s = badge.check.toString();
@@ -2306,20 +2307,39 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
             })}
           </div>
         </div>}
-        {lockedList.length>0&&<div style={{marginTop:24}}>
-          <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>🔒 LOCKED ({lockedList.length})</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-            {lockedList.map(b=><div key={b.id} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",
-              display:"flex",alignItems:"center",gap:10,opacity:0.5,filter:"grayscale(1)"}}>
-              <span style={{fontSize:24,flexShrink:0}}>{b.e}</span>
-              <div style={{minWidth:0}}>
-                <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.3}}>{b.tier}</div>
-                <div style={{fontSize:13,fontWeight:700,color:C.muted,lineHeight:1.3}}>{b.label}</div>
-                <div style={{fontSize:10,color:C.muted,marginTop:1,lineHeight:1.3}}>{b.desc}</div>
-              </div>
-            </div>)}
-          </div>
-        </div>}
+        {(()=>{
+          // Locked levels = all PP_LEVELS not yet reached
+          const earnedLevelNums = new Set(earnedLevels.map(l=>l.level));
+          const lockedLevels = PP_LEVELS.filter(l=>!earnedLevelNums.has(l.level));
+          const totalLocked = lockedList.length + lockedLevels.length;
+          if(totalLocked===0) return null;
+          return <div style={{marginTop:24}}>
+            <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>🔒 LOCKED ({totalLocked})</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              {lockedList.map(b=><div key={b.id} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",
+                display:"flex",alignItems:"center",gap:10,opacity:0.5,filter:"grayscale(1)"}}>
+                <span style={{fontSize:24,flexShrink:0}}>{b.e}</span>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.3}}>{b.tier}</div>
+                  <div style={{fontSize:13,fontWeight:700,color:C.muted,lineHeight:1.3}}>{b.label}</div>
+                  <div style={{fontSize:10,color:C.muted,marginTop:1,lineHeight:1.3}}>{b.desc}</div>
+                </div>
+              </div>)}
+              {lockedLevels.map(lv=>{
+                const t=levelBadgeTier(lv.level);
+                return <div key={`locked-lvl-${lv.level}`} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",
+                  display:"flex",alignItems:"center",gap:10,opacity:0.4,filter:"grayscale(1)"}}>
+                  <span style={{fontSize:24,flexShrink:0}}>{lv.icon}</span>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.3}}>{t.tier} · Lv {lv.level}</div>
+                    <div style={{fontSize:13,fontWeight:700,color:C.muted,lineHeight:1.3}}>{lv.title}</div>
+                    <div style={{fontSize:10,color:C.muted,marginTop:1}}>{lv.pp.toLocaleString()} PP to unlock</div>
+                  </div>
+                </div>;
+              })}
+            </div>
+          </div>;
+        })()}
       </div>
     </div>
   </>;
@@ -3889,7 +3909,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
 
     {/* Badges + Stats footer */}
     <div style={{borderTop:`1px solid ${C.border}`,marginTop:12,paddingTop:12,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
-      <span style={{fontSize:12,color:C.muted}}><span style={{fontWeight:700,color:C.text}}>{allEarned.size + levelCount}</span> / {personalBadges.length + levelCount} badges earned</span>
+      <span style={{fontSize:12,color:C.muted}}><span style={{fontWeight:700,color:C.text}}>{allEarned.size + levelCount}</span> / {personalBadges.length + PP_LEVELS.length} badges earned</span>
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
         <button onClick={()=>setShowStats(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:C.muted}}>📊 Stats</button>
         <button onClick={()=>setShowGrowth(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:C.muted}}>📏 Growth</button>
@@ -5343,7 +5363,7 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
       for(const[d,l]of Object.entries(al)) if(d<=today&&l.status!=="skipped"&&l.status!=="shielded"&&l.value>0) total+=l.value;
       return{act:a,total,formatted:formatVol(total,a.unit)};
     }).filter(v=>v.total>0);
-    return{m,avgPct,done,missed,curStreak,bestEver,shields,badgeCount:allEarned.size+mLevelCount,totalBadges:personalBadges.length+mLevelCount,volumes};
+    return{m,avgPct,done,missed,curStreak,bestEver,shields,badgeCount:allEarned.size+mLevelCount,totalBadges:personalBadges.length+PP_LEVELS.length,volumes};
   });
 
   const ranked = [...memberStats].sort((a,b)=>b.avgPct-a.avgPct);
