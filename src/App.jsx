@@ -1965,7 +1965,7 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
                 <div style={{fontWeight:600,fontSize:14,color:C.text}}>{a.name}</div>
                 <div style={{fontSize:11,color:C.muted}}>Target: {a.target} {a.unit}</div>
               </div>
-              {!selected&&(shieldsLeft>0||isShielded)&&!isRest&&<button onClick={()=>toggleShield(a.id)} style={{
+              {(shieldsLeft>0||isShielded)&&<button onClick={(e)=>{e.stopPropagation();toggleShield(a.id);}} style={{
                 background:isShielded?"#1976D2":"none",color:isShielded?"#fff":"#1976D2",
                 border:"1.5px solid #1976D2",borderRadius:8,padding:"5px 9px",
                 cursor:"pointer",fontWeight:600,fontSize:11,whiteSpace:"nowrap",
@@ -2274,9 +2274,10 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
             })}
           </div>
         </div>}
-        {earnedList.length>0&&<div style={{marginTop:24}}>
-          <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>🏆 EARNED — ACTIVITY BADGES ({earnedList.length})</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+        {(earnedList.length>0||earnedLevels.length>0)&&<div style={{marginTop:24}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>🏆 EARNED ({totalEarned})</div>
+          {/* Activity badges grid */}
+          {earnedList.length>0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:earnedLevels.length>0?12:0}}>
             {[...earnedList].sort((a,b)=>tierOrder[b.tier]-tierOrder[a.tier]).map(b=>{
               const tc=TC[b.tier];
               return <div key={b.id} style={{background:tc.bg,border:`1.5px solid ${tc.bd}`,borderRadius:12,padding:"12px 14px",
@@ -2289,23 +2290,24 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
                 </div>
               </div>;
             })}
-          </div>
-        </div>}
-        {earnedLevels.length>0&&<div style={{marginTop:24}}>
-          <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>🎖️ EARNED — LEVEL BADGES ({earnedLevels.length})</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-            {earnedLevels.map(lv=>{
-              const t=levelBadgeTier(lv.level);
-              return <div key={lv.level}
-                title={`Level ${lv.level}: ${lv.title} — ${new Date(lv.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}`}
-                style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-                  width:56,height:56,borderRadius:12,background:t.bg,border:`2px solid ${t.bd}`,cursor:"default"}}>
-                <span style={{fontSize:18,lineHeight:1}}>{lv.icon}</span>
-                <span style={{fontSize:9,fontWeight:800,color:t.tx,marginTop:1}}>{lv.level}</span>
-              </div>;
-            })}
-          </div>
-          <div style={{fontSize:10,color:C.muted,marginTop:8}}>🟤 Iron (1–9) · 🥉 Bronze (10–19) · 🥈 Silver (20–29) · 🥇 Gold (30–49) · 💎 Diamond (50+)</div>
+          </div>}
+          {/* Level badges — merged into same earned section */}
+          {earnedLevels.length>0&&<>
+            {earnedList.length>0&&<div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.3,marginBottom:8}}>🎖️ LEVEL BADGES</div>}
+            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+              {earnedLevels.map(lv=>{
+                const t=levelBadgeTier(lv.level);
+                return <div key={lv.level}
+                  title={`Level ${lv.level}: ${lv.title} — ${new Date(lv.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}`}
+                  style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+                    width:56,height:56,borderRadius:12,background:t.bg,border:`2px solid ${t.bd}`,cursor:"default"}}>
+                  <span style={{fontSize:18,lineHeight:1}}>{lv.icon}</span>
+                  <span style={{fontSize:9,fontWeight:800,color:t.tx,marginTop:1}}>{lv.level}</span>
+                </div>;
+              })}
+            </div>
+            <div style={{fontSize:10,color:C.muted,marginTop:8}}>🟤 Iron (1–9) · 🥉 Bronze (10–19) · 🥈 Silver (20–29) · 🥇 Gold (30–49) · 💎 Diamond (50+)</div>
+          </>}
         </div>}
         {lockedList.length>0&&<div style={{marginTop:24}}>
           <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:12}}>🔒 LOCKED ({lockedList.length})</div>
