@@ -3736,8 +3736,8 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
   const memberOverride = (member.alternating && acts.length>1) ? computeMemberLevelStats(member,logs) : {};
   const allEarned=new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,member.id,a.id),a.target,a.unit,{...fs,...memberOverride})));
   const personalBadges=getMemberBadges(member);
-  const {levelHistory:memberLevelHistory} = computePowerPoints(member, logs);
-  const levelCount = memberLevelHistory.length; // one badge per level reached
+  const {levelHistory:memberLevelHistory, total:memberPPTotal2} = computePowerPoints(member, logs);
+  const levelCount = PP_LEVELS.filter(l => memberPPTotal2 >= l.pp).length;
 
   const dCount=daysInMonth(year,month);
   const firstDay=firstDayOfMonth(year,month);
@@ -5360,8 +5360,8 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
     const familyOverride = (m.alternating && acts.length>1) ? computeMemberLevelStats(m,logs) : {};
     const allEarned = new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,m.id,a.id),a.target,a.unit,familyOverride)));
     const personalBadges = getMemberBadges(m);
-    const {levelHistory:mLevelHistory} = computePowerPoints(m, logs);
-    const mLevelCount = mLevelHistory.length;
+    const {levelHistory:mLevelHistory, total:mPPTotal} = computePowerPoints(m, logs);
+    const mLevelCount = PP_LEVELS.filter(l => mPPTotal >= l.pp).length;
     const volumes = acts.map(a=>{
       const al=getActivityLogs(logs,m.id,a.id);
       let total=0;
