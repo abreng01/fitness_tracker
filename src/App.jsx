@@ -2235,7 +2235,7 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
         <div style={{display:"flex",gap:12}}>
           {[
             {label:"Earned",val:totalEarned,color:C.done},
-            {label:"Locked",val:lockedList.length,color:C.muted},
+            {label:"Locked",val:totalBadges-totalEarned,color:C.muted},
             {label:"Total",val:totalBadges,color:C.text},
           ].map(x=><div key={x.label} style={{flex:1,background:C.bg,borderRadius:10,padding:"10px 0",textAlign:"center"}}>
             <div style={{fontWeight:800,fontSize:22,color:x.color}}>{x.val}</div>
@@ -2310,7 +2310,7 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
         {(()=>{
           // Locked levels = all PP_LEVELS not yet reached
           const earnedLevelNums = new Set(earnedLevels.map(l=>l.level));
-          const lockedLevels = PP_LEVELS.filter(l=>!earnedLevelNums.has(l.level));
+          const lockedLevels = PP_LEVELS.filter(l=>l.level > 1 && !earnedLevelNums.has(l.level));
           const totalLocked = lockedList.length + lockedLevels.length;
           if(totalLocked===0) return null;
           return <div style={{marginTop:24}}>
