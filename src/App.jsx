@@ -400,10 +400,11 @@ function dayStatus(member,logs,ds){
   if(loggedActs.length===0) return "empty";
   if(loggedActs.every(l=>l.status==="shielded")) return "shielded";
   const doneActs=loggedActs.filter(l=>l.status!=="skipped"&&l.status!=="shielded");
-  if(doneActs.length===0) return "skipped";
-  // For alternating members: any done = full green
-  // For regular members: all must be done for full green
-  if(member.alternating) return "done";
+  if(doneActs.length===0){
+    // For alternating members: if any activity is shielded, show as shielded not skipped
+    if(member.alternating && loggedActs.some(l=>l.status==="shielded")) return "shielded";
+    return "skipped";
+  }
   return "done";
 }
 
