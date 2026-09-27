@@ -1200,10 +1200,11 @@ function computeStats(al,target){
     if(daysInMon>bestMonthDays) bestMonthDays=daysInMon;
   }
 
-  // Best streak ever (not just current)
+  // Best streak ever (not just current) — shields don't break streaks
   let bestStreak=0,bsRun=0;
   for(const[,l]of entries){
-    if(l.status!=="skipped"&&l.value>0){bsRun++;if(bsRun>bestStreak)bestStreak=bsRun;}
+    if(l.status==="shielded"){bsRun++;if(bsRun>bestStreak)bestStreak=bsRun;} // shield counts as streak-preserving
+    else if(l.status!=="skipped"&&l.value>0){bsRun++;if(bsRun>bestStreak)bestStreak=bsRun;}
     else bsRun=0;
   }
 
@@ -1235,8 +1236,8 @@ function computeMemberLevelStats(member, logs){
       else if(l.status === "skipped") anySkipped = true;
       else if(l.value > 0) anyDone = true;
     }
-    if(anyShielded) virtualAl[d] = {value:0, status:"shielded"};
-    else if(anyDone) virtualAl[d] = {value:1, status:"done"}; // dummy value; target=1 makes it always "at target"
+    if(anyDone) virtualAl[d] = {value:1, status:"done"};
+    else if(anyShielded) virtualAl[d] = {value:1, status:"done"}; // shields preserve streaks
     else if(anySkipped) virtualAl[d] = {value:0, status:"skipped"};
   }
 
