@@ -697,7 +697,7 @@ function computePowerPoints(member, logs){
       const nothingHappened = shieldedActs.length===0 && doneActs.length===0 && (dateStr < today || hasExplicitSkip);
 
       if(nothingHappened){
-        totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; dailyTags[dateStr]=["skipped"];
+        totalPP = Math.max(0, totalPP - 100); breakdown.skipped -= 100; dailyTags[dateStr]=["skipped"];
       } else {
         const tags=[];
         let dayEarned=0;
@@ -722,21 +722,21 @@ function computePowerPoints(member, logs){
             if(isPB) actBests[a.id] = maxSession;
             // First session scores full tier × all multipliers (same as before)
             const rawTier = isPB ? 300 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 100;
-            const basePts = rawTier * (a.ppMultiplier ?? 1);
-            const distancePts = Math.max(0, l.value - effectiveTarget) * (a.distanceBonusRate ?? 0);
+            const basePts = Math.round(rawTier * (a.ppMultiplier ?? 1));
+            const distancePts = Math.round(Math.max(0, l.value - effectiveTarget) * (a.distanceBonusRate ?? 0) / 100) * 100;
             const mysteryMult = isMysteryBonusDay(member.id, dateStr) ? 2 : 1;
-            const tierEarned = Math.round(basePts * multiplier * mysteryMult);
-            const distanceEarned = Math.round(distancePts * multiplier * mysteryMult);
+            const tierEarned = Math.round(basePts * multiplier * mysteryMult / 100) * 100;
+            const distanceEarned = Math.round(distancePts * multiplier * mysteryMult / 100) * 100;
             // Extra sessions: each scores full tier PP based on its own reps vs target, WITH streak and mystery
             let extraPts = 0;
             if(sessionVals.length > 1){
               for(let si=1; si<sessionVals.length; si++){
                 const sv = sessionVals[si];
                 const sTier = sv > effectiveTarget ? 200 : sv >= effectiveTarget ? 100 : 100;
-                extraPts += sTier * (a.ppMultiplier ?? 1);
+                extraPts += Math.round(sTier * (a.ppMultiplier ?? 1));
               }
             }
-            const extraEarned = Math.round(extraPts * multiplier * mysteryMult);
+            const extraEarned = Math.round(extraPts * multiplier * mysteryMult / 100) * 100;
             dayEarned += tierEarned + extraEarned + distanceEarned;
             if(rawTier === 250) breakdown.pb += tierEarned;
             else if(rawTier === 200) breakdown.aboveTarget += tierEarned;
@@ -777,15 +777,15 @@ function computePowerPoints(member, logs){
             const isPB = maxSession > actBests[a.id] && maxSession > effectiveTarget;
             if(isPB) actBests[a.id] = maxSession;
             const rawTier = isPB ? 300 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 100;
-            const basePts = rawTier * (a.ppMultiplier ?? 1);
+            const basePts = Math.round(rawTier * (a.ppMultiplier ?? 1));
             if(basePts > bestPts){
               bestPts = basePts; bestRawTier = rawTier; bestSessionCount = sessionVals.length;
-              bestDistancePts = Math.max(0, l.value - effectiveTarget) * (a.distanceBonusRate ?? 0);
+              bestDistancePts = Math.round(Math.max(0, l.value - effectiveTarget) * (a.distanceBonusRate ?? 0) / 100) * 100;
               bestActivity = {a, l, effectiveTarget};
             }
           }
           const mysteryMult = isMysteryBonusDay(member.id, dateStr) ? 2 : 1;
-          const tierEarned = Math.round(bestPts * multiplier * mysteryMult);
+          const tierEarned = Math.round(bestPts * multiplier * mysteryMult / 100) * 100;
           // Extra sessions on best activity: each scores full tier base PP (no multipliers)
           let extraPts = 0;
           if(bestActivity && bestSessionCount > 1){
@@ -793,11 +793,11 @@ function computePowerPoints(member, logs){
             for(let si=1; si<bestSessions.length; si++){
               const sv = bestSessions[si];
               const sTier = sv > bestActivity.effectiveTarget ? 200 : sv >= bestActivity.effectiveTarget ? 100 : 100;
-              extraPts += sTier * (bestActivity.a.ppMultiplier ?? 1);
+              extraPts += Math.round(sTier * (bestActivity.a.ppMultiplier ?? 1));
             }
           }
-          const extraEarned = Math.round(extraPts * multiplier * mysteryMult);
-          const distanceEarned = Math.round(bestDistancePts * multiplier * mysteryMult);
+          const extraEarned = Math.round(extraPts * multiplier * mysteryMult / 100) * 100;
+          const distanceEarned = Math.round(bestDistancePts * multiplier * mysteryMult / 100) * 100;
           dayEarned += tierEarned + extraEarned + distanceEarned;
           if(bestActivity){
             if(!dailyBreakdown[dateStr]) dailyBreakdown[dateStr]=[];
@@ -813,7 +813,7 @@ function computePowerPoints(member, logs){
               note: doneActs.length>1 ? "Best of " + doneActs.length + " activities today" : null,
             });
           }
-          if(bestRawTier === 250) breakdown.pb += tierEarned;
+          if(bestRawTier === 300) breakdown.pb += tierEarned;
           else if(bestRawTier === 200) breakdown.aboveTarget += tierEarned;
           else if(bestRawTier === 100) breakdown.atTarget += tierEarned;
           else breakdown.belowTarget += tierEarned;
@@ -842,28 +842,28 @@ function computePowerPoints(member, logs){
           if(!dailyBreakdown[dateStr]) dailyBreakdown[dateStr]=[];
           dailyBreakdown[dateStr].push({activityName: a.name, activityUnit: a.unit, shielded: true, total: 0});
         }
-        else if(l.status === "skipped"){ totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; dailyTags[dateStr]=["skipped"]; }
+        else if(l.status === "skipped"){ totalPP = Math.max(0, totalPP - 100); breakdown.skipped -= 100; dailyTags[dateStr]=["skipped"]; }
         else if(l.value > 0){
           const sessionVals = l.sessions&&l.sessions.length>0 ? l.sessions : [l.value];
           const maxSession = Math.max(...sessionVals);
           const isPB = maxSession > actBests[a.id] && maxSession > effectiveTarget;
           if(isPB) actBests[a.id] = maxSession;
           const rawTier = isPB ? 300 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 100;
-          const basePts = rawTier * (a.ppMultiplier ?? 1);
+          const basePts = Math.round(rawTier * (a.ppMultiplier ?? 1));
           // Extra sessions: each scores full tier base PP (no multipliers) based on its own reps vs target
           let extraPts = 0;
           if(sessionVals.length > 1){
             for(let si=1; si<sessionVals.length; si++){
               const sv = sessionVals[si];
               const sTier = sv > effectiveTarget ? 200 : sv >= effectiveTarget ? 100 : 100;
-              extraPts += sTier * (a.ppMultiplier ?? 1);
+              extraPts += Math.round(sTier * (a.ppMultiplier ?? 1));
             }
           }
-          const distancePts = Math.max(0, l.value - effectiveTarget) * (a.distanceBonusRate ?? 0);
+          const distancePts = Math.round(Math.max(0, l.value - effectiveTarget) * (a.distanceBonusRate ?? 0) / 100) * 100;
           const mysteryMult = isMysteryBonusDay(member.id, dateStr) ? 2 : 1;
-          const tierEarned = Math.round(basePts * multiplier * mysteryMult);
-          const extraEarned = Math.round(extraPts * multiplier * mysteryMult);
-          const distanceEarned = Math.round(distancePts * multiplier * mysteryMult);
+          const tierEarned = Math.round(basePts * multiplier * mysteryMult / 100) * 100;
+          const extraEarned = Math.round(extraPts * multiplier * mysteryMult / 100) * 100;
+          const distanceEarned = Math.round(distancePts * multiplier * mysteryMult / 100) * 100;
           const earned = tierEarned + extraEarned + distanceEarned;
           const bonus = (tierEarned-basePts) + (extraEarned-extraPts) + (distanceEarned-distancePts);
           totalPP += earned;
@@ -2653,7 +2653,7 @@ function PowerPointsPanel({member, logs, onClose}){
             {icon:"✅",label:"At target",val:"+100"},
             {icon:"📉",label:"Below target",val:"+100"},
             {icon:"🛡️",label:"Shielded",val:"0"},
-            {icon:"❌",label:"Skipped",val:"-25"},
+            {icon:"❌",label:"Skipped",val:"-100"},
             {icon:"💔",label:"Breaking 7+ streak",val:"-100"},
           ].map(r=><div key={r.label} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.border}`,fontSize:11}}>
             <span>{r.icon} {r.label}</span>
