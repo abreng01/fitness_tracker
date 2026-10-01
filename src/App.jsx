@@ -543,7 +543,7 @@ function getStreakMultiplier(streak){
   if(streak >= 30) return 5;
   if(streak >= 14) return 3;
   if(streak >= 7)  return 2;
-  if(streak >= 3)  return 1.5;
+  if(streak >= 3)  return 2;
   return 1;
 }
 
@@ -701,14 +701,14 @@ function computePowerPoints(member, logs){
       } else {
         const tags=[];
         let dayEarned=0;
-        // Shielded activities each contribute their own flat bonus — doesn't wipe out other activities done that day
+        // Shielded activities contribute 0 PP — shields are protection, not performance
         for(const a of shieldedActs){
-          dayEarned += 25;
-          breakdown.shielded += 25;
+          dayEarned += 0;
+          breakdown.shielded += 0;
           tags.push("shielded");
           if(!dailyBreakdown[dateStr]) dailyBreakdown[dateStr]=[];
           dailyBreakdown[dateStr].push({
-            activityName: a.name, activityUnit: a.unit, shielded: true, total: 25,
+            activityName: a.name, activityUnit: a.unit, shielded: true, total: 0,
           });
         }
         // Done activities score via Stack Points (sum all) or best-of, same as before
@@ -721,7 +721,7 @@ function computePowerPoints(member, logs){
             const isPB = maxSession > actBests[a.id] && maxSession > effectiveTarget;
             if(isPB) actBests[a.id] = maxSession;
             // First session scores full tier × all multipliers (same as before)
-            const rawTier = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
+            const rawTier = isPB ? 300 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 100;
             const basePts = rawTier * (a.ppMultiplier ?? 1);
             const distancePts = Math.max(0, l.value - effectiveTarget) * (a.distanceBonusRate ?? 0);
             const mysteryMult = isMysteryBonusDay(member.id, dateStr) ? 2 : 1;
@@ -732,7 +732,7 @@ function computePowerPoints(member, logs){
             if(sessionVals.length > 1){
               for(let si=1; si<sessionVals.length; si++){
                 const sv = sessionVals[si];
-                const sTier = sv > effectiveTarget ? 200 : sv >= effectiveTarget ? 100 : 50;
+                const sTier = sv > effectiveTarget ? 200 : sv >= effectiveTarget ? 100 : 100;
                 extraPts += sTier * (a.ppMultiplier ?? 1);
               }
             }
@@ -748,14 +748,14 @@ function computePowerPoints(member, logs){
             if(!dailyBreakdown[dateStr]) dailyBreakdown[dateStr]=[];
             dailyBreakdown[dateStr].push({
               activityName: a.name, activityUnit: a.unit, value: l.value, target: effectiveTarget,
-              tierLabel: rawTier===250?"pb":rawTier===200?"above":rawTier===100?"at":"below",
+              tierLabel: rawTier===300?"pb":rawTier===200?"above":rawTier===100?"at":"below",
               rawTier, ppMultiplier: a.ppMultiplier ?? 1, basePts,
               streakMultiplier: multiplier, mysteryMultiplier: mysteryMult,
               tierEarned, extraSessions: sessionVals.length>1?sessionVals.length:0, extraEarned,
               distanceEarned, total: tierEarned+extraEarned+distanceEarned,
               sessions: sessionVals.length>1?sessionVals:[],
             });
-            if(rawTier===250) tags.push("pb");
+            if(rawTier===300) tags.push("pb");
             else if(rawTier===200) tags.push("above");
             else if(rawTier===100) tags.push("at");
             else tags.push("below");
@@ -776,7 +776,7 @@ function computePowerPoints(member, logs){
             const maxSession = Math.max(...sessionVals);
             const isPB = maxSession > actBests[a.id] && maxSession > effectiveTarget;
             if(isPB) actBests[a.id] = maxSession;
-            const rawTier = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
+            const rawTier = isPB ? 300 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 100;
             const basePts = rawTier * (a.ppMultiplier ?? 1);
             if(basePts > bestPts){
               bestPts = basePts; bestRawTier = rawTier; bestSessionCount = sessionVals.length;
@@ -792,7 +792,7 @@ function computePowerPoints(member, logs){
             const bestSessions = bestActivity.l.sessions||[];
             for(let si=1; si<bestSessions.length; si++){
               const sv = bestSessions[si];
-              const sTier = sv > bestActivity.effectiveTarget ? 200 : sv >= bestActivity.effectiveTarget ? 100 : 50;
+              const sTier = sv > bestActivity.effectiveTarget ? 200 : sv >= bestActivity.effectiveTarget ? 100 : 100;
               extraPts += sTier * (bestActivity.a.ppMultiplier ?? 1);
             }
           }
@@ -804,7 +804,7 @@ function computePowerPoints(member, logs){
             dailyBreakdown[dateStr].push({
               activityName: bestActivity.a.name, activityUnit: bestActivity.a.unit,
               value: bestActivity.l.value, target: bestActivity.effectiveTarget,
-              tierLabel: bestRawTier===250?"pb":bestRawTier===200?"above":bestRawTier===100?"at":"below",
+              tierLabel: bestRawTier===300?"pb":bestRawTier===200?"above":bestRawTier===100?"at":"below",
               rawTier: bestRawTier, ppMultiplier: bestActivity.a.ppMultiplier ?? 1, basePts: bestPts,
               streakMultiplier: multiplier, mysteryMultiplier: mysteryMult,
               tierEarned, extraSessions: bestSessionCount>1?bestSessionCount:0, extraEarned,
@@ -820,7 +820,7 @@ function computePowerPoints(member, logs){
           if(extraEarned>0) breakdown.extraSessionBonus += extraEarned;
           if(distanceEarned>0) breakdown.distanceBonus += distanceEarned;
           breakdown.streakBonus += (tierEarned-bestPts) + (extraEarned-extraPts) + (distanceEarned-bestDistancePts);
-          if(bestRawTier===250) tags.push("pb");
+          if(bestRawTier===300) tags.push("pb");
           else if(bestRawTier===200) tags.push("above");
           else if(bestRawTier===100) tags.push("at");
           else tags.push("below");
@@ -838,9 +838,9 @@ function computePowerPoints(member, logs){
         if(!l) continue;
         const effectiveTarget = getHistoricalTarget(l, a.id, a.target, logs, member.id, dateStr);
         if(l.status === "shielded"){
-          totalPP += 25; breakdown.shielded += 25; dailyTags[dateStr]=["shielded"];
+          totalPP += 0; breakdown.shielded += 0; dailyTags[dateStr]=["shielded"];
           if(!dailyBreakdown[dateStr]) dailyBreakdown[dateStr]=[];
-          dailyBreakdown[dateStr].push({activityName: a.name, activityUnit: a.unit, shielded: true, total: 25});
+          dailyBreakdown[dateStr].push({activityName: a.name, activityUnit: a.unit, shielded: true, total: 0});
         }
         else if(l.status === "skipped"){ totalPP = Math.max(0, totalPP - 25); breakdown.skipped -= 25; dailyTags[dateStr]=["skipped"]; }
         else if(l.value > 0){
@@ -848,14 +848,14 @@ function computePowerPoints(member, logs){
           const maxSession = Math.max(...sessionVals);
           const isPB = maxSession > actBests[a.id] && maxSession > effectiveTarget;
           if(isPB) actBests[a.id] = maxSession;
-          const rawTier = isPB ? 250 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 50;
+          const rawTier = isPB ? 300 : l.value > effectiveTarget ? 200 : l.value >= effectiveTarget ? 100 : 100;
           const basePts = rawTier * (a.ppMultiplier ?? 1);
           // Extra sessions: each scores full tier base PP (no multipliers) based on its own reps vs target
           let extraPts = 0;
           if(sessionVals.length > 1){
             for(let si=1; si<sessionVals.length; si++){
               const sv = sessionVals[si];
-              const sTier = sv > effectiveTarget ? 200 : sv >= effectiveTarget ? 100 : 50;
+              const sTier = sv > effectiveTarget ? 200 : sv >= effectiveTarget ? 100 : 100;
               extraPts += sTier * (a.ppMultiplier ?? 1);
             }
           }
@@ -877,7 +877,7 @@ function computePowerPoints(member, logs){
           if(!dailyBreakdown[dateStr]) dailyBreakdown[dateStr]=[];
           dailyBreakdown[dateStr].push({
             activityName: a.name, activityUnit: a.unit, value: l.value, target: effectiveTarget,
-            tierLabel: rawTier===250?"pb":rawTier===200?"above":rawTier===100?"at":"below",
+            tierLabel: rawTier===300?"pb":rawTier===200?"above":rawTier===100?"at":"below",
             rawTier, ppMultiplier: a.ppMultiplier ?? 1, basePts,
             streakMultiplier: multiplier, mysteryMultiplier: mysteryMult,
             tierEarned, extraSessions: sessionVals.length>1?sessionVals.length:0, extraEarned,
@@ -885,7 +885,7 @@ function computePowerPoints(member, logs){
             sessions: sessionVals.length>1?sessionVals:[],
           });
           const tags=[];
-          if(rawTier===250) tags.push("pb");
+          if(rawTier===300) tags.push("pb");
           else if(rawTier===200) tags.push("above");
           else if(rawTier===100) tags.push("at");
           else tags.push("below");
@@ -2614,7 +2614,7 @@ function PowerPointsPanel({member, logs, onClose}){
                       <span style={{color:member.color}}>+{det.total.toLocaleString()}</span>
                     </div>
                     {det.shielded ? (
-                      <div style={{color:C.muted}}>🛡️ Shielded — flat +25</div>
+                      <div style={{color:C.muted}}>🛡️ Shielded — 0 PP (protection, not points)</div>
                     ) : (
                       <div style={{color:C.muted,display:"flex",flexDirection:"column",gap:2}}>
                         <div>{det.value}{det.activityUnit} vs target {det.target}{det.activityUnit} → {TAG_INFO[det.tierLabel]?.label||det.tierLabel} ({det.rawTier} base{det.ppMultiplier!==1?` × ${det.ppMultiplier} activity multiplier`:""})</div>
@@ -2648,11 +2648,11 @@ function PowerPointsPanel({member, logs, onClose}){
         <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>DAILY POINTS</div>
         <div style={{marginBottom:16}}>
           {[
-            {icon:"🌟",label:"Personal best",val:"+250"},
+            {icon:"🌟",label:"Personal best",val:"+300"},
             {icon:"💪",label:"Above target",val:"+200"},
             {icon:"✅",label:"At target",val:"+100"},
-            {icon:"📉",label:"Below target",val:"+50"},
-            {icon:"🛡️",label:"Shielded",val:"+25"},
+            {icon:"📉",label:"Below target",val:"+100"},
+            {icon:"🛡️",label:"Shielded",val:"0"},
             {icon:"❌",label:"Skipped",val:"-25"},
             {icon:"💔",label:"Breaking 7+ streak",val:"-100"},
           ].map(r=><div key={r.label} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.border}`,fontSize:11}}>
@@ -2662,7 +2662,7 @@ function PowerPointsPanel({member, logs, onClose}){
         </div>
         <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>STREAK MULTIPLIERS</div>
         <div style={{marginBottom:16}}>
-          {[{s:"30+ days",m:"5x"},{s:"14–29 days",m:"3x"},{s:"7–13 days",m:"2x"},{s:"3–6 days",m:"1.5x"},{s:"1–2 days",m:"1x"}].map(r=>
+          {[{s:"30+ days",m:"5x"},{s:"14–29 days",m:"3x"},{s:"7–13 days",m:"2x"},{s:"3–6 days",m:"2x"},{s:"1–2 days",m:"1x"}].map(r=>
             <div key={r.s} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.border}`,fontSize:11}}>
               <span>🔥 {r.s}</span><span style={{fontWeight:700,color:"#E8A838"}}>{r.m}</span>
             </div>)}
@@ -3973,7 +3973,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
             if(entryForDay && entryForDay.status !== "skipped" && entryForDay.status !== "shielded" && entryForDay.value > 0){
               const act = acts.find(a=>a.actId===entryForDay.actId||a.id===entryForDay.actId);
               const effectiveTarget = entryForDay.target || act?.target || 0;
-              const normalPP = entryForDay.value > effectiveTarget*1.5 ? 250 : entryForDay.value > effectiveTarget ? 200 : entryForDay.value >= effectiveTarget ? 100 : 50;
+              const normalPP = entryForDay.value > effectiveTarget*1.5 ? 300 : entryForDay.value > effectiveTarget ? 200 : entryForDay.value >= effectiveTarget ? 100 : 100;
               setTimeout(()=>setMysteryReveal({normalPP, bonusPP: normalPP*2}), 300);
             }
           }
