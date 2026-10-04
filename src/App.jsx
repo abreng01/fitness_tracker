@@ -617,7 +617,7 @@ function computePowerPoints(member, logs){
   // GK weekend review completions carry a completion date
   const gkWeekendByDate = {}; // dateStr -> points earned that weekend review
   for(const w of Object.values(gkData.weekendResults||{})){
-    if(w.date && w.date <= today && (!sd || w.date >= sd)){
+    if(w.points>0 && w.date && w.date <= today && (!sd || w.date >= sd)){
       allDates.add(w.date);
       gkWeekendByDate[w.date] = w.points||0;
     }
@@ -3727,7 +3727,7 @@ function ChaseCard({member, target, logs}){
   </div>;
 }
 
-function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onBraverySave,onBraveryDelete,onBraveryUpdate,onIllnessSave,onIllnessDelete,onOlympiadSave,onOlympiadDelete,onOlympiadUpdate,onGoldenGoalSave,onGoldenGoalDelete,onDeleteEntry}){
+function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onGkUpdate,onGkDelete,onBraverySave,onBraveryDelete,onBraveryUpdate,onIllnessSave,onIllnessDelete,onOlympiadSave,onOlympiadDelete,onOlympiadUpdate,onGoldenGoalSave,onGoldenGoalDelete,onDeleteEntry}){
   const today=todayStr();
   const[showCal,setShowCal]=useState(true);
   const[showBadges,setShowBadges]=useState(false);
@@ -3952,7 +3952,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
       onSave={onGoldenGoalSave} onDelete={onGoldenGoalDelete} onClose={()=>setShowGoldenGoal(false)}/>}
     {showStats&&<AllTimeStats member={member} logs={logs} onClose={()=>setShowStats(false)}/>}
     {showGrowth&&<GrowthDrawer member={member} logs={logs} onSave={onGrowthSave} onClose={()=>setShowGrowth(false)}/>}
-    {showGK&&<GKDrawer member={member} logs={logs} onGkSave={onGkSave} onClose={()=>setShowGK(false)}/>}
+    {showGK&&<GKDrawer member={member} logs={logs} onGkSave={onGkSave} onGkUpdate={onGkUpdate} onGkDelete={onGkDelete} onClose={()=>setShowGK(false)}/>}
     {showBravery&&<BraveryDrawer member={member} logs={logs} onBraverySave={onBraverySave} onBraveryDelete={onBraveryDelete} onBraveryUpdate={onBraveryUpdate} onClose={()=>setShowBravery(false)}/>}
     {showIllness&&<IllnessDrawer member={member} logs={logs} onIllnessSave={onIllnessSave} onIllnessDelete={onIllnessDelete} onClose={()=>setShowIllness(false)}/>}
     {showOlympiad&&<OlympiadDrawer member={member} logs={logs} onOlympiadSave={onOlympiadSave} onOlympiadDelete={onOlympiadDelete} onOlympiadUpdate={onOlympiadUpdate} onClose={()=>setShowOlympiad(false)}/>}
@@ -4571,7 +4571,7 @@ function GrowthDrawer({member, logs, onSave, onClose}){
 // ── General Knowledge (GK) View ────────────────────────────────────────────────
 // ── General Knowledge (GK) View — simple verbal-quiz tracker ────────────────────
 // ── GK Drawer (wraps GKView in a slide-in panel) ─────────────────────────────
-function GKDrawer({member, logs, onGkSave, onClose}){
+function GKDrawer({member, logs, onGkSave, onGkUpdate, onGkDelete, onClose}){
   return <>
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
     <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
@@ -4608,49 +4608,104 @@ function GKDrawer({member, logs, onGkSave, onClose}){
             </div>
             <GKView member={member} logs={logs} onGkSave={onGkSave}/>
 
-            {/* History — every award with its date, topic and points */}
-            {(()=>{
-              const gk = getGkData(logs, member.id);
-              const rows = [
-                ...Object.entries(gk.dailyResults||{})
-                  .filter(([,v])=>v&&v.points>0)
-                  .map(([date,v])=>({kind:"daily", date, points:v.points, reason:v.reason||""})),
-                ...Object.values(gk.weekendResults||{})
-                  .filter(v=>v&&v.points>0)
-                  .map(v=>({kind:"weekend", date:v.date||"", points:v.points, reason:v.reason||""})),
-              ].sort((a,b)=>b.date.localeCompare(a.date));
-              if(rows.length===0) return null;
-              return <div style={{marginTop:20}}>
-                <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>
-                  📜 HISTORY ({rows.length} {rows.length===1?"entry":"entries"})
-                </div>
-                <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                  {rows.map((r,i)=>(
-                    <div key={`${r.kind}-${r.date}-${i}`} style={{background:C.bg,border:`1px solid ${C.border}`,
-                      borderRadius:12,padding:"10px 14px",display:"flex",alignItems:"center",gap:12}}>
-                      <span style={{fontSize:22,flexShrink:0}}>{r.kind==="weekend"?"🏆":"🧠"}</span>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:13,fontWeight:700,color:C.text,lineHeight:1.3,wordBreak:"break-word"}}>
-                          {r.reason||"No topic recorded"}
-                        </div>
-                        <div style={{fontSize:11,color:C.muted,marginTop:2}}>
-                          {r.kind==="weekend"?"Weekly review":"Daily quiz"}
-                          {r.date&&` · ${new Date(r.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}`}
-                        </div>
-                      </div>
-                      <div style={{fontSize:14,fontWeight:800,color:"#7E57C2",whiteSpace:"nowrap"}}>
-                        +{r.points.toLocaleString()} ⚡
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>;
-            })()}
+            <GkHistory member={member} logs={logs} onGkUpdate={onGkUpdate} onGkDelete={onGkDelete}/>
           </>;
         })()}
       </div>
     </div>
   </>;
+}
+
+// ── GK History — every award with date, topic and points; edit topic/points or delete ──
+// Top-level (not inline) so the edit inputs never remount and lose focus while typing.
+function GkHistory({member, logs, onGkUpdate, onGkDelete}){
+  const gk = getGkData(logs, member.id);
+  const [editing, setEditing] = useState(null); // "kind|key" of the row being edited
+  const [editReason, setEditReason] = useState("");
+  const [editPoints, setEditPoints] = useState("");
+
+  const rows = [
+    ...Object.entries(gk.dailyResults||{})
+      .filter(([,v])=>v&&v.points>0)
+      .map(([key,v])=>({kind:"daily", key, date:key, points:v.points, reason:v.reason||""})),
+    ...Object.entries(gk.weekendResults||{})
+      .filter(([,v])=>v&&v.points>0)
+      .map(([key,v])=>({kind:"weekend", key, date:v.date||"", points:v.points, reason:v.reason||""})),
+  ].sort((a,b)=>b.date.localeCompare(a.date));
+
+  if(rows.length===0) return null;
+
+  const iStyle = {width:"100%",padding:"9px 11px",borderRadius:8,border:"1.5px solid #7E57C2",
+    fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:8,background:"#fff"};
+
+  function startEdit(r){
+    setEditing(`${r.kind}|${r.key}`);
+    setEditReason(r.reason);
+    setEditPoints(String(r.points));
+  }
+  function saveEdit(r){
+    const pts = parseInt(editPoints);
+    if(!pts || pts<=0) return;
+    onGkUpdate(member.id, r.kind, r.key, {points:pts, reason:editReason.trim()});
+    setEditing(null);
+  }
+  function remove(r){
+    if(!window.confirm(`Delete this GK award (+${r.points.toLocaleString()} ⚡${r.reason?` · "${r.reason}"`:""})? Its points will be removed from the total.`)) return;
+    onGkDelete(member.id, r.kind, r.key);
+    if(editing===`${r.kind}|${r.key}`) setEditing(null);
+  }
+
+  return <div style={{marginTop:20}}>
+    <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>
+      📜 HISTORY ({rows.length} {rows.length===1?"entry":"entries"})
+    </div>
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {rows.map(r=>{
+        const id = `${r.kind}|${r.key}`;
+        const isEditing = editing===id;
+        const dateLabel = r.date ? new Date(r.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}) : "";
+        return <div key={id} style={{background:C.bg,border:`1.5px solid ${isEditing?"#7E57C2":C.border}`,
+          borderRadius:12,padding:"10px 14px"}}>
+          {isEditing ? <>
+            <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8}}>
+              {r.kind==="weekend"?"🏆 Weekly review":"🧠 Daily quiz"}{dateLabel&&` · ${dateLabel}`}
+            </div>
+            <input value={editReason} onChange={e=>setEditReason(e.target.value)}
+              placeholder="Topic" style={iStyle}/>
+            <input type="number" min={1} value={editPoints} onChange={e=>setEditPoints(e.target.value)}
+              placeholder="Points" style={{...iStyle,fontWeight:700}}/>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>setEditing(null)} style={{flex:1,padding:"8px",borderRadius:8,
+                border:`1px solid ${C.border}`,background:"none",cursor:"pointer",fontSize:12,fontWeight:600,color:C.muted}}>Cancel</button>
+              <button disabled={!parseInt(editPoints)||parseInt(editPoints)<=0} onClick={()=>saveEdit(r)}
+                style={{flex:2,padding:"8px",borderRadius:8,border:"none",
+                background:(!parseInt(editPoints)||parseInt(editPoints)<=0)?"#D1C4E9":"#7E57C2",
+                color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Save changes</button>
+            </div>
+          </> : <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <span style={{fontSize:22,flexShrink:0}}>{r.kind==="weekend"?"🏆":"🧠"}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:13,fontWeight:700,color:C.text,lineHeight:1.3,wordBreak:"break-word"}}>
+                {r.reason||"No topic recorded"}
+              </div>
+              <div style={{fontSize:11,color:C.muted,marginTop:2}}>
+                {r.kind==="weekend"?"Weekly review":"Daily quiz"}{dateLabel&&` · ${dateLabel}`}
+              </div>
+            </div>
+            <div style={{textAlign:"right",flexShrink:0}}>
+              <div style={{fontSize:14,fontWeight:800,color:"#7E57C2",whiteSpace:"nowrap"}}>+{r.points.toLocaleString()} ⚡</div>
+              <div style={{display:"flex",gap:4,marginTop:4,justifyContent:"flex-end"}}>
+                <button onClick={()=>startEdit(r)} style={{background:"none",border:`1px solid ${C.border}`,
+                  borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11,color:C.muted,fontWeight:600}}>Edit</button>
+                <button onClick={()=>remove(r)} style={{background:"none",border:"1px solid #E57373",
+                  borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#E57373",fontWeight:600}}>Delete</button>
+              </div>
+            </div>
+          </div>}
+        </div>;
+      })}
+    </div>
+  </div>;
 }
 
 // ── General Knowledge (GK) View — verbal quiz tracker with tiered credit ────────
@@ -4687,7 +4742,7 @@ function GKView({member, logs, onGkSave}){
     const weekKey = getWeekKey(today);
     const existing = gk.weekendResults?.[weekKey];
 
-    if(existing){
+    if(existing && existing.points>0){
       return <div style={{background:"linear-gradient(135deg,#EDE7F6,#D1C4E9)",border:"1.5px solid #7E57C2",
         borderRadius:16,padding:24,textAlign:"center"}}>
         <div style={{fontSize:40,marginBottom:8}}>🏆</div>
@@ -6280,6 +6335,34 @@ export default function App(){
     });
   },[]);
 
+  // GK edit/delete. Entries are date-keyed objects and saveData() union-merges keys with the
+  // remote copy, so a plain `delete` would be resurrected on the next save. Instead a delete
+  // zeroes the entry (points:0) — every reader already ignores points<=0, and the zeroed
+  // value overwrites the remote one through the merge.
+  const handleGkUpdate=useCallback((mid,kind,key,{points,reason})=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const gk={dailyResults:{}, weekendResults:{}, ...(next[mid].gk||{})};
+      const bucket=kind==="weekend"?"weekendResults":"dailyResults";
+      const existing=gk[bucket]?.[key];
+      if(!existing) return prev;
+      next[mid].gk={...gk,[bucket]:{...gk[bucket],[key]:{...existing,points,reason:reason||""}}};
+      return next;
+    });
+  },[]);
+
+  const handleGkDelete=useCallback((mid,kind,key)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      const gk={dailyResults:{}, weekendResults:{}, ...(next[mid].gk||{})};
+      const bucket=kind==="weekend"?"weekendResults":"dailyResults";
+      const existing=gk[bucket]?.[key];
+      if(!existing) return prev;
+      next[mid].gk={...gk,[bucket]:{...gk[bucket],[key]:{...existing,points:0,reason:""}}};
+      return next;
+    });
+  },[]);
+
   const handleBraverySave=useCallback((mid,entry)=>{
     setLogs(prev=>{
       const next={...prev,[mid]:{...(prev[mid]||{})}};
@@ -6497,7 +6580,7 @@ export default function App(){
             <MemberCard member={m} logs={logs} allMembers={members}
               onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}
               onOpenPP={(id)=>setPpPanelFor(id)} onGrowthSave={handleGrowthSave}
-              onGkSave={handleGkSave} onBraverySave={handleBraverySave} onBraveryDelete={handleBraveryDelete} onBraveryUpdate={handleBraveryUpdate} onIllnessSave={handleIllnessSave} onIllnessDelete={handleIllnessDelete} onOlympiadSave={handleOlympiadSave} onOlympiadDelete={handleOlympiadDelete} onOlympiadUpdate={handleOlympiadUpdate} onGoldenGoalSave={handleGoldenGoalSave} onGoldenGoalDelete={handleGoldenGoalDelete} onDeleteEntry={handleDeleteEntry}/>
+              onGkSave={handleGkSave} onGkUpdate={handleGkUpdate} onGkDelete={handleGkDelete} onBraverySave={handleBraverySave} onBraveryDelete={handleBraveryDelete} onBraveryUpdate={handleBraveryUpdate} onIllnessSave={handleIllnessSave} onIllnessDelete={handleIllnessDelete} onOlympiadSave={handleOlympiadSave} onOlympiadDelete={handleOlympiadDelete} onOlympiadUpdate={handleOlympiadUpdate} onGoldenGoalSave={handleGoldenGoalSave} onGoldenGoalDelete={handleGoldenGoalDelete} onDeleteEntry={handleDeleteEntry}/>
           </div>
           {ppPanelFor===m.id&&<div style={{flex:"1 1 320px",maxWidth:380,minWidth:280}}>
             <PowerPointsPanel member={m} logs={logs} onClose={()=>setPpPanelFor(null)}/>
