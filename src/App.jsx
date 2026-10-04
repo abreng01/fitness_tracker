@@ -4607,6 +4607,45 @@ function GKDrawer({member, logs, onGkSave, onClose}){
               </div>
             </div>
             <GKView member={member} logs={logs} onGkSave={onGkSave}/>
+
+            {/* History — every award with its date, topic and points */}
+            {(()=>{
+              const gk = getGkData(logs, member.id);
+              const rows = [
+                ...Object.entries(gk.dailyResults||{})
+                  .filter(([,v])=>v&&v.points>0)
+                  .map(([date,v])=>({kind:"daily", date, points:v.points, reason:v.reason||""})),
+                ...Object.values(gk.weekendResults||{})
+                  .filter(v=>v&&v.points>0)
+                  .map(v=>({kind:"weekend", date:v.date||"", points:v.points, reason:v.reason||""})),
+              ].sort((a,b)=>b.date.localeCompare(a.date));
+              if(rows.length===0) return null;
+              return <div style={{marginTop:20}}>
+                <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:10}}>
+                  📜 HISTORY ({rows.length} {rows.length===1?"entry":"entries"})
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {rows.map((r,i)=>(
+                    <div key={`${r.kind}-${r.date}-${i}`} style={{background:C.bg,border:`1px solid ${C.border}`,
+                      borderRadius:12,padding:"10px 14px",display:"flex",alignItems:"center",gap:12}}>
+                      <span style={{fontSize:22,flexShrink:0}}>{r.kind==="weekend"?"🏆":"🧠"}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,fontWeight:700,color:C.text,lineHeight:1.3,wordBreak:"break-word"}}>
+                          {r.reason||"No topic recorded"}
+                        </div>
+                        <div style={{fontSize:11,color:C.muted,marginTop:2}}>
+                          {r.kind==="weekend"?"Weekly review":"Daily quiz"}
+                          {r.date&&` · ${new Date(r.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}`}
+                        </div>
+                      </div>
+                      <div style={{fontSize:14,fontWeight:800,color:"#7E57C2",whiteSpace:"nowrap"}}>
+                        +{r.points.toLocaleString()} ⚡
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>;
+            })()}
           </>;
         })()}
       </div>
