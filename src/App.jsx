@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 // ── Palette ───────────────────────────────────────────────────────────────────
 const C = {
@@ -161,13 +161,60 @@ function getWeekKey(dateStr){
   monday.setDate(d.getDate()-daysSinceMonday);
   return toLocalDateStr(monday); // e.g. "2026-07-13" — Monday's date as the unique key
 }
+// ── GK awards: one list, any number per day or week ───────────────────────────
+// gk.entries = [{id, type:"daily"|"weekend", date, weekKey?, points, reason}] is authoritative once
+// it exists (even if empty). Until the first GK change, the legacy keyed objects (dailyResults /
+// weekendResults) are read and presented in the same shape with deterministic ids — nothing is
+// migrated on load, and old backups keep working. Arrays merge last-saved-wins (like Bravery),
+// so a delete is a real delete.
+function newGkId(){ return "g"+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function gkMaterialize(gk){
+  if(Array.isArray(gk.entries)) return gk.entries;
+  const out = [];
+  for(const [date,v] of Object.entries(gk.dailyResults||{}))
+    if(v && v.points>0) out.push({id:"d:"+date, type:"daily", date, points:v.points, reason:v.reason||""});
+  for(const [weekKey,v] of Object.entries(gk.weekendResults||{}))
+    if(v && v.points>0) out.push({id:"w:"+weekKey, type:"weekend", date:v.date||"", weekKey, points:v.points, reason:v.reason||""});
+  return out;
+}
+function getGkEntries(logs, memberId){
+  return gkMaterialize(getGkData(logs, memberId)).filter(e=>e && e.points>0);
+}
 function computeGkBonus(logs, memberId){
+  const es = getGkEntries(logs, memberId);
+  const daily = es.filter(e=>e.type==="daily");
+  const weekend = es.filter(e=>e.type==="weekend");
+  const dailyBonus = daily.reduce((s,e)=>s+e.points,0);
+  const weekendBonus = weekend.reduce((s,e)=>s+e.points,0);
+  return {
+    total: dailyBonus+weekendBonus, dailyBonus, weekendBonus,
+    dailyCount: new Set(daily.map(e=>e.date)).size,            // distinct days with a quiz
+    weekendCount: new Set(weekend.map(e=>e.weekKey||e.date)).size, // distinct weeks reviewed
+  };
+}
+// Pure writers — return a new logs tree. Used by the real save AND the Add-entry PP preview.
+function applyGkEntry(logs, memberId, result){
   const gk = getGkData(logs, memberId);
-  const dailyEntries = Object.values(gk.dailyResults||{}).filter(v=>v?.points>0);
-  const weekendEntries = Object.values(gk.weekendResults||{}).filter(w=>w?.points>0);
-  const dailyBonus = dailyEntries.reduce((s,v)=>s+v.points,0);
-  const weekendBonus = weekendEntries.reduce((s,w)=>s+w.points,0);
-  return {total:dailyBonus+weekendBonus, dailyBonus, weekendBonus, dailyCount:dailyEntries.length, weekendCount:weekendEntries.length};
+  const entries = gkMaterialize(gk);
+  const id = result.id || newGkId();
+  if(entries.some(e=>e.id===id)) return logs; // idempotent
+  const entry = result.type==="weekend"
+    ? {id, type:"weekend", date:result.date, weekKey:result.weekKey||getWeekKey(result.date), points:result.points, reason:result.reason||""}
+    : {id, type:"daily", date:result.date, points:result.points, reason:result.reason||""};
+  return {...logs, [memberId]:{...(logs[memberId]||{}), gk:{...gk, entries:[...entries, entry]}}};
+}
+function applyGkUpdate(logs, memberId, id, {points, reason}){
+  const gk = getGkData(logs, memberId);
+  const entries = gkMaterialize(gk);
+  if(!entries.some(e=>e.id===id)) return logs;
+  return {...logs, [memberId]:{...(logs[memberId]||{}), gk:{...gk,
+    entries:entries.map(e=>e.id===id ? {...e, points, reason:reason||""} : e)}}};
+}
+function applyGkDelete(logs, memberId, id){
+  const gk = getGkData(logs, memberId);
+  const entries = gkMaterialize(gk);
+  if(!entries.some(e=>e.id===id)) return logs;
+  return {...logs, [memberId]:{...(logs[memberId]||{}), gk:{...gk, entries:entries.filter(e=>e.id!==id)}}};
 }
 
 // ── Bravery Points — parent-awarded, free-form reason + points, feeds same PP pool ──
@@ -611,16 +658,15 @@ function computePowerPoints(member, logs){
   const eggLogDates = getEggLogs(logs, member.id);
   for(const d of Object.keys(eggLogDates)) if(d <= today && (!sd || d >= sd)) allDates.add(d);
   // Also include GK (verbal quiz) dates for the same reason
-  const gkData = getGkData(logs, member.id);
-  const gkDailyByDate = gkData.dailyResults || {};
-  for(const d of Object.keys(gkDailyByDate)) if(gkDailyByDate[d]?.points>0 && d <= today && (!sd || d >= sd)) allDates.add(d);
-  // GK weekend review completions carry a completion date
-  const gkWeekendByDate = {}; // dateStr -> points earned that weekend review
-  for(const w of Object.values(gkData.weekendResults||{})){
-    if(w.points>0 && w.date && w.date <= today && (!sd || w.date >= sd)){
-      allDates.add(w.date);
-      gkWeekendByDate[w.date] = w.points||0;
-    }
+  // Any number of GK awards can land on the same date, so sum per date (daily quizzes and
+  // weekly reviews kept separate so their day-tags stay distinct).
+  const gkDailyByDate = {};   // dateStr -> total daily-quiz points
+  const gkWeekendByDate = {}; // dateStr -> total weekly-review points
+  for(const e of getGkEntries(logs, member.id)){
+    if(!e.date || e.date > today || (sd && e.date < sd)) continue;
+    allDates.add(e.date);
+    const bucket = e.type==="weekend" ? gkWeekendByDate : gkDailyByDate;
+    bucket[e.date] = (bucket[e.date]||0) + e.points;
   }
   // Bravery Points — multiple awards can land on the same date, so aggregate per date first
   const braveryByDate = {}; // dateStr -> total bravery points that date
@@ -928,7 +974,7 @@ function computePowerPoints(member, logs){
     }
 
     // Add GK (verbal quiz) PP for this date inside the loop, same pattern as eggs
-    const gkDailyPts = gkDailyByDate[dateStr]?.points||0;
+    const gkDailyPts = gkDailyByDate[dateStr]||0;
     if(gkDailyPts>0){
       totalPP += gkDailyPts;
       breakdown.gkBonus += gkDailyPts;
@@ -4608,6 +4654,7 @@ function GKDrawer({member, logs, onGkSave, onGkUpdate, onGkDelete, onClose}){
             </div>
             <GKView member={member} logs={logs} onGkSave={onGkSave}/>
 
+            <GkAddEntry member={member} logs={logs} onGkSave={onGkSave}/>
             <GkHistory member={member} logs={logs} onGkUpdate={onGkUpdate} onGkDelete={onGkDelete}/>
           </>;
         })()}
@@ -4616,22 +4663,114 @@ function GKDrawer({member, logs, onGkSave, onGkUpdate, onGkDelete, onClose}){
   </>;
 }
 
+// ── GK Add entry — record an award for any past date (or today), daily quiz or weekly review ──
+// Top-level so inputs never remount while typing. Any number of awards can share a day or week.
+function GkAddEntry({member, logs, onGkSave}){
+  const today = todayStr();
+  const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState("daily");
+  const [date, setDate] = useState(today);
+  const [reason, setReason] = useState("");
+  const [points, setPoints] = useState("");
+
+  const weekKey = date ? getWeekKey(date) : "";
+  const pts = parseInt(points)||0;
+  const dateOk = !!date && date<=today && (!member.startDate || date>=member.startDate);
+  const valid = dateOk && pts>0 && reason.trim().length>0;
+  const sameSlot = getGkEntries(logs, member.id).filter(e=>
+    kind==="weekend" ? (e.type==="weekend" && (e.weekKey||"")===weekKey) : (e.type==="daily" && e.date===date)).length;
+
+  // Real PP effect, from the real scoring function. A past date with no activity logged is
+  // scored as a missed day, so the net can be lower than the points entered — show that.
+  const impact = useMemo(()=>{
+    if(!open || !dateOk || pts<=0) return null;
+    const probe = kind==="weekend"
+      ? {type:"weekend", weekKey, date, points:pts, reason:"x", id:"__preview__"}
+      : {type:"daily", date, points:pts, reason:"x", id:"__preview__"};
+    const before = computePowerPoints(member, logs).total;
+    const after = computePowerPoints(member, applyGkEntry(logs, member.id, probe)).total;
+    return after - before;
+  }, [open, dateOk, pts, kind, date, weekKey, logs, member]);
+
+  const iStyle = {width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #7E57C2",
+    fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,background:"#fff"};
+
+  function reset(){ setKind("daily"); setDate(today); setReason(""); setPoints(""); setOpen(false); }
+  function submit(){
+    if(!valid) return;
+    onGkSave(member.id, kind==="weekend"
+      ? {type:"weekend", weekKey, date, points:pts, reason:reason.trim()}
+      : {type:"daily", date, points:pts, reason:reason.trim()});
+    reset();
+  }
+
+  if(!open){
+    return <button onClick={()=>setOpen(true)} style={{width:"100%",marginTop:14,padding:"11px",borderRadius:10,
+      border:"2px dashed #B39DDB",background:"none",cursor:"pointer",fontSize:13,fontWeight:700,color:"#7E57C2"}}>
+      + Add GK entry
+    </button>;
+  }
+
+  return <div style={{marginTop:14,background:C.surface,border:"1.5px solid #7E57C2",borderRadius:14,padding:"14px 16px"}}>
+    <div style={{fontSize:11,fontWeight:700,color:"#7E57C2",letterSpacing:0.5,marginBottom:12}}>NEW GK ENTRY</div>
+
+    <div style={{display:"flex",gap:8,marginBottom:12}}>
+      {[{id:"daily",label:"🧠 Daily quiz"},{id:"weekend",label:"🏆 Weekly review"}].map(o=>(
+        <button key={o.id} onClick={()=>setKind(o.id)} style={{flex:1,padding:"8px 0",borderRadius:8,cursor:"pointer",
+          fontSize:12,fontWeight:700,border:`1.5px solid ${kind===o.id?"#7E57C2":C.border}`,
+          background:kind===o.id?"#EDE7F6":"none",color:kind===o.id?"#4A148C":C.muted}}>{o.label}</button>
+      ))}
+    </div>
+
+    <label style={{fontSize:11,fontWeight:700,color:C.muted,display:"block",marginBottom:4}}>
+      {kind==="weekend"?"DATE THE REVIEW WAS DONE":"DATE"}
+    </label>
+    <input type="date" value={date} max={today} min={member.startDate||undefined}
+      onChange={e=>setDate(e.target.value)} style={iStyle}/>
+
+    <label style={{fontSize:11,fontWeight:700,color:C.muted,display:"block",marginBottom:4}}>TOPIC</label>
+    <input value={reason} onChange={e=>setReason(e.target.value)}
+      placeholder="What was quizzed? (e.g. Indian state capitals)" style={iStyle}/>
+
+    <label style={{fontSize:11,fontWeight:700,color:C.muted,display:"block",marginBottom:4}}>POINTS</label>
+    <input type="number" min={1} value={points} onChange={e=>setPoints(e.target.value)}
+      placeholder="e.g. 1500" style={{...iStyle,fontWeight:700,textAlign:"center"}}/>
+
+    {sameSlot>0 && <div style={{fontSize:12,color:C.muted,marginBottom:10}}>
+      {sameSlot} other {sameSlot===1?"entry is":"entries are"} already on {kind==="weekend"?"that week":"this date"} — this one is added alongside {sameSlot===1?"it":"them"}.
+    </div>}
+
+    {impact!==null && (impact===pts
+      ? <div style={{fontSize:12,color:"#5E35B1",marginBottom:10}}>
+          Adds <strong>+{impact.toLocaleString()} ⚡</strong> to {member.name}'s PP.
+        </div>
+      : <div style={{background:"#FFF3E0",border:"1px solid #FFCC80",borderRadius:8,padding:"8px 10px",
+          fontSize:12,color:"#BF5B00",marginBottom:10}}>
+          Net PP change: <strong>{impact>=0?"+":""}{impact.toLocaleString()} ⚡</strong> (not +{pts.toLocaleString()}).
+          No activity was logged on this date, so it also counts as a missed day. Pick a date with activity to avoid that.
+        </div>)}
+
+    <div style={{display:"flex",gap:8}}>
+      <button onClick={reset} style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${C.border}`,
+        background:"none",cursor:"pointer",fontSize:13,fontWeight:600,color:C.muted}}>Cancel</button>
+      <button disabled={!valid} onClick={submit} style={{flex:2,padding:"10px",borderRadius:10,border:"none",
+        background:valid?"#7E57C2":"#D1C4E9",color:"#fff",cursor:valid?"pointer":"not-allowed",
+        fontSize:13,fontWeight:700}}>Add entry</button>
+    </div>
+  </div>;
+}
+
 // ── GK History — every award with date, topic and points; edit topic/points or delete ──
 // Top-level (not inline) so the edit inputs never remount and lose focus while typing.
 function GkHistory({member, logs, onGkUpdate, onGkDelete}){
-  const gk = getGkData(logs, member.id);
-  const [editing, setEditing] = useState(null); // "kind|key" of the row being edited
+  const [editing, setEditing] = useState(null); // id of the row being edited
   const [editReason, setEditReason] = useState("");
   const [editPoints, setEditPoints] = useState("");
 
-  const rows = [
-    ...Object.entries(gk.dailyResults||{})
-      .filter(([,v])=>v&&v.points>0)
-      .map(([key,v])=>({kind:"daily", key, date:key, points:v.points, reason:v.reason||""})),
-    ...Object.entries(gk.weekendResults||{})
-      .filter(([,v])=>v&&v.points>0)
-      .map(([key,v])=>({kind:"weekend", key, date:v.date||"", points:v.points, reason:v.reason||""})),
-  ].sort((a,b)=>b.date.localeCompare(a.date));
+  // Newest date first; within the same date, most recently added first (sort is stable).
+  const rows = [...getGkEntries(logs, member.id)].reverse()
+    .map(e=>({id:e.id, kind:e.type, date:e.date||"", points:e.points, reason:e.reason||""}))
+    .sort((a,b)=>b.date.localeCompare(a.date));
 
   if(rows.length===0) return null;
 
@@ -4639,20 +4778,20 @@ function GkHistory({member, logs, onGkUpdate, onGkDelete}){
     fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:8,background:"#fff"};
 
   function startEdit(r){
-    setEditing(`${r.kind}|${r.key}`);
+    setEditing(r.id);
     setEditReason(r.reason);
     setEditPoints(String(r.points));
   }
   function saveEdit(r){
     const pts = parseInt(editPoints);
     if(!pts || pts<=0) return;
-    onGkUpdate(member.id, r.kind, r.key, {points:pts, reason:editReason.trim()});
+    onGkUpdate(member.id, r.id, {points:pts, reason:editReason.trim()});
     setEditing(null);
   }
   function remove(r){
     if(!window.confirm(`Delete this GK award (+${r.points.toLocaleString()} ⚡${r.reason?` · "${r.reason}"`:""})? Its points will be removed from the total.`)) return;
-    onGkDelete(member.id, r.kind, r.key);
-    if(editing===`${r.kind}|${r.key}`) setEditing(null);
+    onGkDelete(member.id, r.id);
+    if(editing===r.id) setEditing(null);
   }
 
   return <div style={{marginTop:20}}>
@@ -4661,10 +4800,9 @@ function GkHistory({member, logs, onGkUpdate, onGkDelete}){
     </div>
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {rows.map(r=>{
-        const id = `${r.kind}|${r.key}`;
-        const isEditing = editing===id;
+        const isEditing = editing===r.id;
         const dateLabel = r.date ? new Date(r.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}) : "";
-        return <div key={id} style={{background:C.bg,border:`1.5px solid ${isEditing?"#7E57C2":C.border}`,
+        return <div key={r.id} style={{background:C.bg,border:`1.5px solid ${isEditing?"#7E57C2":C.border}`,
           borderRadius:12,padding:"10px 14px"}}>
           {isEditing ? <>
             <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8}}>
@@ -4734,23 +4872,33 @@ function GKView({member, logs, onGkSave}){
   const today = todayStr();
   const now = new Date();
   const isWeekend = now.getDay()===0 || now.getDay()===6;
-  const gk = getGkData(logs, member.id);
+  const entries = getGkEntries(logs, member.id);
   const[points, setPoints] = useState("");
   const[reason, setReason] = useState("");
 
+  // Done-state card: total across every award in the period, each topic listed.
+  const doneCard = (icon, title, list, periodLabel) => {
+    const sum = list.reduce((s,e)=>s+e.points,0);
+    return <div style={{background:"linear-gradient(135deg,#EDE7F6,#D1C4E9)",border:"1.5px solid #7E57C2",
+      borderRadius:16,padding:24,textAlign:"center"}}>
+      <div style={{fontSize:icon==="🏆"?40:36,marginBottom:8}}>{icon}</div>
+      <div style={{fontWeight:800,fontSize:16,color:"#4A148C"}}>{title}</div>
+      <div style={{fontSize:13,color:"#5E35B1",marginTop:4}}>
+        +{sum.toLocaleString()} ⚡ earned {periodLabel}{list.length>1?` (${list.length} entries)`:""}.
+      </div>
+      {list.filter(e=>e.reason).map(e=>(
+        <div key={e.id} style={{fontSize:12,color:"#7E57C2",marginTop:6,fontStyle:"italic"}}>"{e.reason}"</div>
+      ))}
+      <div style={{fontSize:11,color:"#9575CD",marginTop:12}}>Quizzed more? Use “+ Add GK entry” below.</div>
+    </div>;
+  };
+
   if(isWeekend){
     const weekKey = getWeekKey(today);
-    const existing = gk.weekendResults?.[weekKey];
+    const thisWeek = entries.filter(e=>e.type==="weekend" &&
+      (e.weekKey || (e.date?getWeekKey(e.date):""))===weekKey);
 
-    if(existing && existing.points>0){
-      return <div style={{background:"linear-gradient(135deg,#EDE7F6,#D1C4E9)",border:"1.5px solid #7E57C2",
-        borderRadius:16,padding:24,textAlign:"center"}}>
-        <div style={{fontSize:40,marginBottom:8}}>🏆</div>
-        <div style={{fontWeight:800,fontSize:16,color:"#4A148C"}}>Weekly Review Done!</div>
-        <div style={{fontSize:13,color:"#5E35B1",marginTop:4}}>+{existing.points.toLocaleString()} ⚡ earned this week.</div>
-        {existing.reason&&<div style={{fontSize:12,color:"#7E57C2",marginTop:6,fontStyle:"italic"}}>"{existing.reason}"</div>}
-      </div>;
-    }
+    if(thisWeek.length>0) return doneCard("🏆","Weekly Review Done!",thisWeek,"this week");
 
     return <div style={{background:C.surface,border:"1.5px solid #7E57C2",borderRadius:16,padding:24,textAlign:"center"}}>
       <div style={{fontSize:36,marginBottom:8}}>🏆</div>
@@ -4765,17 +4913,8 @@ function GKView({member, logs, onGkSave}){
   }
 
   // Weekday mode
-  const todayEntry = gk.dailyResults?.[today];
-
-  if(todayEntry?.points>0){
-    return <div style={{background:"linear-gradient(135deg,#EDE7F6,#D1C4E9)",border:"1.5px solid #7E57C2",
-      borderRadius:16,padding:24,textAlign:"center"}}>
-      <div style={{fontSize:36,marginBottom:8}}>🧠</div>
-      <div style={{fontWeight:800,fontSize:15,color:"#4A148C"}}>Today's quiz done!</div>
-      <div style={{fontSize:13,color:"#5E35B1",marginTop:4}}>+{todayEntry.points.toLocaleString()} ⚡ earned. Come back tomorrow!</div>
-      {todayEntry.reason&&<div style={{fontSize:12,color:"#7E57C2",marginTop:6,fontStyle:"italic"}}>"{todayEntry.reason}"</div>}
-    </div>;
-  }
+  const todays = entries.filter(e=>e.type==="daily" && e.date===today);
+  if(todays.length>0) return doneCard("🧠","Today's quiz done!",todays,"today");
 
   return <div style={{background:C.surface,border:"1.5px solid #7E57C2",borderRadius:16,padding:24,textAlign:"center"}}>
     <div style={{fontSize:36,marginBottom:8}}>🧠</div>
@@ -6320,47 +6459,16 @@ export default function App(){
   },[]);
 
   const handleGkSave=useCallback((mid,result)=>{
-    setLogs(prev=>{
-      const next={...prev,[mid]:{...(prev[mid]||{})}};
-      const gk={dailyResults:{}, weekendResults:{}, ...(next[mid].gk||{})};
-      const dailyResults={...gk.dailyResults};
-      const weekendResults={...gk.weekendResults};
-      if(result.type==="daily"){
-        dailyResults[result.date]={points:result.points, reason:result.reason||""};
-      } else if(result.type==="weekend"){
-        weekendResults[result.weekKey]={date:result.date, points:result.points, reason:result.reason||""};
-      }
-      next[mid].gk={dailyResults, weekendResults};
-      return next;
-    });
+    const id = result.id || newGkId(); // generated once, outside the updater (StrictMode runs updaters twice)
+    setLogs(prev=>applyGkEntry(prev, mid, {...result, id}));
   },[]);
 
-  // GK edit/delete. Entries are date-keyed objects and saveData() union-merges keys with the
-  // remote copy, so a plain `delete` would be resurrected on the next save. Instead a delete
-  // zeroes the entry (points:0) — every reader already ignores points<=0, and the zeroed
-  // value overwrites the remote one through the merge.
-  const handleGkUpdate=useCallback((mid,kind,key,{points,reason})=>{
-    setLogs(prev=>{
-      const next={...prev,[mid]:{...(prev[mid]||{})}};
-      const gk={dailyResults:{}, weekendResults:{}, ...(next[mid].gk||{})};
-      const bucket=kind==="weekend"?"weekendResults":"dailyResults";
-      const existing=gk[bucket]?.[key];
-      if(!existing) return prev;
-      next[mid].gk={...gk,[bucket]:{...gk[bucket],[key]:{...existing,points,reason:reason||""}}};
-      return next;
-    });
+  const handleGkUpdate=useCallback((mid,id,{points,reason})=>{
+    setLogs(prev=>applyGkUpdate(prev, mid, id, {points, reason}));
   },[]);
 
-  const handleGkDelete=useCallback((mid,kind,key)=>{
-    setLogs(prev=>{
-      const next={...prev,[mid]:{...(prev[mid]||{})}};
-      const gk={dailyResults:{}, weekendResults:{}, ...(next[mid].gk||{})};
-      const bucket=kind==="weekend"?"weekendResults":"dailyResults";
-      const existing=gk[bucket]?.[key];
-      if(!existing) return prev;
-      next[mid].gk={...gk,[bucket]:{...gk[bucket],[key]:{...existing,points:0,reason:""}}};
-      return next;
-    });
+  const handleGkDelete=useCallback((mid,id)=>{
+    setLogs(prev=>applyGkDelete(prev, mid, id));
   },[]);
 
   const handleBraverySave=useCallback((mid,entry)=>{
