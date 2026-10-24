@@ -610,8 +610,8 @@ const PP_LEVELS = [
   {level:93, pp:2975000,title:"Starforged",   icon:"⚒️"},
   {level:94, pp:3050000,title:"Elysian",      icon:"🌸"},
   {level:95, pp:3125000,title:"Kraken",       icon:"🦑"},
-  {level:96, pp:3200000,title:"Worldbreaker", icon:"🌍"},
-  {level:97, pp:3275000,title:"Resplendent",  icon:"🎇"},
+  {level:96, pp:3200000,title:"Worldbreaker", icon:"🎇"},
+  {level:97, pp:3275000,title:"Resplendent",  icon:"🌍"},
   {level:98, pp:3350000,title:"Majestic",     icon:"🦅"},
   {level:99, pp:3425000,title:"Infinite",     icon:"♾️"},
   {level:100, pp:3500000,title:"Immortal",     icon:"🌌👑"},
@@ -2440,14 +2440,191 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
 
 // ── Power Points Drawer ──────────────────────────────────────────────────────
 // ── Power Points Panel (in-flow, tabbed — sits beside the card via flexbox, never fixed/floating) ──
-function PowerPointsPanel({member, logs, onClose}){
+// ── Level display helpers (display only — never write data or affect scoring) ──
+function levelTierName(lvl){
+  if(lvl>=50) return "Diamond";
+  if(lvl>=30) return "Gold";
+  if(lvl>=20) return "Silver";
+  if(lvl>=10) return "Bronze";
+  return "Starter";
+}
+function fmtPPShort(n){
+  if(n>=1000000) return (n/1000000).toFixed(3).replace(/\.?0+$/,"")+"M";
+  if(n>=1000) return (Math.round(n/100)/10).toString().replace(/\.0$/,"")+"k";
+  return String(n);
+}
+function levelPosition(total){
+  // 0..1 position on the Lv 1 → Lv max track, including progress towards the next level
+  const cur=getLevel(total), nxt=getNextLevel(total);
+  const frac = nxt ? Math.max(0,Math.min(1,(total-cur.pp)/(nxt.pp-cur.pp))) : 0;
+  const maxLv = PP_LEVELS[PP_LEVELS.length-1].level;
+  return Math.min(1, ((cur.level-1)+frac)/(maxLv-1));
+}
+
+function LevelPathStrip({total, color, onOpen}){
+  const cur = getLevel(total);
+  const idx = PP_LEVELS.findIndex(l=>l.level===cur.level);
+  const SHOW = 4;
+  const start = Math.max(0, Math.min(idx, PP_LEVELS.length-SHOW));
+  const path = PP_LEVELS.slice(start, start+SHOW);
+  return <div onClick={onOpen} title="See all levels" style={{
+      display:"flex",alignItems:"center",gap:6,overflowX:"auto",whiteSpace:"nowrap",
+      background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"8px 10px",
+      marginBottom:12,cursor:"pointer",scrollbarWidth:"none"}}>
+    <span style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,flexShrink:0}}>🪜 PATH</span>
+    {path.map((l,i)=>{
+      const isCur = l.level===cur.level, done = total>=l.pp && !isCur, isNext = l.level===cur.level+1;
+      return <span key={l.level} style={{display:"inline-flex",alignItems:"center",gap:6,flexShrink:0}}>
+        {i>0&&<span style={{color:C.muted,fontSize:11}}>→</span>}
+        <span style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 9px",borderRadius:99,
+          background:isCur?"#1a1a2e":"transparent",
+          border:`1px solid ${isCur?"#FFD700":isNext?(color||C.border):C.border}`,
+          opacity:isCur||isNext||done?1:0.55}}>
+          <span style={{fontSize:13}}>{l.icon}</span>
+          <span style={{fontSize:11,fontWeight:isCur?800:600,color:isCur?"#FFD700":C.text}}>{l.title}</span>
+          <span style={{fontSize:10,color:isCur?"rgba(255,255,255,0.5)":C.muted}}>
+            {isCur?`Lv ${l.level}`:isNext?`${fmtPPShort(l.pp-total)} to go`:`Lv ${l.level}`}
+          </span>
+        </span>
+      </span>;
+    })}
+    <span style={{marginLeft:"auto",fontSize:11,color:C.muted,flexShrink:0,paddingLeft:6}}>›</span>
+  </div>;
+}
+
+function LevelsList({total, level, nextLevel, completeLevelDates}){
+  const groups = [];
+  for(const l of PP_LEVELS){
+    const g = l.level<10 ? 0 : Math.min(9, Math.floor(l.level/10));
+    if(!groups[g]) groups[g] = {key:g, levels:[]};
+    groups[g].levels.push(l);
+  }
+  const list = groups.filter(Boolean);
+  const curGroup = list.find(g=>g.levels.some(l=>l.level===level.level))?.key;
+  const [open, setOpen] = useState(()=>new Set([curGroup]));
+  const boxRef = useRef(null), curRef = useRef(null);
+  useEffect(()=>{
+    const box=boxRef.current, row=curRef.current;
+    if(box&&row) box.scrollTop = Math.max(0, row.offsetTop - box.clientHeight/2 + row.offsetHeight/2);
+  }, []);
+  const toggle = k => setOpen(prev=>{ const n=new Set(prev); n.has(k)?n.delete(k):n.add(k); return n; });
+  const allOpen = open.size===list.length;
+  const nextPct = nextLevel ? Math.round(((total-level.pp)/(nextLevel.pp-level.pp))*100) : 100;
+
+  return <div ref={boxRef} style={{flex:1,overflowY:"auto",padding:"8px 12px 16px",position:"relative"}}>
+    <div style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
+      <button onClick={()=>setOpen(allOpen?new Set([curGroup]):new Set(list.map(g=>g.key)))}
+        style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,padding:"3px 9px",cursor:"pointer",fontSize:11,color:C.muted}}>
+        {allOpen?"Collapse others":"Expand all"}</button>
+    </div>
+    {list.map(g=>{
+      const first=g.levels[0].level, last=g.levels[g.levels.length-1].level;
+      const earned=g.levels.filter(l=>total>=l.pp).length;
+      const isOpen=open.has(g.key), isCurG=g.key===curGroup;
+      return <div key={g.key} style={{marginBottom:6}}>
+        <div onClick={()=>toggle(g.key)} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:8,cursor:"pointer",
+          background:isCurG?"#FFF9E6":C.bg,border:`1px solid ${isCurG?"#F9A825":C.border}`}}>
+          <span style={{fontSize:11,color:C.muted,width:10}}>{isOpen?"▾":"▸"}</span>
+          <span style={{flex:1,fontSize:12,fontWeight:700,color:C.text}}>Lv {first}–{last} <span style={{fontWeight:500,color:C.muted}}>· {levelTierName(first)}</span></span>
+          <span style={{fontSize:11,fontWeight:700,color:earned===g.levels.length?"#2E7D32":C.muted}}>
+            {earned===g.levels.length?"✓ ":""}{earned}/{g.levels.length}</span>
+        </div>
+        {isOpen&&<div style={{paddingTop:4}}>
+          {g.levels.map(l=>{
+            const isCur = l.level===level.level, isEarned = total>=l.pp, isNext = nextLevel&&l.level===nextLevel.level;
+            const dateStr = completeLevelDates[l.level];
+            const dateLabel = dateStr ? new Date(dateStr+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"}) : null;
+            return <div key={l.level} ref={isCur?curRef:null} style={{padding:"7px 10px",
+              background:isCur?"#1a1a2e":"transparent",borderRadius:8,marginBottom:3,
+              opacity:isEarned||isNext?1:0.35,
+              border:`1px solid ${isCur?"#FFD700":isNext?"#F9A825":"transparent"}`}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:10,fontWeight:700,color:isCur?"#FFD700":C.muted,minWidth:22,textAlign:"right"}}>{l.level}</span>
+                <span style={{fontSize:14,minWidth:22}}>{l.icon}</span>
+                <span style={{flex:1,fontSize:12,fontWeight:isCur||isNext?700:500,color:isCur?"#FFD700":C.text}}>
+                  {l.title}
+                  {isCur&&<span style={{marginLeft:6,fontSize:9,fontWeight:800,color:"#1a1a2e",background:"#FFD700",borderRadius:99,padding:"1px 6px"}}>YOU</span>}
+                  {isNext&&<span style={{marginLeft:6,fontSize:9,fontWeight:800,color:"#E65100",background:"#FFF3E0",borderRadius:99,padding:"1px 6px"}}>NEXT</span>}
+                </span>
+                <span style={{fontSize:9,color:isCur?"rgba(255,255,255,0.4)":C.muted,textAlign:"right"}}>
+                  {l.pp.toLocaleString()} PP
+                  {isEarned&&dateLabel&&<span style={{display:"block"}}>{dateLabel}</span>}
+                </span>
+              </div>
+              {isNext&&<div style={{marginTop:6,marginLeft:30}}>
+                <div style={{background:C.bg,borderRadius:99,height:5,overflow:"hidden",border:`1px solid ${C.border}`}}>
+                  <div style={{height:"100%",width:`${nextPct}%`,background:"linear-gradient(90deg,#FFD700,#FFA500)"}}/>
+                </div>
+                <div style={{fontSize:10,color:"#E65100",fontWeight:600,marginTop:3}}>{(l.pp-total).toLocaleString()} PP to go · {nextPct}%</div>
+              </div>}
+            </div>;
+          })}
+        </div>}
+      </div>;
+    })}
+  </div>;
+}
+
+function FamilyLevelLadder({members, logs}){
+  if(!members||members.length===0) return null;
+  const maxLv = PP_LEVELS[PP_LEVELS.length-1].level;
+  const rows = members.map(m=>{
+    const total = computePowerPoints(m, logs).total;
+    return {m, total, lv:getLevel(total), next:getNextLevel(total), pos:levelPosition(total)};
+  }).sort((a,b)=>b.total-a.total);
+  const leader = rows[0];
+  const ticks = [1,25,50,75,maxLv];
+  return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:"14px 20px",boxShadow:"0 2px 12px rgba(0,0,0,0.05)"}}>
+    <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:12,gap:8,flexWrap:"wrap"}}>
+      <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5}}>🪜 LEVEL LADDER</div>
+      <div style={{fontSize:11,color:C.muted}}>Lv 1 → Lv {maxLv}</div>
+    </div>
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      {rows.map((r,i)=>(
+        <div key={r.m.id}>
+          <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:8,marginBottom:6,flexWrap:"wrap"}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
+              <span style={{fontSize:15}}>{r.m.emoji}</span>
+              <span style={{fontSize:12,fontWeight:700,color:C.text}}>{r.m.name}</span>
+              <span style={{fontSize:12,fontWeight:800,color:C.text,marginLeft:4}}>Lv {r.lv.level}</span>
+              <span style={{fontSize:12,fontWeight:600,color:C.muted}}>· {r.lv.title}</span>
+            </div>
+            <div style={{fontSize:10,color:C.muted}}>
+              {i===0 ? (r.next?`${fmtPPShort(r.next.pp-r.total)} to Lv ${r.next.level}`:"Max level")
+                     : (leader.lv.level===r.lv.level ? `Same level as ${leader.m.name}` : `${leader.lv.level-r.lv.level} level${leader.lv.level-r.lv.level===1?"":"s"} behind ${leader.m.name}`)}
+            </div>
+          </div>
+          <div style={{position:"relative",height:12,margin:"0 12px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:99}}>
+            <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${r.pos*100}%`,background:r.m.color||"#FFD700",borderRadius:99,opacity:0.85}}/>
+            <div title={`${r.lv.title} · Level ${r.lv.level}`} style={{position:"absolute",top:"50%",left:`${r.pos*100}%`,transform:"translate(-50%,-50%)",
+              width:24,height:24,borderRadius:"50%",background:C.surface,border:`2px solid ${r.m.color||"#FFD700"}`,
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,boxShadow:"0 1px 4px rgba(0,0,0,0.15)"}}>{r.lv.icon}</div>
+          </div>
+        </div>
+      ))}
+      <div style={{position:"relative",height:12,margin:"-4px 12px 0"}}>
+        {ticks.map(t=>(
+          <span key={t} style={{position:"absolute",left:`${((t-1)/(maxLv-1))*100}%`,transform:t===1?"none":t===maxLv?"translateX(-100%)":"translateX(-50%)",
+            fontSize:9,color:C.muted}}>{t}</span>
+        ))}
+      </div>
+    </div>
+  </div>;
+}
+
+function PowerPointsPanel({member, logs, onClose, view="main", viewNonce=0}){
   const {total, breakdown, weekPP, levelHistory, dailyEarned, dailyTags, dailyBreakdown} = computePowerPoints(member, logs);
   const projection = projectNextLevel(member, logs);
   const level = getLevel(total);
   const nextLevel = getNextLevel(total);
   const pct = nextLevel ? Math.round(((total - level.pp) / (nextLevel.pp - level.pp)) * 100) : 100;
   const [tab, setTab] = useState("overview"); // overview | history | info
-  const [showLevels, setShowLevels] = useState(false);
+  const [showLevels, setShowLevels] = useState(view==="levels");
+  useEffect(()=>{ setShowLevels(view==="levels"); }, [viewNonce]); // re-open on the requested view each time the card asks
+  const panelRef = useRef(null);
+  useEffect(()=>{ // on narrow screens the drawer sits below the card — bring it into view when opened
+    try{ if(window.innerWidth<900 && panelRef.current) panelRef.current.scrollIntoView({behavior:"smooth",block:"start"}); }catch{}
+  }, [viewNonce]);
   const [expandedDay, setExpandedDay] = useState(null);
 
   // Build complete level crossing dates — fill gaps via cumulative daily sum
@@ -2481,7 +2658,7 @@ function PowerPointsPanel({member, logs, onClose}){
     bravery:{icon:"🦁",label:"Bravery"}, extraSession:{icon:"➕",label:"Extra Session"}, distance:{icon:"🏃",label:"Distance Bonus"},
   };
 
-  return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,
+  return <div ref={panelRef} style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,
     boxShadow:"0 4px 20px rgba(0,0,0,0.08)",overflow:"hidden",display:"flex",flexDirection:"column",
     maxHeight:"calc(100vh - 40px)",position:"sticky",top:20}}>
 
@@ -2524,25 +2701,7 @@ function PowerPointsPanel({member, logs, onClose}){
           padding:"4px 10px",cursor:"pointer",fontSize:12,fontWeight:600,color:C.muted}}>← Back</button>
         <span style={{fontWeight:700,fontSize:13}}>📖 All {PP_LEVELS.length} Levels</span>
       </div>
-      <div style={{flex:1,overflowY:"auto",padding:"8px 12px 16px"}}>
-        {PP_LEVELS.map((l)=>{
-          const isCur = l.level===level.level, isEarned = total>=l.pp;
-          const dateStr = completeLevelDates[l.level];
-          const dateLabel = dateStr ? new Date(dateStr+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"}) : null;
-          return <div key={l.level} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",
-            background:isCur?"#1a1a2e":"transparent",borderRadius:8,marginBottom:3,
-            opacity:isEarned?1:0.35,
-            border:`1px solid ${isCur?"#FFD700":"transparent"}`}}>
-            <span style={{fontSize:10,fontWeight:700,color:isCur?"#FFD700":C.muted,minWidth:18,textAlign:"right"}}>{l.level}</span>
-            <span style={{fontSize:14,minWidth:22}}>{l.icon}</span>
-            <span style={{flex:1,fontSize:12,fontWeight:isCur?700:500,color:isCur?"#FFD700":C.text}}>{l.title}</span>
-            <span style={{fontSize:9,color:isCur?"rgba(255,255,255,0.4)":C.muted,textAlign:"right"}}>
-              {l.pp.toLocaleString()} PP
-              {isEarned&&dateLabel&&<span style={{display:"block"}}>{dateLabel}</span>}
-            </span>
-          </div>;
-        })}
-      </div>
+      <LevelsList total={total} level={level} nextLevel={nextLevel} completeLevelDates={completeLevelDates}/>
     </> : <>
     {/* Tabs */}
     <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
@@ -3885,16 +4044,22 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
         <div style={{fontSize:24,fontWeight:900,color:"#FFD700",lineHeight:1}}>{ppData.total.toLocaleString()}</div>
         {ppData.weekPP>0&&<div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginTop:2}}>+{ppData.weekPP.toLocaleString()} this week</div>}
       </div>
-      <div style={{textAlign:"right"}}>
+      <div title="See all levels" onClick={e=>{e.stopPropagation();onOpenPP&&onOpenPP(member.id,"levels");}}
+        style={{textAlign:"right",cursor:"pointer",borderRadius:8,padding:"2px 4px",margin:"-2px -4px"}}
+        onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.08)"}
+        onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
         <div style={{fontSize:22}}>{ppLevel.icon}</div>
         <div style={{fontSize:12,fontWeight:700,color:"#FFD700"}}>{ppLevel.title}</div>
-        <div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>Level {ppLevel.level}</div>
+        <div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>Level {ppLevel.level} · 📖 levels ›</div>
         {ppNext&&<div style={{fontSize:9,color:"rgba(255,255,255,0.35)",marginTop:2}}>{(ppNext.pp-ppData.total).toLocaleString()} to {ppNext.icon} {ppNext.title}</div>}
       </div>
       {ppNext&&<div style={{position:"absolute",bottom:0,left:0,right:0,height:3,background:"rgba(255,255,255,0.1)",borderRadius:"0 0 12px 12px",overflow:"hidden"}}>
         <div style={{height:"100%",width:`${Math.round(((ppData.total-ppLevel.pp)/(ppNext.pp-ppLevel.pp))*100)}%`,background:"linear-gradient(90deg,#FFD700,#FFA500)",transition:"width 0.5s"}}/>
       </div>}
     </div>
+
+    {/* Level path — current level and the next few */}
+    <LevelPathStrip total={ppData.total} color={member.color} onOpen={()=>onOpenPP&&onOpenPP(member.id,"levels")}/>
 
     {/* Gem Vault */}
     <GemVaultCard member={member} logs={logs}/>
@@ -5987,6 +6152,9 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
       })()}
     </div>
 
+    {/* ── Family Level Ladder ── */}
+    <FamilyLevelLadder members={members} logs={logs}/>
+
     {/* ── Per-member stat cards + volume side by side ── */}
     <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"start"}}>
 
@@ -6380,6 +6548,7 @@ export default function App(){
   const[toasts,setToasts]=useState([]);
   const[activeTab,setActiveTab]=useState(null);
   const[ppPanelFor,setPpPanelFor]=useState(null);
+  const[ppView,setPpView]=useState({view:"main",n:0}); // which sub-view the PP drawer opens on
   const[theme,setTheme]=useState("forest");
   const[pattern,setPattern]=useState("topo");
   const[saveStatus,setSaveStatus]=useState("saved");
@@ -6707,11 +6876,11 @@ export default function App(){
           <div style={{flex:"1 1 460px",maxWidth:860,minWidth:0}}>
             <MemberCard member={m} logs={logs} allMembers={members}
               onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}
-              onOpenPP={(id)=>setPpPanelFor(id)} onGrowthSave={handleGrowthSave}
+              onOpenPP={(id,view)=>{setPpPanelFor(id);setPpView(v=>({view:view||"main",n:v.n+1}));}} onGrowthSave={handleGrowthSave}
               onGkSave={handleGkSave} onGkUpdate={handleGkUpdate} onGkDelete={handleGkDelete} onBraverySave={handleBraverySave} onBraveryDelete={handleBraveryDelete} onBraveryUpdate={handleBraveryUpdate} onIllnessSave={handleIllnessSave} onIllnessDelete={handleIllnessDelete} onOlympiadSave={handleOlympiadSave} onOlympiadDelete={handleOlympiadDelete} onOlympiadUpdate={handleOlympiadUpdate} onGoldenGoalSave={handleGoldenGoalSave} onGoldenGoalDelete={handleGoldenGoalDelete} onDeleteEntry={handleDeleteEntry}/>
           </div>
           {ppPanelFor===m.id&&<div style={{flex:"1 1 320px",maxWidth:380,minWidth:280}}>
-            <PowerPointsPanel member={m} logs={logs} onClose={()=>setPpPanelFor(null)}/>
+            <PowerPointsPanel member={m} logs={logs} view={ppView.view} viewNonce={ppView.n} onClose={()=>setPpPanelFor(null)}/>
           </div>}
         </div>
       ))}
