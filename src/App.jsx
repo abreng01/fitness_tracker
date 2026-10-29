@@ -1406,6 +1406,11 @@ const JSONBIN_API_KEY = import.meta.env.VITE_JSONBIN_API_KEY;
 const JSONBIN_URL     = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
 let _saveTimer=null;
 let _saveStatusCb=null;
+// Cloud sync state — if the cloud can't be read on load, this device only has a possibly-stale copy,
+// so saving is blocked to stop old data from ever overwriting the real data in JSONBin.
+let _cloud = { ok:true, status:null, message:"", lastSync:null };
+function _readErr(res){ return res.text().then(t=>{ try{ const j=JSON.parse(t); return j.message||t; }catch{ return t; } }).catch(()=>""); }
+function _markSynced(){ const t=new Date().toISOString(); _cloud.lastSync=t; try{localStorage.setItem("ff_last_sync",t);}catch{} }
 
 // Deep-merge two log trees
 // right now, which represents the most recent deliberate action.
@@ -1504,6 +1509,7 @@ function downloadBackup(data, dateStr){
 }
 
 async function loadData(){
+  try{ _cloud.lastSync = localStorage.getItem("ff_last_sync"); }catch{}
   if(JSONBIN_BIN_ID&&JSONBIN_API_KEY){
     try{
       const res=await fetch(`${JSONBIN_URL}/latest`,{
@@ -1516,50 +1522,63 @@ async function loadData(){
         try{localStorage.setItem("ff_data",JSON.stringify(d));}catch{}
         // Daily snapshot — silently saves once per day before any writes happen
         saveLocalBackup(d);
+        _cloud.ok=true; _markSynced();
         return d;
       }
-    }catch{}
+      _cloud = {..._cloud, ok:false, status:res.status, message:(await _readErr(res)).slice(0,160)};
+    }catch(e){
+      _cloud = {..._cloud, ok:false, status:null, message:String(e&&e.message||e).slice(0,160)};
+    }
   }
   try{const r=localStorage.getItem("ff_data");if(r)return JSON.parse(r);}catch{}
   return null;
 }
 async function saveData(p){
+  if(!_cloud.ok){ if(_saveStatusCb) _saveStatusCb("readonly"); return; } // loaded from a stale local copy — never write
   if(_saveStatusCb) _saveStatusCb("saving");
-  if(JSONBIN_BIN_ID&&JSONBIN_API_KEY){
-    try{
-      const res=await fetch(`${JSONBIN_URL}/latest`,{
-        headers:{'X-Master-Key':JSONBIN_API_KEY,'X-Bin-Meta':'false'},
-        cache:'no-store',
-      });
-      if(res.ok){
-        const remote=await res.json();
-        const merged={
-          members: mergeMembers(remote.members, p.members),
-          logs: deepMergeLogs(remote.logs||{}, p.logs||{}),
-          theme: p.theme,
-          pattern: p.pattern,
-        };
-        const s=JSON.stringify(merged);
-        try{localStorage.setItem("ff_data",s);}catch{}
-        await fetch(JSONBIN_URL,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_API_KEY},body:s});
-        if(_saveStatusCb) _saveStatusCb("saved");
-        return;
-      }
-    }catch{}
+  if(!(JSONBIN_BIN_ID&&JSONBIN_API_KEY)){
+    try{localStorage.setItem("ff_data",JSON.stringify(p));}catch{}
+    if(_saveStatusCb) _saveStatusCb("saved");
+    return;
   }
-  const s=JSON.stringify(p);
-  try{localStorage.setItem("ff_data",s);}catch{}
-  if(JSONBIN_BIN_ID&&JSONBIN_API_KEY){
-    try{
-      await fetch(JSONBIN_URL,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_API_KEY},body:s});
-      if(_saveStatusCb) _saveStatusCb("saved");
-    }catch{
+  try{
+    const res=await fetch(`${JSONBIN_URL}/latest`,{
+      headers:{'X-Master-Key':JSONBIN_API_KEY,'X-Bin-Meta':'false'},
+      cache:'no-store',
+    });
+    if(!res.ok){
+      // Never write blind: without the latest cloud copy we can't merge, and an unmerged write could erase newer data.
+      _cloud.status=res.status; _cloud.message=(await _readErr(res)).slice(0,160);
+      try{localStorage.setItem("ff_data",JSON.stringify(p));}catch{}
       if(_saveStatusCb) _saveStatusCb("error");
+      return;
     }
+    const remote=await res.json();
+    const merged={
+      members: mergeMembers(remote.members, p.members),
+      logs: deepMergeLogs(remote.logs||{}, p.logs||{}),
+      theme: p.theme,
+      pattern: p.pattern,
+    };
+    const s=JSON.stringify(merged);
+    try{localStorage.setItem("ff_data",s);}catch{}
+    const put=await fetch(JSONBIN_URL,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_API_KEY},body:s});
+    if(!put.ok){
+      _cloud.status=put.status; _cloud.message=(await _readErr(put)).slice(0,160);
+      if(_saveStatusCb) _saveStatusCb("error");
+      return;
+    }
+    _markSynced();
+    if(_saveStatusCb) _saveStatusCb("saved");
+  }catch(e){
+    _cloud.status=null; _cloud.message=String(e&&e.message||e).slice(0,160);
+    try{localStorage.setItem("ff_data",JSON.stringify(p));}catch{}
+    if(_saveStatusCb) _saveStatusCb("error");
   }
 }
 function scheduleSave(p){
   clearTimeout(_saveTimer);
+  if(!_cloud.ok){ if(_saveStatusCb) _saveStatusCb("readonly"); return; } // stale copy — never save
   if(_saveStatusCb) _saveStatusCb("pending");
   _saveTimer=setTimeout(()=>saveData(p),1200);
 }
@@ -6552,6 +6571,7 @@ export default function App(){
   const[theme,setTheme]=useState("forest");
   const[pattern,setPattern]=useState("topo");
   const[saveStatus,setSaveStatus]=useState("saved");
+  const[cloudInfo,setCloudInfo]=useState(null); // set after load: {ok,status,message,lastSync}
   const[showBackup,setShowBackup]=useState(false);
   useEffect(()=>{ _saveStatusCb = setSaveStatus; return ()=>{ _saveStatusCb=null; }; },[]);
 
@@ -6585,6 +6605,8 @@ export default function App(){
         if(d.theme&&(THEMES.some(t=>t.id===d.theme)||d.theme.startsWith('#'))) setTheme(d.theme);
         if(d.pattern&&PATTERN_OPTIONS.some(p=>p.id===d.pattern)) setPattern(d.pattern);
       }
+      setCloudInfo({..._cloud});
+      if(!_cloud.ok) setSaveStatus("readonly");
       setLoaded(true);
     })();
   },[]);
@@ -6827,11 +6849,11 @@ export default function App(){
         <button onClick={nextMo} disabled={isCurMo} style={{...navBtn,opacity:isCurMo?0.3:1}}>›</button>
         {/* Save status indicator */}
         <div style={{fontSize:11,fontWeight:600,padding:"4px 8px",borderRadius:6,
-          background:saveStatus==="saving"?"#FFF8E1":saveStatus==="pending"?"#FFF8E1":saveStatus==="error"?"#FFEBEE":"#E8F5E9",
-          color:saveStatus==="saving"?"#F9A825":saveStatus==="pending"?"#F9A825":saveStatus==="error"?"#C62828":"#2E7D32",
+          background:saveStatus==="saving"?"#FFF8E1":saveStatus==="pending"?"#FFF8E1":(saveStatus==="error"||saveStatus==="readonly")?"#FFEBEE":"#E8F5E9",
+          color:saveStatus==="saving"?"#F9A825":saveStatus==="pending"?"#F9A825":(saveStatus==="error"||saveStatus==="readonly")?"#C62828":"#2E7D32",
           transition:"all 0.3s",whiteSpace:"nowrap",
         }}>
-          {saveStatus==="saving"?"⟳ Saving...":saveStatus==="pending"?"⟳ Saving...":saveStatus==="error"?"⚠️ Save failed":"✓ Saved"}
+          {saveStatus==="saving"?"⟳ Saving...":saveStatus==="pending"?"⟳ Saving...":saveStatus==="error"?`⚠️ Save failed${_cloud.status?` (${_cloud.status})`:""}`:saveStatus==="readonly"?"🔒 Not saving":"✓ Saved"}
         </div>
         <button onClick={()=>setShowBackup(true)} style={{background:"none",border:`1px solid ${C.border}`,
           borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:13,color:C.muted,fontWeight:600,
@@ -6843,6 +6865,17 @@ export default function App(){
           onRestore={handleRestore} onClose={()=>setShowBackup(false)}/>}
       </div>
     </div>
+    {cloudInfo&&!cloudInfo.ok&&<div role="alert" style={{background:"#FFEBEE",borderBottom:"1px solid #EF9A9A",color:"#B71C1C",padding:"10px 24px",fontSize:13,lineHeight:1.5}}>
+      <div style={{maxWidth:860,margin:"0 auto",display:"flex",gap:12,alignItems:"flex-start",flexWrap:"wrap"}}>
+        <div style={{flex:"1 1 300px"}}>
+          <b>⚠️ Couldn't load the latest data from the cloud{cloudInfo.status?` (HTTP ${cloudInfo.status})`:""}.</b>{" "}
+          You're seeing this browser's own saved copy{cloudInfo.lastSync?`, last synced ${new Date(cloudInfo.lastSync).toLocaleString("en-IN",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}`:" (never synced on this browser)"}, which may be out of date.
+          {" "}<b>Nothing you do here will be saved</b>, so your real data stays safe.
+          {cloudInfo.message&&<div style={{fontSize:11,opacity:0.8,marginTop:2,wordBreak:"break-word"}}>Reason: {cloudInfo.message}</div>}
+        </div>
+        <button onClick={()=>window.location.reload()} style={{background:"#C62828",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontWeight:700,fontSize:12}}>Retry</button>
+      </div>
+    </div>}
 
     {/* Tab bar */}
     {members.length>0&&<div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,position:"sticky",top:65,zIndex:40}}>
