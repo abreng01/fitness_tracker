@@ -1412,6 +1412,520 @@ let _cloud = { ok:true, status:null, message:"", lastSync:null };
 function _readErr(res){ return res.text().then(t=>{ try{ const j=JSON.parse(t); return j.message||t; }catch{ return t; } }).catch(()=>""); }
 function _markSynced(){ const t=new Date().toISOString(); _cloud.lastSync=t; try{localStorage.setItem("ff_last_sync",t);}catch{} }
 
+// ── Lossless cloud compression ────────────────────────────────────────────────
+// JSONBin's free plan rejects any update over 100 KB. Once the saved JSON passes CLOUD_PLAIN_MAX bytes it is
+// stored compressed (LZ, ~80% smaller). Every write is decoded again and compared with the original BEFORE it is
+// sent, and a checksum is stored so a bad read is detected rather than trusted. Small data stays plain JSON.
+// LZ-string core below: (c) 2013 Pieroxy, MIT/WTFPL licence, https://github.com/pieroxy/lz-string
+const LZString = (function() {
+
+// private property
+var f = String.fromCharCode;
+var keyStrBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+var keyStrUriSafe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-$";
+var baseReverseDic = {};
+
+function getBaseValue(alphabet, character) {
+  if (!baseReverseDic[alphabet]) {
+    baseReverseDic[alphabet] = {};
+    for (var i=0 ; i<alphabet.length ; i++) {
+      baseReverseDic[alphabet][alphabet.charAt(i)] = i;
+    }
+  }
+  return baseReverseDic[alphabet][character];
+}
+
+var LZString = {
+  compressToBase64 : function (input) {
+    if (input == null) return "";
+    var res = LZString._compress(input, 6, function(a){return keyStrBase64.charAt(a);});
+    switch (res.length % 4) { // To produce valid Base64
+    default: // When could this happen ?
+    case 0 : return res;
+    case 1 : return res+"===";
+    case 2 : return res+"==";
+    case 3 : return res+"=";
+    }
+  },
+
+  decompressFromBase64 : function (input) {
+    if (input == null) return "";
+    if (input == "") return null;
+    return LZString._decompress(input.length, 32, function(index) { return getBaseValue(keyStrBase64, input.charAt(index)); });
+  },
+
+  compressToUTF16 : function (input) {
+    if (input == null) return "";
+    return LZString._compress(input, 15, function(a){return f(a+32);}) + " ";
+  },
+
+  decompressFromUTF16: function (compressed) {
+    if (compressed == null) return "";
+    if (compressed == "") return null;
+    return LZString._decompress(compressed.length, 16384, function(index) { return compressed.charCodeAt(index) - 32; });
+  },
+
+  //compress into uint8array (UCS-2 big endian format)
+  compressToUint8Array: function (uncompressed) {
+    var compressed = LZString.compress(uncompressed);
+    var buf=new Uint8Array(compressed.length*2); // 2 bytes per character
+
+    for (var i=0, TotalLen=compressed.length; i<TotalLen; i++) {
+      var current_value = compressed.charCodeAt(i);
+      buf[i*2] = current_value >>> 8;
+      buf[i*2+1] = current_value % 256;
+    }
+    return buf;
+  },
+
+  //decompress from uint8array (UCS-2 big endian format)
+  decompressFromUint8Array:function (compressed) {
+    if (compressed===null || compressed===undefined){
+        return LZString.decompress(compressed);
+    } else {
+        var buf=new Array(compressed.length/2); // 2 bytes per character
+        for (var i=0, TotalLen=buf.length; i<TotalLen; i++) {
+          buf[i]=compressed[i*2]*256+compressed[i*2+1];
+        }
+
+        var result = [];
+        buf.forEach(function (c) {
+          result.push(f(c));
+        });
+        return LZString.decompress(result.join(''));
+
+    }
+
+  },
+
+
+  //compress into a string that is already URI encoded
+  compressToEncodedURIComponent: function (input) {
+    if (input == null) return "";
+    return LZString._compress(input, 6, function(a){return keyStrUriSafe.charAt(a);});
+  },
+
+  //decompress from an output of compressToEncodedURIComponent
+  decompressFromEncodedURIComponent:function (input) {
+    if (input == null) return "";
+    if (input == "") return null;
+    input = input.replace(/ /g, "+");
+    return LZString._decompress(input.length, 32, function(index) { return getBaseValue(keyStrUriSafe, input.charAt(index)); });
+  },
+
+  compress: function (uncompressed) {
+    return LZString._compress(uncompressed, 16, function(a){return f(a);});
+  },
+  _compress: function (uncompressed, bitsPerChar, getCharFromInt) {
+    if (uncompressed == null) return "";
+    var i, value,
+        context_dictionary= {},
+        context_dictionaryToCreate= {},
+        context_c="",
+        context_wc="",
+        context_w="",
+        context_enlargeIn= 2, // Compensate for the first entry which should not count
+        context_dictSize= 3,
+        context_numBits= 2,
+        context_data=[],
+        context_data_val=0,
+        context_data_position=0,
+        ii;
+
+    for (ii = 0; ii < uncompressed.length; ii += 1) {
+      context_c = uncompressed.charAt(ii);
+      if (!Object.prototype.hasOwnProperty.call(context_dictionary,context_c)) {
+        context_dictionary[context_c] = context_dictSize++;
+        context_dictionaryToCreate[context_c] = true;
+      }
+
+      context_wc = context_w + context_c;
+      if (Object.prototype.hasOwnProperty.call(context_dictionary,context_wc)) {
+        context_w = context_wc;
+      } else {
+        if (Object.prototype.hasOwnProperty.call(context_dictionaryToCreate,context_w)) {
+          if (context_w.charCodeAt(0)<256) {
+            for (i=0 ; i<context_numBits ; i++) {
+              context_data_val = (context_data_val << 1);
+              if (context_data_position == bitsPerChar-1) {
+                context_data_position = 0;
+                context_data.push(getCharFromInt(context_data_val));
+                context_data_val = 0;
+              } else {
+                context_data_position++;
+              }
+            }
+            value = context_w.charCodeAt(0);
+            for (i=0 ; i<8 ; i++) {
+              context_data_val = (context_data_val << 1) | (value&1);
+              if (context_data_position == bitsPerChar-1) {
+                context_data_position = 0;
+                context_data.push(getCharFromInt(context_data_val));
+                context_data_val = 0;
+              } else {
+                context_data_position++;
+              }
+              value = value >> 1;
+            }
+          } else {
+            value = 1;
+            for (i=0 ; i<context_numBits ; i++) {
+              context_data_val = (context_data_val << 1) | value;
+              if (context_data_position ==bitsPerChar-1) {
+                context_data_position = 0;
+                context_data.push(getCharFromInt(context_data_val));
+                context_data_val = 0;
+              } else {
+                context_data_position++;
+              }
+              value = 0;
+            }
+            value = context_w.charCodeAt(0);
+            for (i=0 ; i<16 ; i++) {
+              context_data_val = (context_data_val << 1) | (value&1);
+              if (context_data_position == bitsPerChar-1) {
+                context_data_position = 0;
+                context_data.push(getCharFromInt(context_data_val));
+                context_data_val = 0;
+              } else {
+                context_data_position++;
+              }
+              value = value >> 1;
+            }
+          }
+          context_enlargeIn--;
+          if (context_enlargeIn == 0) {
+            context_enlargeIn = Math.pow(2, context_numBits);
+            context_numBits++;
+          }
+          delete context_dictionaryToCreate[context_w];
+        } else {
+          value = context_dictionary[context_w];
+          for (i=0 ; i<context_numBits ; i++) {
+            context_data_val = (context_data_val << 1) | (value&1);
+            if (context_data_position == bitsPerChar-1) {
+              context_data_position = 0;
+              context_data.push(getCharFromInt(context_data_val));
+              context_data_val = 0;
+            } else {
+              context_data_position++;
+            }
+            value = value >> 1;
+          }
+
+
+        }
+        context_enlargeIn--;
+        if (context_enlargeIn == 0) {
+          context_enlargeIn = Math.pow(2, context_numBits);
+          context_numBits++;
+        }
+        // Add wc to the dictionary.
+        context_dictionary[context_wc] = context_dictSize++;
+        context_w = String(context_c);
+      }
+    }
+
+    // Output the code for w.
+    if (context_w !== "") {
+      if (Object.prototype.hasOwnProperty.call(context_dictionaryToCreate,context_w)) {
+        if (context_w.charCodeAt(0)<256) {
+          for (i=0 ; i<context_numBits ; i++) {
+            context_data_val = (context_data_val << 1);
+            if (context_data_position == bitsPerChar-1) {
+              context_data_position = 0;
+              context_data.push(getCharFromInt(context_data_val));
+              context_data_val = 0;
+            } else {
+              context_data_position++;
+            }
+          }
+          value = context_w.charCodeAt(0);
+          for (i=0 ; i<8 ; i++) {
+            context_data_val = (context_data_val << 1) | (value&1);
+            if (context_data_position == bitsPerChar-1) {
+              context_data_position = 0;
+              context_data.push(getCharFromInt(context_data_val));
+              context_data_val = 0;
+            } else {
+              context_data_position++;
+            }
+            value = value >> 1;
+          }
+        } else {
+          value = 1;
+          for (i=0 ; i<context_numBits ; i++) {
+            context_data_val = (context_data_val << 1) | value;
+            if (context_data_position == bitsPerChar-1) {
+              context_data_position = 0;
+              context_data.push(getCharFromInt(context_data_val));
+              context_data_val = 0;
+            } else {
+              context_data_position++;
+            }
+            value = 0;
+          }
+          value = context_w.charCodeAt(0);
+          for (i=0 ; i<16 ; i++) {
+            context_data_val = (context_data_val << 1) | (value&1);
+            if (context_data_position == bitsPerChar-1) {
+              context_data_position = 0;
+              context_data.push(getCharFromInt(context_data_val));
+              context_data_val = 0;
+            } else {
+              context_data_position++;
+            }
+            value = value >> 1;
+          }
+        }
+        context_enlargeIn--;
+        if (context_enlargeIn == 0) {
+          context_enlargeIn = Math.pow(2, context_numBits);
+          context_numBits++;
+        }
+        delete context_dictionaryToCreate[context_w];
+      } else {
+        value = context_dictionary[context_w];
+        for (i=0 ; i<context_numBits ; i++) {
+          context_data_val = (context_data_val << 1) | (value&1);
+          if (context_data_position == bitsPerChar-1) {
+            context_data_position = 0;
+            context_data.push(getCharFromInt(context_data_val));
+            context_data_val = 0;
+          } else {
+            context_data_position++;
+          }
+          value = value >> 1;
+        }
+
+
+      }
+      context_enlargeIn--;
+      if (context_enlargeIn == 0) {
+        context_enlargeIn = Math.pow(2, context_numBits);
+        context_numBits++;
+      }
+    }
+
+    // Mark the end of the stream
+    value = 2;
+    for (i=0 ; i<context_numBits ; i++) {
+      context_data_val = (context_data_val << 1) | (value&1);
+      if (context_data_position == bitsPerChar-1) {
+        context_data_position = 0;
+        context_data.push(getCharFromInt(context_data_val));
+        context_data_val = 0;
+      } else {
+        context_data_position++;
+      }
+      value = value >> 1;
+    }
+
+    // Flush the last char
+    while (true) {
+      context_data_val = (context_data_val << 1);
+      if (context_data_position == bitsPerChar-1) {
+        context_data.push(getCharFromInt(context_data_val));
+        break;
+      }
+      else context_data_position++;
+    }
+    return context_data.join('');
+  },
+
+  decompress: function (compressed) {
+    if (compressed == null) return "";
+    if (compressed == "") return null;
+    return LZString._decompress(compressed.length, 32768, function(index) { return compressed.charCodeAt(index); });
+  },
+
+  _decompress: function (length, resetValue, getNextValue) {
+    var dictionary = [],
+        next,
+        enlargeIn = 4,
+        dictSize = 4,
+        numBits = 3,
+        entry = "",
+        result = [],
+        i,
+        w,
+        bits, resb, maxpower, power,
+        c,
+        data = {val:getNextValue(0), position:resetValue, index:1};
+
+    for (i = 0; i < 3; i += 1) {
+      dictionary[i] = i;
+    }
+
+    bits = 0;
+    maxpower = Math.pow(2,2);
+    power=1;
+    while (power!=maxpower) {
+      resb = data.val & data.position;
+      data.position >>= 1;
+      if (data.position == 0) {
+        data.position = resetValue;
+        data.val = getNextValue(data.index++);
+      }
+      bits |= (resb>0 ? 1 : 0) * power;
+      power <<= 1;
+    }
+
+    switch (next = bits) {
+      case 0:
+          bits = 0;
+          maxpower = Math.pow(2,8);
+          power=1;
+          while (power!=maxpower) {
+            resb = data.val & data.position;
+            data.position >>= 1;
+            if (data.position == 0) {
+              data.position = resetValue;
+              data.val = getNextValue(data.index++);
+            }
+            bits |= (resb>0 ? 1 : 0) * power;
+            power <<= 1;
+          }
+        c = f(bits);
+        break;
+      case 1:
+          bits = 0;
+          maxpower = Math.pow(2,16);
+          power=1;
+          while (power!=maxpower) {
+            resb = data.val & data.position;
+            data.position >>= 1;
+            if (data.position == 0) {
+              data.position = resetValue;
+              data.val = getNextValue(data.index++);
+            }
+            bits |= (resb>0 ? 1 : 0) * power;
+            power <<= 1;
+          }
+        c = f(bits);
+        break;
+      case 2:
+        return "";
+    }
+    dictionary[3] = c;
+    w = c;
+    result.push(c);
+    while (true) {
+      if (data.index > length) {
+        return "";
+      }
+
+      bits = 0;
+      maxpower = Math.pow(2,numBits);
+      power=1;
+      while (power!=maxpower) {
+        resb = data.val & data.position;
+        data.position >>= 1;
+        if (data.position == 0) {
+          data.position = resetValue;
+          data.val = getNextValue(data.index++);
+        }
+        bits |= (resb>0 ? 1 : 0) * power;
+        power <<= 1;
+      }
+
+      switch (c = bits) {
+        case 0:
+          bits = 0;
+          maxpower = Math.pow(2,8);
+          power=1;
+          while (power!=maxpower) {
+            resb = data.val & data.position;
+            data.position >>= 1;
+            if (data.position == 0) {
+              data.position = resetValue;
+              data.val = getNextValue(data.index++);
+            }
+            bits |= (resb>0 ? 1 : 0) * power;
+            power <<= 1;
+          }
+
+          dictionary[dictSize++] = f(bits);
+          c = dictSize-1;
+          enlargeIn--;
+          break;
+        case 1:
+          bits = 0;
+          maxpower = Math.pow(2,16);
+          power=1;
+          while (power!=maxpower) {
+            resb = data.val & data.position;
+            data.position >>= 1;
+            if (data.position == 0) {
+              data.position = resetValue;
+              data.val = getNextValue(data.index++);
+            }
+            bits |= (resb>0 ? 1 : 0) * power;
+            power <<= 1;
+          }
+          dictionary[dictSize++] = f(bits);
+          c = dictSize-1;
+          enlargeIn--;
+          break;
+        case 2:
+          return result.join('');
+      }
+
+      if (enlargeIn == 0) {
+        enlargeIn = Math.pow(2, numBits);
+        numBits++;
+      }
+
+      if (dictionary[c]) {
+        entry = dictionary[c];
+      } else {
+        if (c === dictSize) {
+          entry = w + w.charAt(0);
+        } else {
+          return null;
+        }
+      }
+      result.push(entry);
+
+      // Add w+entry[0] to the dictionary.
+      dictionary[dictSize++] = w + entry.charAt(0);
+      enlargeIn--;
+
+      w = entry;
+
+      if (enlargeIn == 0) {
+        enlargeIn = Math.pow(2, numBits);
+        numBits++;
+      }
+
+    }
+  }
+};
+  return LZString;
+})();
+const CLOUD_ENC="lz-b64-v1";
+const CLOUD_PLAIN_MAX=60000; // bytes
+// "ft_members" is deliberately a non-array string: older app versions that don't understand this format then fail
+// to read it and drop into read-only mode, instead of mistaking it for empty data and saving over it.
+const CLOUD_GUARD="COMPRESSED_FORMAT_V1__refresh_the_app_to_the_latest_version";
+function _h32(s){let h=0x811c9dc5;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,0x01000193);}return (h>>>0).toString(16);}
+function _unwrapJson(raw){
+  if(raw&&typeof raw==="object"&&"enc" in raw){
+    if(raw.enc!==CLOUD_ENC) throw new Error("Cloud data uses an unknown format ("+raw.enc+")");
+    const json=LZString.decompressFromBase64(raw.z);
+    if(typeof json!=="string"||json.length!==raw.n||_h32(json)!==raw.h) throw new Error("Cloud data failed its integrity check");
+    return json;
+  }
+  return JSON.stringify(raw);
+}
+function cloudDecode(raw){ return JSON.parse(_unwrapJson(raw)); }
+function cloudEncode(json){
+  if(new TextEncoder().encode(json).length<=CLOUD_PLAIN_MAX) return json;
+  const wrapped=JSON.stringify({ft_members:CLOUD_GUARD,enc:CLOUD_ENC,n:json.length,h:_h32(json),z:LZString.compressToBase64(json)});
+  if(_unwrapJson(JSON.parse(wrapped))!==json) throw new Error("Compression self-check failed — nothing was sent");
+  return wrapped;
+}
+
 // Deep-merge two log trees
 // right now, which represents the most recent deliberate action.
 function deepMergeLogs(remote, local){
@@ -1498,6 +2012,20 @@ function getLocalBackup(key){
   }catch{ return null; }
 }
 
+function summariseBackup(data){
+  // Per member: number of distinct days with a logged value, and the latest such day
+  const out=[];
+  for(const m of (data.members||[])){
+    const days=new Set();
+    const ml=(data.logs||{})[m.id]||{};
+    for(const a of (m.activities||[])){
+      for(const [ds,l] of Object.entries(ml[a.id]||{})){ if(l&&l.value) days.add(ds); }
+    }
+    const sorted=[...days].sort();
+    out.push({name:m.name, days:days.size, latest:sorted[sorted.length-1]||null});
+  }
+  return out;
+}
 function downloadBackup(data, dateStr){
   const blob = new Blob([JSON.stringify(data,null,2)], {type:"application/json"});
   const url = URL.createObjectURL(blob);
@@ -1517,7 +2045,7 @@ async function loadData(){
         cache:'no-store',
       });
       if(res.ok){
-        const raw=await res.json();
+        const raw=cloudDecode(await res.json());
         const d=migrateData(raw);
         try{localStorage.setItem("ff_data",JSON.stringify(d));}catch{}
         // Daily snapshot — silently saves once per day before any writes happen
@@ -1553,7 +2081,7 @@ async function saveData(p){
       if(_saveStatusCb) _saveStatusCb("error");
       return;
     }
-    const remote=await res.json();
+    const remote=cloudDecode(await res.json());
     const merged={
       members: mergeMembers(remote.members, p.members),
       logs: deepMergeLogs(remote.logs||{}, p.logs||{}),
@@ -1562,7 +2090,8 @@ async function saveData(p){
     };
     const s=JSON.stringify(merged);
     try{localStorage.setItem("ff_data",s);}catch{}
-    const put=await fetch(JSONBIN_URL,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_API_KEY},body:s});
+    const body=cloudEncode(s); // throws (nothing is sent) if the compressed copy doesn't decode back to exactly s
+    const put=await fetch(JSONBIN_URL,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_API_KEY},body});
     if(!put.ok){
       _cloud.status=put.status; _cloud.message=(await _readErr(put)).slice(0,160);
       if(_saveStatusCb) _saveStatusCb("error");
@@ -6356,6 +6885,31 @@ function BackupDrawer({logs, members, theme, pattern, onRestore, onClose}){
   const backups = getLocalBackups();
   const [confirmRestore, setConfirmRestore] = useState(null);
   const today = todayStr();
+  const [fileData, setFileData] = useState(null);   // parsed backup chosen from a file
+  const [fileName, setFileName] = useState("");
+  const [fileErr, setFileErr] = useState("");
+  function onPickFile(e){
+    const f=e.target.files&&e.target.files[0]; setFileErr(""); setFileData(null);
+    if(!f) return;
+    setFileName(f.name);
+    const r=new FileReader();
+    r.onload=()=>{
+      try{
+        const d=JSON.parse(r.result);
+        if(!Array.isArray(d.members)||!d.members.length||!d.logs||typeof d.logs!=="object") throw new Error("not a tracker backup");
+        setFileData(migrateData(d));
+      }catch(err){ setFileErr("This file isn't a valid tracker backup."); }
+    };
+    r.onerror=()=>setFileErr("Couldn't read that file.");
+    r.readAsText(f);
+  }
+  function restoreFromFile(){
+    if(!fileData) return;
+    if(window.confirm(`Restore from ${fileName}?\n\nIts entries will be MERGED into your data: nothing already in the cloud is deleted, and days only in this file are added back. Download a current backup first if you haven't.`)){
+      onRestore(fileData);
+      onClose();
+    }
+  }
 
   function handleRestore(backup){
     const data = getLocalBackup(backup.key);
@@ -6398,6 +6952,35 @@ function BackupDrawer({logs, members, theme, pattern, onRestore, onClose}){
             width:"100%",padding:"10px",borderRadius:10,border:"none",
             background:"#4CAF50",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13,
           }}>⬇️ Download fitness_backup_{today}.json</button>
+          <div style={{marginTop:10,fontSize:11,color:"#2E7D32"}}>
+            {summariseBackup(currentData).map(r=>(
+              <div key={r.name} style={{display:"flex",justifyContent:"space-between",padding:"1px 0"}}>
+                <span style={{fontWeight:600}}>{r.name}</span>
+                <span>{r.days} days · latest {r.latest?new Date(r.latest+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"}):"—"}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Restore from a backup file */}
+        <div style={{background:"#E3F2FD",border:"1.5px solid #90CAF9",borderRadius:14,padding:"14px 16px",marginBottom:20}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#1565C0",letterSpacing:0.5,marginBottom:6}}>📤 RESTORE FROM A BACKUP FILE</div>
+          <div style={{fontSize:12,color:"#1565C0",marginBottom:10}}>
+            Pick a fitness_backup_….json file. You'll see what's inside before anything changes.
+          </div>
+          <input type="file" accept=".json,application/json" onChange={onPickFile} style={{fontSize:12,width:"100%"}}/>
+          {fileErr&&<div style={{fontSize:12,color:"#C62828",marginTop:8,fontWeight:600}}>{fileErr}</div>}
+          {fileData&&<div style={{marginTop:10,background:"#fff",borderRadius:10,padding:"10px 12px",border:"1px solid #BBDEFB"}}>
+            <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6}}>INSIDE THIS FILE</div>
+            {summariseBackup(fileData).map(r=>(
+              <div key={r.name} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"2px 0"}}>
+                <span style={{fontWeight:600}}>{r.name}</span>
+                <span style={{color:C.muted}}>{r.days} days · latest {r.latest?new Date(r.latest+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}):"—"}</span>
+              </div>
+            ))}
+            <button onClick={restoreFromFile} style={{width:"100%",marginTop:10,padding:"9px",borderRadius:10,border:"none",
+              background:"#1976D2",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13}}>Restore this file</button>
+          </div>}
         </div>
 
         {/* Local snapshots */}
