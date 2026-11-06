@@ -3783,6 +3783,22 @@ function _addDaysStr(dateStr, n){
 function _daysBetweenStr(a, b){ // whole days from a to b
   return Math.round((new Date(b+"T00:00:00")-new Date(a+"T00:00:00"))/86400000);
 }
+function _dailyArr(res, fromStr, toStr){ // net PP for every calendar day in the range (0 where nothing happened)
+  const E=res.dailyEarned||{}, out=[]; let d=fromStr;
+  while(d<=toStr){ out.push(E[d]||0); d=_addDaysStr(d,1); }
+  return out;
+}
+function _bestWindowPace(arr, n){ // best average PP/day over any n consecutive days (null if history is shorter than n)
+  if(arr.length<n) return null;
+  let sum=0; for(let i=0;i<n;i++) sum+=arr[i];
+  let best=sum; for(let i=n;i<arr.length;i++){ sum+=arr[i]-arr[i-n]; if(sum>best) best=sum; }
+  return Math.round(best/n);
+}
+function _bestDay(res, toStr){
+  let best=null;
+  for(const [d,v] of Object.entries(res.dailyEarned||{})) if(d<=toStr && (best===null||v>best.v)) best={v:Math.round(v),date:d};
+  return best;
+}
 function computeGapStats(member, target, logs){
   const today = todayStr();
   const me = computePowerPoints(member, logs);
@@ -3815,11 +3831,46 @@ function computeGapStats(member, target, logs){
   // Daily PP the member would need to close the gap in N days, if the target keeps their pace
   const needed = n => gap>0 ? Math.ceil(tgPace + gap/n) : 0;
 
+  // Month by month (from the month the later-starting member began, to now). Newest first.
+  const months = [];
+  {
+    const curKey = today.slice(0,7);
+    let y = +laterStart.slice(0,4), m = +laterStart.slice(5,7);
+    for(let guard=0; guard<240; guard++){
+      const key = y+"-"+String(m).padStart(2,"0");
+      const my = Math.round(_ppEarnedBetween(me, key+"-01", key+"-31"));
+      const tgE = Math.round(_ppEarnedBetween(tg, key+"-01", key+"-31"));
+      const label = new Date(key+"-01T00:00:00").toLocaleDateString("en-IN",{month:"short",year: key.slice(0,4)!==today.slice(0,4)?"2-digit":undefined});
+      months.push({key, label, my, tg: tgE, change: tgE-my, partial: key===curKey});
+      if(key>=curKey) break;
+      m++; if(m>12){m=1;y++;}
+    }
+    months.reverse();
+  }
+  // During the first 3 days of a month, keep last month's closing figures in view
+  const closedMonth = (parseInt(today.slice(8,10),10)<=3 && months.length>1) ? months[1] : null;
+
+  // Momentum: last 14 full days vs the 14 before them (only once there are 28 full days of history)
+  let momentum = null;
+  if(paceDays===28){
+    const r = (res, a, b) => Math.round(_ppEarnedBetween(res, a, b)/14);
+    const mk = res => { const recent=r(res,_addDaysStr(today,-14),yesterday), prior=r(res,_addDaysStr(today,-28),_addDaysStr(today,-15));
+      const diff=recent-prior, rel=Math.abs(diff)/Math.max(1,Math.abs(prior));
+      return {recent, prior, dir: rel<0.05 ? 0 : (diff>0 ? 1 : -1)}; };
+    momentum = {my: mk(me), tg: mk(tg)};
+  }
+
+  // Is the pace needed realistic? Compare with the best the member has ever sustained / done in a day.
+  const myBest28 = _bestWindowPace(_dailyArr(me, first(me), yesterday), 28);
+  const tgBest28 = _bestWindowPace(_dailyArr(tg, first(tg), yesterday), 28);
+  const myBestDay = _bestDay(me, yesterday), tgBestDay = _bestDay(tg, yesterday);
+
   return {
     myTotal: me.total, tgTotal: tg.total, gap,
     monthStart, myMonth, tgMonth, monthChange,
     paceDays, myPace, tgPace, closePerDay, daysToCatch, catchDate,
     needed30: needed(30), needed90: needed(90), needed180: needed(180),
+    months, closedMonth, momentum, myBest28, tgBest28, myBestDay, tgBestDay,
   };
 }
 
@@ -4363,7 +4414,10 @@ function GemVaultCard({member, logs}){
 function GapTrackerCard({member, target, logs}){
   const s = computeGapStats(member, target, logs);
   const [expanded, setExpanded] = useState(true);
+  const [showAllMonths, setShowAllMonths] = useState(false);
+  const [showNeeded, setShowNeeded] = useState(false);
   const fmt = n => Math.abs(Math.round(n)).toLocaleString();
+  const sgn = n => (n<0?"−":"+")+fmt(n);
   const behind = s.gap > 0, ahead = s.gap < 0;
   const monthLabel = new Date(s.monthStart+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"});
   // From the member's point of view: did they out-earn the target this month?
@@ -4374,6 +4428,18 @@ function GapTrackerCard({member, target, logs}){
   const row = {display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"7px 0",borderBottom:`1px solid ${C.border}`};
   const lab = {fontSize:11,color:C.muted};
   const val = {fontSize:13,fontWeight:800,color:C.text};
+  const head = {fontSize:10,color:C.muted,fontWeight:700,letterSpacing:0.5};
+  const arrow = d => d>0 ? {t:"▲",c:good} : d<0 ? {t:"▼",c:bad} : {t:"▬",c:C.muted};
+  const cols = {display:"grid",gridTemplateColumns:"84px 1fr 1fr 1fr",gap:6,padding:"7px 0",borderBottom:`1px solid ${C.border}`,alignItems:"baseline"};
+  const num = {fontSize:12,fontWeight:700,color:C.text,textAlign:"right"};
+  const shownMonths = showAllMonths ? s.months : s.months.slice(0,4);
+  const paceRow = (name, pace, mo) => <div style={{padding:"7px 0",borderBottom:`1px solid ${C.border}`}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+      <span style={lab}>{name}</span>
+      <span style={val}>{pace<0?"−":""}{fmt(pace)} /day{mo&&<span style={{color:arrow(mo.dir).c,marginLeft:6,fontSize:11}}>{arrow(mo.dir).t}</span>}</span>
+    </div>
+    {mo&&<div style={{fontSize:10,color:C.muted,textAlign:"right",marginTop:2}}>last 14 days {mo.recent<0?"−":""}{fmt(mo.recent)} · the 14 before {mo.prior<0?"−":""}{fmt(mo.prior)}{mo.dir>0?" · rising":mo.dir<0?" · slowing":" · steady"}</div>}
+  </div>;
 
   return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,marginBottom:12,overflow:"hidden"}}>
     <div onClick={()=>setExpanded(e=>!e)} style={{padding:"12px 16px",cursor:"pointer",background:"linear-gradient(135deg,#1a1a2e,#16213e)",
@@ -4394,29 +4460,54 @@ function GapTrackerCard({member, target, logs}){
     </div>
 
     {expanded&&<div style={{padding:"6px 16px 14px"}}>
-      <div style={{fontSize:10,color:C.muted,fontWeight:700,letterSpacing:0.5,marginTop:8}}>SINCE {monthLabel.toUpperCase()} (net PP earned)</div>
-      <div style={row}><span style={lab}>{member.name}</span><span style={val}>{s.myMonth<0?"−":"+"}{fmt(s.myMonth)}</span></div>
-      <div style={row}><span style={lab}>{target.name}</span><span style={val}>{s.tgMonth<0?"−":"+"}{fmt(s.tgMonth)}</span></div>
-      <div style={row}><span style={lab}>Gap {monthWord}</span><span style={{...val,color:gaining?good:losing?bad:C.text}}>{s.monthChange===0?"0":(gaining?"−":"+")+fmt(s.monthChange)} PP</span></div>
+      {s.closedMonth&&<div style={{margin:"10px 0 2px",padding:"8px 10px",borderRadius:8,background:"rgba(120,120,160,0.10)",fontSize:11,color:C.text}}>
+        <strong>{s.closedMonth.label} closed:</strong> {member.name} {sgn(s.closedMonth.my)} · {target.name} {sgn(s.closedMonth.tg)} → gap {s.closedMonth.change>0?"widened":s.closedMonth.change<0?"closed":"unchanged"} by {fmt(s.closedMonth.change)} PP
+      </div>}
 
-      <div style={{fontSize:10,color:C.muted,fontWeight:700,letterSpacing:0.5,marginTop:14}}>PACE · last {s.paceDays} full day{s.paceDays===1?"":"s"} (net PP per day)</div>
-      <div style={row}><span style={lab}>{member.name}</span><span style={val}>{s.myPace<0?"−":""}{fmt(s.myPace)} /day</span></div>
-      <div style={row}><span style={lab}>{target.name}</span><span style={val}>{s.tgPace<0?"−":""}{fmt(s.tgPace)} /day</span></div>
+      <div style={{...head,marginTop:10}}>MONTH BY MONTH (net PP earned)</div>
+      <div style={{...cols,paddingBottom:4}}>
+        <span style={lab}></span><span style={{...lab,textAlign:"right"}}>{member.name}</span><span style={{...lab,textAlign:"right"}}>{target.name}</span><span style={{...lab,textAlign:"right"}}>Gap change</span>
+      </div>
+      {shownMonths.map(m=>(
+        <div key={m.key} style={cols}>
+          <span style={{...lab,fontWeight:m.partial?800:600,color:m.partial?C.text:C.muted}}>{m.label}{m.partial?" ·":""}{m.partial&&<span style={{fontWeight:600,fontSize:9}}> so far</span>}</span>
+          <span style={num}>{sgn(m.my)}</span>
+          <span style={num}>{sgn(m.tg)}</span>
+          <span style={{...num,color:m.change<0?good:m.change>0?bad:C.text}}>{m.change===0?"0":sgn(m.change)}</span>
+        </div>
+      ))}
+      {s.months.length>4&&<div onClick={()=>setShowAllMonths(v=>!v)} style={{fontSize:11,color:C.muted,cursor:"pointer",padding:"8px 0 0",fontWeight:600}}>
+        {showAllMonths?"Show fewer months ▴":`Show all ${s.months.length} months ▾`}</div>}
+      <div style={{fontSize:10,color:C.muted,marginTop:4}}>Green = {member.name} out-earned {target.name} that month; red = {target.name} out-earned {member.name}.</div>
+
+      <div style={{...head,marginTop:14}}>PACE · last {s.paceDays} full day{s.paceDays===1?"":"s"} (net PP per day)</div>
+      {paceRow(member.name, s.myPace, s.momentum&&s.momentum.my)}
+      {paceRow(target.name, s.tgPace, s.momentum&&s.momentum.tg)}
       <div style={row}><span style={lab}>{behind?(s.closePerDay>0?"Gap shrinks by":s.closePerDay<0?"Gap grows by":"Gap steady"):(s.closePerDay>0?"Lead grows by":s.closePerDay<0?"Lead shrinks by":"Lead steady")}</span>
         <span style={{...val,color:s.closePerDay>0?good:s.closePerDay<0?bad:C.text}}>{fmt(s.closePerDay)} PP/day</span></div>
 
       {behind&&<>
-        <div style={{fontSize:10,color:C.muted,fontWeight:700,letterSpacing:0.5,marginTop:14}}>CATCHING {target.name.toUpperCase()}</div>
+        <div style={{...head,marginTop:14}}>CATCHING {target.name.toUpperCase()}</div>
         <div style={{fontSize:12,fontWeight:700,marginTop:6,color:s.daysToCatch?good:bad}}>
           {s.daysToCatch
             ? (s.daysToCatch>730 ? `More than 2 years away at current paces` : `At current paces: ${s.daysToCatch<14?`~${s.daysToCatch} day${s.daysToCatch===1?"":"s"}`:`~${Math.ceil(s.daysToCatch/7)} weeks`} (${new Date(s.catchDate+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})})`)
             : `Not closing at current paces`}
         </div>
-        <div style={{fontSize:10,color:C.muted,margin:"8px 0 2px"}}>PP/day needed if {target.name} keeps their pace:</div>
-        {[{d:30,v:s.needed30},{d:90,v:s.needed90},{d:180,v:s.needed180}].map(({d,v})=>(
-          <div key={d} style={row}><span style={lab}>Close in {d} days</span>
-            <span style={val}>{fmt(v)} /day <span style={{fontWeight:600,color:C.muted,fontSize:11}}>({v>s.myPace?"+"+fmt(v-s.myPace)+" vs now":"below current pace"})</span></span></div>
-        ))}
+        <div onClick={()=>setShowNeeded(v=>!v)} style={{fontSize:11,color:C.muted,cursor:"pointer",padding:"8px 0 2px",fontWeight:700}}>
+          {showNeeded?"▾":"▸"} What would it take to catch up?</div>
+        {showNeeded&&<>
+          <div style={{fontSize:10,color:C.muted,margin:"2px 0 4px"}}>PP/day needed if {target.name} keeps their pace. For comparison, {member.name}'s best:</div>
+          <div style={row}><span style={lab}>Best 28-day pace</span><span style={val}>{s.myBest28===null?"not enough history yet":fmt(s.myBest28)+" /day"}</span></div>
+          <div style={row}><span style={lab}>Best single day</span><span style={val}>{s.myBestDay?fmt(s.myBestDay.v)+" PP":"–"}{s.myBestDay&&<span style={{fontWeight:600,color:C.muted,fontSize:11}}> ({new Date(s.myBestDay.date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"})})</span>}</span></div>
+          {[{d:30,v:s.needed30},{d:90,v:s.needed90},{d:180,v:s.needed180}].map(({d,v})=>{
+            const within = s.myBest28!==null && v<=s.myBest28;
+            return <div key={d} style={{padding:"7px 0",borderBottom:`1px solid ${C.border}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}><span style={lab}>Close in {d} days</span>
+                <span style={val}>{fmt(v)} /day <span style={{fontWeight:600,color:C.muted,fontSize:11}}>({v>s.myPace?"+"+fmt(v-s.myPace)+" vs now":"below current pace"})</span></span></div>
+              {s.myBest28!==null&&<div style={{fontSize:10,textAlign:"right",marginTop:2,color:within?good:bad}}>{within?`✓ within your best 28-day pace`:`above your best 28-day pace by ${fmt(v-s.myBest28)}`}</div>}
+            </div>;
+          })}
+        </>}
       </>}
     </div>}
   </div>;
