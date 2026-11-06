@@ -3761,68 +3761,65 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
 }
 
 // ── Member Card ───────────────────────────────────────────────────────────────
-// ── The Chase — tracks gap between this member and their target ───────────────
-function computeChaseStats(member, target, logs){
+// ── Gap Tracker — gap between this member and a chosen target member ────────
+// All figures are net PP straight from computePowerPoints (the same scoring as everywhere else), so the
+// numbers tie exactly to the totals shown on each card. Nothing here uses a "last 7 days" window.
+//  • Since the 1st of the month: a fixed anchor, so it only moves when someone actually earns/loses points.
+//  • Pace: net PP per day over the last 28 COMPLETED days (ending yesterday). Each weekday is counted
+//    equally, and it does not change as the day goes on.
+// Device switch: off by default, remembered only on this device (never synced), so it can be shown on
+// one person's devices and stay hidden on another's.
+function gapVisibleOnDevice(){ try{return localStorage.getItem("ff_gap_visible")==="1";}catch{return false;} }
+function setGapVisibleOnDevice(v){ try{ if(v) localStorage.setItem("ff_gap_visible","1"); else localStorage.removeItem("ff_gap_visible"); }catch{} }
+
+function _ppEarnedBetween(res, fromStr, toStr){
+  let t=0;
+  for(const [d,v] of Object.entries(res.dailyEarned||{})) if(d>=fromStr && d<=toStr) t+=(v||0);
+  return t;
+}
+function _addDaysStr(dateStr, n){
+  const d=new Date(dateStr+"T00:00:00"); d.setDate(d.getDate()+n); return toLocalDateStr(d);
+}
+function _daysBetweenStr(a, b){ // whole days from a to b
+  return Math.round((new Date(b+"T00:00:00")-new Date(a+"T00:00:00"))/86400000);
+}
+function computeGapStats(member, target, logs){
   const today = todayStr();
-  const myPP = computePowerPoints(member, logs);
-  const targetPP = computePowerPoints(target, logs);
-  const gap = targetPP.total - myPP.total;
+  const me = computePowerPoints(member, logs);
+  const tg = computePowerPoints(target, logs);
+  const gap = tg.total - me.total;                  // + = member is behind, - = member is ahead
 
-  // Build weekly PP totals for last 6 weeks — for both members
-  function weeklyHistory(ppResult){
-    const weeks = [];
-    for(let w=5; w>=0; w--){
-      const weekEnd = new Date(today+"T00:00:00");
-      weekEnd.setDate(weekEnd.getDate() - w*7);
-      const weekStart = new Date(weekEnd);
-      weekStart.setDate(weekEnd.getDate() - 6);
-      const weekStartStr = toLocalDateStr(weekStart);
-      const weekEndStr = toLocalDateStr(weekEnd);
-      let total = 0;
-      for(const [d, pp] of Object.entries(ppResult.dailyEarned)){
-        if(d >= weekStartStr && d <= weekEndStr) total += Math.max(0, pp||0);
-      }
-      weeks.push({label: weekEnd.toLocaleDateString("en-IN",{day:"numeric",month:"short"}), pp: Math.round(total)});
-    }
-    return weeks;
+  // Since the 1st of this month (includes today)
+  const monthStart = today.slice(0,8)+"01";
+  const myMonth = Math.round(_ppEarnedBetween(me, monthStart, today));
+  const tgMonth = Math.round(_ppEarnedBetween(tg, monthStart, today));
+  const monthChange = tgMonth - myMonth;            // + = gap widened (target out-earned member), - = narrowed
+
+  // Pace: last 28 completed days, shortened if the later-starting member has fewer days of history
+  const yesterday = _addDaysStr(today, -1);
+  const first = x => Object.keys(x.dailyEarned||{}).sort()[0] || today;
+  let from = _addDaysStr(today, -28);
+  const laterStart = [first(me), first(tg)].sort().pop();
+  if(laterStart > from) from = laterStart;
+  const paceDays = Math.max(0, _daysBetweenStr(from, yesterday) + 1);
+  const myPace = paceDays>0 ? Math.round(_ppEarnedBetween(me, from, yesterday)/paceDays) : 0;
+  const tgPace = paceDays>0 ? Math.round(_ppEarnedBetween(tg, from, yesterday)/paceDays) : 0;
+
+  // Catch-up forecast at those paces
+  const closePerDay = myPace - tgPace;               // + = member gaining on target
+  let daysToCatch = null, catchDate = null;
+  if(gap>0 && closePerDay>0){
+    daysToCatch = Math.ceil(gap/closePerDay);
+    catchDate = _addDaysStr(today, daysToCatch);
   }
-
-  const myWeeks = weeklyHistory(myPP);
-  const targetWeeks = weeklyHistory(targetPP);
-
-  // Gap this week vs last week
-  const gapThisWeek = targetPP.weekPP - myPP.weekPP;
-  const myLastWeek = myWeeks[myWeeks.length-2]?.pp || 0;
-  const targetLastWeek = targetWeeks[targetWeeks.length-2]?.pp || 0;
-  const gapLastWeek = targetLastWeek - myLastWeek;
-  const gapChange = gapThisWeek - gapLastWeek; // positive = gap widening, negative = gap closing
-
-  // Projection: weeks to close at current pace
-  const netClosingPerWeek = myPP.weekPP - targetPP.weekPP; // positive = closing
-  let weeksToClose = null;
-  let catchDate = null;
-  if(netClosingPerWeek > 0){
-    weeksToClose = Math.ceil(gap / netClosingPerWeek);
-    const cd = new Date(today+"T00:00:00");
-    cd.setDate(cd.getDate() + weeksToClose*7);
-    catchDate = cd.toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"});
-  }
-
-  // What weekly PP needed to close in N weeks
-  function ppNeededToCloseIn(weeks){
-    const targetFuturePP = targetPP.total + targetPP.weekPP * weeks;
-    return Math.round((targetFuturePP - myPP.total) / weeks);
-  }
+  // Daily PP the member would need to close the gap in N days, if the target keeps their pace
+  const needed = n => gap>0 ? Math.ceil(tgPace + gap/n) : 0;
 
   return {
-    myTotal: myPP.total, targetTotal: targetPP.total, gap,
-    myWeekPP: myPP.weekPP, targetWeekPP: targetPP.weekPP,
-    gapThisWeek, gapChange,
-    myWeeks, targetWeeks,
-    weeksToClose, catchDate, netClosingPerWeek,
-    ppNeededIn8: ppNeededToCloseIn(8),
-    ppNeededIn12: ppNeededToCloseIn(12),
-    ppNeededIn24: ppNeededToCloseIn(24),
+    myTotal: me.total, tgTotal: tg.total, gap,
+    monthStart, myMonth, tgMonth, monthChange,
+    paceDays, myPace, tgPace, closePerDay, daysToCatch, catchDate,
+    needed30: needed(30), needed90: needed(90), needed180: needed(180),
   };
 }
 
@@ -4363,139 +4360,64 @@ function GemVaultCard({member, logs}){
   </>;
 }
 
-function ChaseCard({member, target, logs}){
-  const today = todayStr();
-  const s = computeChaseStats(member, target, logs);
+function GapTrackerCard({member, target, logs}){
+  const s = computeGapStats(member, target, logs);
   const [expanded, setExpanded] = useState(true);
-  const closing = s.netClosingPerWeek > 0;
-  const gapClosingThisWeek = s.gapThisWeek < 0; // negative gap delta = closing
+  const fmt = n => Math.abs(Math.round(n)).toLocaleString();
+  const behind = s.gap > 0, ahead = s.gap < 0;
+  const monthLabel = new Date(s.monthStart+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"});
+  // From the member's point of view: did they out-earn the target this month?
+  const gaining = s.monthChange < 0, losing = s.monthChange > 0;
+  const good = "#4CAF50", bad = "#FF5252", neutral = "rgba(255,255,255,0.55)";
+  const monthColor = gaining ? good : losing ? bad : neutral;
+  const monthWord = gaining ? (behind ? "closed" : "lead up") : losing ? (behind ? "widened" : "lead down") : "no change";
+  const row = {display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"7px 0",borderBottom:`1px solid ${C.border}`};
+  const lab = {fontSize:11,color:C.muted};
+  const val = {fontSize:13,fontWeight:800,color:C.text};
 
-  // Mini bar chart: max value across both members all weeks
-  const maxWeekPP = Math.max(...s.myWeeks.map(w=>w.pp), ...s.targetWeeks.map(w=>w.pp), 1);
-
-  return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,
-    marginBottom:12,overflow:"hidden"}}>
-
-    {/* Header — always visible */}
-    <div onClick={()=>setExpanded(e=>!e)} style={{
-      padding:"12px 16px",cursor:"pointer",
-      background:"linear-gradient(135deg,#1a1a2e,#16213e)",
-      display:"flex",alignItems:"center",justifyContent:"space-between",
-    }}>
+  return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,marginBottom:12,overflow:"hidden"}}>
+    <div onClick={()=>setExpanded(e=>!e)} style={{padding:"12px 16px",cursor:"pointer",background:"linear-gradient(135deg,#1a1a2e,#16213e)",
+      display:"flex",alignItems:"center",justifyContent:"space-between"}}>
       <div>
-        <div style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.5)",letterSpacing:0.5,marginBottom:2}}>
-          🏃 THE CHASE
-        </div>
+        <div style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.5)",letterSpacing:0.5,marginBottom:2}}>🏃 GAP TRACKER</div>
         <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>
-          {closing
-            ? `Closing in on ${target.name} — ${s.gap.toLocaleString()} PP behind`
-            : `${s.gap.toLocaleString()} PP behind ${target.name}`
-          }
+          {behind ? `${fmt(s.gap)} PP behind ${target.name}` : ahead ? `${fmt(s.gap)} PP ahead of ${target.name}` : `Level with ${target.name}`}
         </div>
       </div>
       <div style={{display:"flex",alignItems:"center",gap:8}}>
         <div style={{textAlign:"right"}}>
-          <div style={{fontSize:11,color: gapClosingThisWeek?"#4CAF50":"#FF5252",fontWeight:700}}>
-            {gapClosingThisWeek ? "▼ Closing" : "▲ Widening"}
-          </div>
-          <div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>
-            {Math.abs(s.gapThisWeek).toLocaleString()} PP/wk
-          </div>
+          <div style={{fontSize:11,color:monthColor,fontWeight:700}}>{s.monthChange===0?"":(gaining?"▼ ":"▲ ")}{fmt(s.monthChange)} PP</div>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>{monthWord} since {monthLabel}</div>
         </div>
         <span style={{color:"rgba(255,255,255,0.4)",fontSize:14}}>{expanded?"▾":"▸"}</span>
       </div>
     </div>
 
-    {expanded&&<div style={{padding:"14px 16px",display:"flex",flexDirection:"column",gap:14}}>
+    {expanded&&<div style={{padding:"6px 16px 14px"}}>
+      <div style={{fontSize:10,color:C.muted,fontWeight:700,letterSpacing:0.5,marginTop:8}}>SINCE {monthLabel.toUpperCase()} (net PP earned)</div>
+      <div style={row}><span style={lab}>{member.name}</span><span style={val}>{s.myMonth<0?"−":"+"}{fmt(s.myMonth)}</span></div>
+      <div style={row}><span style={lab}>{target.name}</span><span style={val}>{s.tgMonth<0?"−":"+"}{fmt(s.tgMonth)}</span></div>
+      <div style={row}><span style={lab}>Gap {monthWord}</span><span style={{...val,color:gaining?good:losing?bad:C.text}}>{s.monthChange===0?"0":(gaining?"−":"+")+fmt(s.monthChange)} PP</span></div>
 
-      {/* Gap + pace section */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-        <div style={{background:C.bg,borderRadius:10,padding:"10px 12px"}}>
-          <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:4}}>CURRENT GAP</div>
-          <div style={{fontSize:18,fontWeight:900,color:C.text}}>{s.gap.toLocaleString()}</div>
-          <div style={{fontSize:10,color:C.muted}}>PP behind {target.name}</div>
-        </div>
-        <div style={{background:C.bg,borderRadius:10,padding:"10px 12px"}}>
-          <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:4}}>GAP THIS WEEK</div>
-          <div style={{fontSize:18,fontWeight:900,color:gapClosingThisWeek?"#4CAF50":"#FF5252"}}>
-            {gapClosingThisWeek?"↓":"↑"}{Math.abs(s.gapThisWeek).toLocaleString()}
-          </div>
-          <div style={{fontSize:10,color:C.muted}}>{gapClosingThisWeek?"closing":"widening"}</div>
-        </div>
-        <div style={{background:C.bg,borderRadius:10,padding:"10px 12px"}}>
-          <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:4}}>YOUR PACE</div>
-          <div style={{fontSize:18,fontWeight:900,color:C.text}}>{s.myWeekPP.toLocaleString()}</div>
-          <div style={{fontSize:10,color:C.muted}}>PP this week</div>
-        </div>
-        <div style={{background:C.bg,borderRadius:10,padding:"10px 12px"}}>
-          <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:4}}>{target.name.toUpperCase()}'S PACE</div>
-          <div style={{fontSize:18,fontWeight:900,color:C.text}}>{s.targetWeekPP.toLocaleString()}</div>
-          <div style={{fontSize:10,color:C.muted}}>PP this week</div>
-        </div>
-      </div>
+      <div style={{fontSize:10,color:C.muted,fontWeight:700,letterSpacing:0.5,marginTop:14}}>PACE · last {s.paceDays} full day{s.paceDays===1?"":"s"} (net PP per day)</div>
+      <div style={row}><span style={lab}>{member.name}</span><span style={val}>{s.myPace<0?"−":""}{fmt(s.myPace)} /day</span></div>
+      <div style={row}><span style={lab}>{target.name}</span><span style={val}>{s.tgPace<0?"−":""}{fmt(s.tgPace)} /day</span></div>
+      <div style={row}><span style={lab}>{behind?(s.closePerDay>0?"Gap shrinks by":s.closePerDay<0?"Gap grows by":"Gap steady"):(s.closePerDay>0?"Lead grows by":s.closePerDay<0?"Lead shrinks by":"Lead steady")}</span>
+        <span style={{...val,color:s.closePerDay>0?good:s.closePerDay<0?bad:C.text}}>{fmt(s.closePerDay)} PP/day</span></div>
 
-      {/* Projection */}
-      <div style={{background:C.bg,borderRadius:10,padding:"12px 14px"}}>
-        <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:10}}>AT THIS PACE</div>
-        {closing && s.catchDate
-          ? <div style={{fontSize:13,fontWeight:700,color:"#4CAF50",marginBottom:6}}>
-              🎯 Catch {target.name} around <strong>{s.catchDate}</strong> (~{s.weeksToClose} weeks)
-            </div>
-          : <div style={{fontSize:13,fontWeight:700,color:"#FF5252",marginBottom:6}}>
-              ⚠️ Gap widening — need to outpace {target.name} by more than {s.targetWeekPP.toLocaleString()} PP/week
-            </div>
-        }
-        <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:8}}>
-          {[{weeks:8,pp:s.ppNeededIn8},{weeks:12,pp:s.ppNeededIn12},{weeks:24,pp:s.ppNeededIn24}].map(({weeks,pp})=>{
-            const feasible = pp <= s.myWeekPP * 2;
-            const d = new Date(today+"T00:00:00");
-            d.setDate(d.getDate()+weeks*7);
-            const dateLabel = d.toLocaleDateString("en-IN",{day:"numeric",month:"short"});
-            return <div key={weeks} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
-              padding:"6px 8px",borderRadius:7,background:feasible?"rgba(76,175,80,0.08)":"transparent"}}>
-              <span style={{fontSize:11,color:C.muted}}>Close in {weeks}w ({dateLabel})</span>
-              <span style={{fontSize:11,fontWeight:700,color:feasible?"#4CAF50":C.text}}>
-                {pp.toLocaleString()} PP/wk needed
-              </span>
-            </div>;
-          })}
+      {behind&&<>
+        <div style={{fontSize:10,color:C.muted,fontWeight:700,letterSpacing:0.5,marginTop:14}}>CATCHING {target.name.toUpperCase()}</div>
+        <div style={{fontSize:12,fontWeight:700,marginTop:6,color:s.daysToCatch?good:bad}}>
+          {s.daysToCatch
+            ? (s.daysToCatch>730 ? `More than 2 years away at current paces` : `At current paces: ${s.daysToCatch<14?`~${s.daysToCatch} day${s.daysToCatch===1?"":"s"}`:`~${Math.ceil(s.daysToCatch/7)} weeks`} (${new Date(s.catchDate+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})})`)
+            : `Not closing at current paces`}
         </div>
-      </div>
-
-      {/* Mini bar chart — last 6 weeks */}
-      <div style={{background:C.bg,borderRadius:10,padding:"12px 14px"}}>
-        <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:10}}>WEEKLY PP — LAST 6 WEEKS</div>
-        <div style={{display:"flex",gap:2,alignItems:"flex-end",height:60}}>
-          {s.myWeeks.map((w,i)=>{
-            const tw = s.targetWeeks[i];
-            const myH = Math.round((w.pp/maxWeekPP)*56);
-            const tH = Math.round((tw.pp/maxWeekPP)*56);
-            const isLast = i===s.myWeeks.length-1;
-            return <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
-              <div style={{width:"100%",display:"flex",gap:1,alignItems:"flex-end",height:56}}>
-                <div style={{flex:1,height:myH,background:member.color,borderRadius:"2px 2px 0 0",
-                  opacity:isLast?1:0.6,minHeight:w.pp>0?2:0}}/>
-                <div style={{flex:1,height:tH,background:target.color,borderRadius:"2px 2px 0 0",
-                  opacity:isLast?1:0.6,minHeight:tw.pp>0?2:0,
-                  backgroundImage:target.color===member.color?"repeating-linear-gradient(45deg,transparent,transparent 2px,rgba(255,255,255,0.3) 2px,rgba(255,255,255,0.3) 4px)":"none"}}/>
-              </div>
-              <div style={{fontSize:8,color:C.muted,textAlign:"center",lineHeight:1.2}}>{w.label}</div>
-            </div>;
-          })}
-        </div>
-        <div style={{display:"flex",gap:12,marginTop:8}}>
-          <div style={{display:"flex",alignItems:"center",gap:4}}>
-            <div style={{width:10,height:10,borderRadius:2,background:member.color}}/>
-            <span style={{fontSize:10,color:C.muted}}>{member.name}</span>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:4}}>
-            <div style={{width:10,height:10,borderRadius:2,background:target.color,
-              backgroundImage:target.color===member.color?"repeating-linear-gradient(45deg,transparent,transparent 2px,rgba(255,255,255,0.3) 2px,rgba(255,255,255,0.3) 4px)":"none"}}/>
-            <span style={{fontSize:10,color:C.muted}}>{target.name}</span>
-          </div>
-        </div>
-      </div>
-
+        <div style={{fontSize:10,color:C.muted,margin:"8px 0 2px"}}>PP/day needed if {target.name} keeps their pace:</div>
+        {[{d:30,v:s.needed30},{d:90,v:s.needed90},{d:180,v:s.needed180}].map(({d,v})=>(
+          <div key={d} style={row}><span style={lab}>Close in {d} days</span>
+            <span style={val}>{fmt(v)} /day <span style={{fontWeight:600,color:C.muted,fontSize:11}}>({v>s.myPace?"+"+fmt(v-s.myPace)+" vs now":"below current pace"})</span></span></div>
+        ))}
+      </>}
     </div>}
   </div>;
 }
@@ -4615,10 +4537,10 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
     {/* Egg-O-Meter */}
     {member.eggMeter&&<EggMeter member={member} logs={logs} onEggChange={onEggChange} onNewBadge={onNewBadge}/>}
 
-    {/* The Chase — gap tracker vs chosen target member */}
-    {member.chaseTarget&&(()=>{
+    {/* Gap Tracker — vs chosen target member; only shown on devices where it is switched on */}
+    {member.chaseTarget&&gapVisibleOnDevice()&&(()=>{
       const target = (allMembers||[]).find(m=>m.id===member.chaseTarget);
-      return target ? <ChaseCard member={member} target={target} logs={logs}/> : null;
+      return target ? <GapTrackerCard member={member} target={target} logs={logs}/> : null;
     })()}
 
     {/* Consistency */}
@@ -4847,6 +4769,7 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
   const[braveryEnabled,setBraveryEnabled]=useState(member?.braveryEnabled??false);
   const[illnessEnabled,setIllnessEnabled]=useState(member?.illnessEnabled??false);
   const[chaseTarget,setChaseTarget]=useState(member?.chaseTarget??null);
+  const[gapOnThisDevice,setGapOnThisDevice]=useState(gapVisibleOnDevice());
   const[startDate,setStartDate]=useState(member?.startDate??"");
   const[memberTheme,setMemberTheme]=useState(member?.memberTheme??"");
   const[memberPattern,setMemberPattern]=useState(member?.memberPattern??"");
@@ -4981,6 +4904,11 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
             <option key={m.id} value={m.id}>{m.name}</option>
           ))}
         </select>
+        <label style={{display:"flex",alignItems:"flex-start",gap:8,marginTop:10,cursor:"pointer"}}>
+          <input type="checkbox" checked={gapOnThisDevice} onChange={e=>setGapOnThisDevice(e.target.checked)} style={{marginTop:2}}/>
+          <span style={{fontSize:12,color:C.text}}>Show the gap tracker on <strong>this device</strong>
+            <span style={{display:"block",fontSize:11,color:C.muted}}>Off by default. Remembered only on this device, so it can stay hidden on others.</span></span>
+        </label>
       </div>
       <div style={{marginBottom:18}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
@@ -5043,7 +4971,7 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
       <div style={{display:"flex",gap:8}}>
         {!isNew&&<button onClick={()=>{if(window.confirm("Remove?"))onDelete(member.id);}} style={{padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",cursor:"pointer",color:C.missed,fontWeight:600}}>Delete</button>}
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,illnessEnabled,stackPoints,chaseTarget})} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
+        <button onClick={()=>{setGapVisibleOnDevice(gapOnThisDevice);onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,illnessEnabled,stackPoints,chaseTarget});}} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
       </div>
     </div>
   </div>;
