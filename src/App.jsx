@@ -6292,9 +6292,8 @@ function HeatmapView({member,logs}){
 function computeFamilyPulse(members, logs){
   if(members.length<2) return [];
   const today = todayStr();
-  const sevenDaysAgoDate = new Date(today+"T00:00:00");
-  sevenDaysAgoDate.setDate(sevenDaysAgoDate.getDate()-7);
-  const sevenDaysAgo = toLocalDateStr(sevenDaysAgoDate);
+  // Trend window: 4 weeks (same steady basis as the Gap Tracker), not a rolling 7 days
+  const windowAgo = _addDaysStr(today, -28);
 
   const stats = members.map(m=>{
     const {total, dailyEarned} = computePowerPoints(m, logs);
@@ -6302,9 +6301,10 @@ function computeFamilyPulse(members, logs){
     const ppToNext = nextLevel ? nextLevel.pp - total : null;
     let recentEarned = 0;
     for(const [date, pp] of Object.entries(dailyEarned)){
-      if(date > sevenDaysAgo && date <= today) recentEarned += (pp||0);
+      if(date > windowAgo && date <= today) recentEarned += (pp||0);
     }
-    return {member:m, total, ppToNext, nextLevelTitle:nextLevel?.title, totalWeekAgo: total-recentEarned};
+    const firstDate = Object.keys(dailyEarned).sort()[0] || today;
+    return {member:m, total, ppToNext, nextLevelTitle:nextLevel?.title, totalWeekAgo: total-recentEarned, hasWindow: firstDate <= windowAgo};
   });
 
   const insights=[];
@@ -6327,9 +6327,9 @@ function computeFamilyPulse(members, logs){
 
       if(gapNow<1000 && gapNow>0){
         insights.push({priority:1, text:`⚡ ${a.member.name} and ${b.member.name} are neck-and-neck — just ${gapNow.toLocaleString()} PP apart!`});
-      } else if(gapBefore-gapNow>=500){
-        insights.push({priority:2, text:`🏃 ${trailer.member.name} is catching up to ${leader.member.name} — now ${gapNow.toLocaleString()} PP behind (was ${gapBefore.toLocaleString()})`});
-      } else if(gapNow-gapBefore>=500){
+      } else if(a.hasWindow && b.hasWindow && gapBefore-gapNow>=2000){
+        insights.push({priority:2, text:`🏃 ${trailer.member.name} is catching up to ${leader.member.name} — now ${gapNow.toLocaleString()} PP behind (was ${gapBefore.toLocaleString()} 4 weeks ago)`});
+      } else if(a.hasWindow && b.hasWindow && gapNow-gapBefore>=2000){
         insights.push({priority:3, text:`🚀 ${leader.member.name} is pulling ahead of ${trailer.member.name} — gap now ${gapNow.toLocaleString()} PP`});
       }
     }
@@ -6411,24 +6411,17 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
     if(gap <= 0) return {alreadyAhead: true, gap: Math.abs(gap)};
 
     // Estimate chaser's current weekly PP from dailyEarned
+    // Same basis as the Gap Tracker: net PP/day over the last 28 completed days (ending yesterday),
+    // shortened to the later-starting member's history, then x7 for a weekly figure.
     const todayD = todayStr();
-    const sevenAgo = toLocalDateStr(new Date(new Date(todayD+"T00:00:00").getTime()-7*86400000));
-    let currentWeeklyPP = 0;
-    let daysWithData = 0;
-    for(const [d,pp] of Object.entries(chaserPP.dailyEarned||{})){
-      if(d > sevenAgo && d <= todayD){ currentWeeklyPP += Math.max(0,pp||0); daysWithData++; }
-    }
-    if(daysWithData > 0) currentWeeklyPP = (currentWeeklyPP/daysWithData)*7;
-    else currentWeeklyPP = chaserPP.weekPP||0;
-
-    // Estimate target's current weekly PP
-    let targetWeeklyPP = 0;
-    let targetDays = 0;
-    for(const [d,pp] of Object.entries(targetPP.dailyEarned||{})){
-      if(d > sevenAgo && d <= todayD){ targetWeeklyPP += Math.max(0,pp||0); targetDays++; }
-    }
-    if(targetDays > 0) targetWeeklyPP = (targetWeeklyPP/targetDays)*7;
-    else targetWeeklyPP = targetPP.weekPP||0;
+    const yest = _addDaysStr(todayD, -1);
+    const firstOf = x => Object.keys(x.dailyEarned||{}).sort()[0] || todayD;
+    let winFrom = _addDaysStr(todayD, -28);
+    const laterStart = [firstOf(chaserPP), firstOf(targetPP)].sort().pop();
+    if(laterStart > winFrom) winFrom = laterStart;
+    const paceDays = Math.max(0, _daysBetweenStr(winFrom, yest) + 1);
+    let currentWeeklyPP = paceDays>0 ? (_ppEarnedBetween(chaserPP, winFrom, yest)/paceDays)*7 : 0;
+    let targetWeeklyPP  = paceDays>0 ? (_ppEarnedBetween(targetPP, winFrom, yest)/paceDays)*7 : 0;
 
     // Compute simulated chaser weekly PP
     // Core principle: start from ACTUAL current weekly PP (same as The Chase)
@@ -6478,6 +6471,7 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
       gap, chaser, target,
       chaserStreak, chaserMult,
       targetStreak, targetMult,
+      paceDays,
       currentWeeklyPP: Math.round(currentWeeklyPP),
       targetWeeklyPP: Math.round(targetWeeklyPP),
       simWeeklyPP: Math.round(simWeeklyPP),
@@ -6602,6 +6596,9 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
                         {simResult.targetStreak}d · {simResult.targetMult}x
                       </div>
                     </div>
+                  </div>
+                  <div style={{marginTop:8,fontSize:10,color:C.muted,textAlign:"center"}}>
+                    Paces are the average of the last {simResult.paceDays} completed day{simResult.paceDays===1?"":"s"} (same as the Gap Tracker)
                   </div>
                   {simResult.simEggBoostPerWeek>0&&<div style={{marginTop:8,padding:"6px 10px",
                     background:"#FFF8E1",borderRadius:8,fontSize:11,color:"#E65100",fontWeight:600,textAlign:"center"}}>
