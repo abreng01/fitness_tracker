@@ -5107,6 +5107,26 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
   const[startDate,setStartDate]=useState(member?.startDate??"");
   const[memberTheme,setMemberTheme]=useState(member?.memberTheme??"");
   const[memberPattern,setMemberPattern]=useState(member?.memberPattern??"");
+  const[pin,setPin]=useState(member?.pin||null);
+  const[pinCur,setPinCur]=useState("");const[pinNew,setPinNew]=useState("");
+  const[pinMsg,setPinMsg]=useState("");const[pinBusy,setPinBusy]=useState(false);
+  const doSetPin=async()=>{
+    if(!/^\d{4,6}$/.test(pinNew)){setPinMsg("Use 4 to 6 digits.");return;}
+    setPinBusy(true);
+    try{
+      if(hasPin({pin})&&!(await pinCheck({pin},pinCur))){setPinMsg("Current PIN is wrong.");return;}
+      setPin(await pinMake(pinNew));setPinNew("");setPinCur("");
+      setPinMsg("PIN ready — press Save below to apply it.");
+    }finally{setPinBusy(false);}
+  };
+  const doRemovePin=async()=>{
+    setPinBusy(true);
+    try{
+      if(!(await pinCheck({pin},pinCur))){setPinMsg("Current PIN is wrong.");return;}
+      setPin(null);setPinCur("");setPinNew("");
+      setPinMsg("PIN will be removed when you press Save below.");
+    }finally{setPinBusy(false);}
+  };
   const eOpts=["🧗","🚶","🏃","🚴","🏋️","🤸","🧘","🏊","⚽","🏓","🎯","💪","🧒","👩","👨"];
   const addAct=()=>setActs(a=>[...a,{id:Date.now().toString(),name:"",unit:"reps",target:10}]);
   const remAct=id=>setActs(a=>a.filter(x=>x.id!==id));
@@ -5245,6 +5265,17 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
         </label>
       </div>
       <div style={{marginBottom:18}}>
+        <label style={lStyle}>🔑 Family door PIN <span style={{fontWeight:400,color:C.muted}}>(optional, just for fun — not security)</span></label>
+        <div style={{fontSize:11,color:C.muted,marginBottom:8}}>{hasPin({pin})?"A PIN is set. The app asks for it when this person opens the tracker.":"No PIN. Set one and the tracker will ask for it at the door."}</div>
+        {hasPin({pin})&&<input type="password" inputMode="numeric" autoComplete="off" maxLength={6} value={pinCur} onChange={e=>{setPinCur(e.target.value.replace(/\D/g,"").slice(0,6));setPinMsg("");}} placeholder="Current PIN" aria-label="Current PIN" style={{...iStyle,marginBottom:6}}/>}
+        <input type="password" inputMode="numeric" autoComplete="off" maxLength={6} value={pinNew} onChange={e=>{setPinNew(e.target.value.replace(/\D/g,"").slice(0,6));setPinMsg("");}} placeholder={hasPin({pin})?"New PIN (4–6 digits)":"Choose a PIN (4–6 digits)"} aria-label="New PIN" style={iStyle}/>
+        <div style={{display:"flex",gap:8,marginTop:6}}>
+          <button disabled={pinBusy||!pinNew} onClick={doSetPin} style={{flex:1,padding:"7px 0",borderRadius:8,border:`1.5px solid ${color}`,background:"none",color:color,cursor:"pointer",fontWeight:700,fontSize:12,opacity:(pinBusy||!pinNew)?0.5:1}}>{hasPin({pin})?"Change PIN":"Set PIN"}</button>
+          {hasPin({pin})&&<button disabled={pinBusy||!pinCur} onClick={doRemovePin} style={{flex:1,padding:"7px 0",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",color:C.missed,cursor:"pointer",fontWeight:700,fontSize:12,opacity:(pinBusy||!pinCur)?0.5:1}}>Remove PIN</button>}
+        </div>
+        {pinMsg&&<div role="status" style={{fontSize:11,color:pinMsg.includes("wrong")||pinMsg.includes("Use")?C.missed:C.done,marginTop:6}}>{pinMsg}</div>}
+      </div>
+      <div style={{marginBottom:18}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
           <label style={{...lStyle,marginBottom:0}}>Activities</label>
           <button onClick={addAct} style={{background:color,color:"#fff",border:"none",borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add</button>
@@ -5305,7 +5336,7 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
       <div style={{display:"flex",gap:8}}>
         {!isNew&&<button onClick={()=>{if(window.confirm("Remove?"))onDelete(member.id);}} style={{padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",cursor:"pointer",color:C.missed,fontWeight:600}}>Delete</button>}
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>{setGapVisibleOnDevice(gapOnThisDevice);onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,illnessEnabled,stackPoints,chaseTarget});}} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
+        <button onClick={()=>{setGapVisibleOnDevice(gapOnThisDevice);onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,illnessEnabled,stackPoints,chaseTarget,...(pin?{pin}:{})});}} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
       </div>
     </div>
   </div>;
@@ -7426,6 +7457,115 @@ function ThemePicker({theme, setTheme}){
 }
 
 // ── Main App ──────────────────────────────────────────────────────────────────
+// ── Family door (optional per-person PIN) ────────────────────────────────────
+// A friendly "who's using this?" screen, NOT security: the data is still on every device.
+async function pinHash(pin,salt){
+  const str=String(salt)+":"+String(pin);
+  try{
+    if(globalThis.crypto&&globalThis.crypto.subtle){
+      const buf=await globalThis.crypto.subtle.digest("SHA-256",new TextEncoder().encode(str));
+      return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+    }
+  }catch{}
+  let h=2166136261; for(let i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,16777619)>>>0;}
+  return "f"+h.toString(16);
+}
+async function pinMake(pin){
+  let s=""; try{ s=Array.from(globalThis.crypto.getRandomValues(new Uint8Array(8))).map(b=>b.toString(16).padStart(2,"0")).join(""); }catch{ s=Math.random().toString(16).slice(2,12); }
+  return {s,h:await pinHash(pin,s)};
+}
+async function pinCheck(m,pin){ return !!(m&&m.pin&&m.pin.h&&(await pinHash(pin,m.pin.s))===m.pin.h); }
+const hasPin=m=>!!(m&&m.pin&&m.pin.h);
+
+function FamilyDoor({members,theme,onEnter,onClearPin}){
+  const[sel,setSel]=useState(null);
+  const[mode,setMode]=useState("pin"); // "pin" | "reset"
+  const[pin,setPin]=useState("");
+  const[err,setErr]=useState("");
+  const[info,setInfo]=useState("");
+  const[remember,setRemember]=useState(false);
+  const[fails,setFails]=useState(0);
+  const[lockUntil,setLockUntil]=useState(0);
+  const[busy,setBusy]=useState(false);
+  const[,setTick]=useState(0);
+  const th=THEMES.find(t=>t.id===theme)||(typeof theme==="string"&&theme.startsWith("#")?{accent:theme,light:"#F0F0F0"}:THEMES[0]);
+  const locked=Date.now()<lockUntil;
+  const admin=members.find(m=>m.id==="1785579180664"||/^abrg$/i.test(m.name||""));
+  const resetters=sel?(admin&&admin.id!==sel.id?(hasPin(admin)?[admin]:[]):members.filter(m=>m.id!==sel.id&&hasPin(m))):[];
+  const back=()=>{setSel(null);setPin("");setErr("");setMode("pin");};
+  const pick=m=>{
+    setInfo("");setErr("");setPin("");setMode("pin");
+    if(!hasPin(m)){ onEnter(m.id,remember); return; }
+    setSel(m);
+  };
+  const wrong=()=>{
+    const f=fails+1; setFails(f);
+    if(f>=3){ setLockUntil(Date.now()+5000); setTimeout(()=>setTick(t=>t+1),5100); setErr("Too many tries — wait a few seconds."); }
+    else setErr("That PIN isn't right.");
+    setPin("");
+  };
+  const submit=async()=>{
+    if(busy||locked||!sel) return;
+    if(!/^\d{4,6}$/.test(pin)){ setErr("Enter 4 to 6 digits."); return; }
+    setBusy(true);
+    try{
+      if(mode==="pin"){
+        if(await pinCheck(sel,pin)){ setFails(0); onEnter(sel.id,remember); }
+        else wrong();
+      }else{
+        let ok=false; for(const r of resetters){ if(await pinCheck(r,pin)){ ok=true; break; } }
+        if(ok){ onClearPin(sel.id); setInfo(`${sel.name}'s PIN was cleared. Tap ${sel.name} to enter, then set a new PIN from Edit.`); back(); }
+        else wrong();
+      }
+    }finally{ setBusy(false); }
+  };
+  const tile={background:"#fff",border:`2px solid ${C.border}`,borderRadius:16,padding:"18px 10px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:6,fontFamily:"inherit",minWidth:0};
+  return <div style={{minHeight:"100vh",background:th.light,display:"flex",alignItems:"center",justifyContent:"center",padding:16,fontFamily:"'Inter','Helvetica Neue',sans-serif",color:C.text}}>
+    <div style={{background:C.surface,borderRadius:20,padding:"28px 22px",width:"100%",maxWidth:420,boxShadow:"0 8px 40px rgba(0,0,0,0.12)",borderTop:`5px solid ${th.accent}`}}>
+      <div style={{fontWeight:800,fontSize:20,letterSpacing:-0.5,textAlign:"center"}}>⚡ Family Fitness</div>
+      {!sel&&<>
+        <div style={{textAlign:"center",color:C.muted,fontSize:14,margin:"6px 0 18px"}}>Who's using this?</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:10}}>
+          {members.map(m=><button key={m.id} onClick={()=>pick(m)} style={{...tile,borderColor:m.color}}>
+            <span style={{fontSize:30}}>{m.emoji||"🏃"}</span>
+            <span style={{fontWeight:700,fontSize:14,color:m.color,wordBreak:"break-word"}}>{m.name}</span>
+            <span style={{fontSize:11,color:C.muted}}>{hasPin(m)?"🔒 PIN":"tap to enter"}</span>
+          </button>)}
+          <button onClick={()=>onEnter(null,remember)} style={{...tile,borderColor:th.accent}}>
+            <span style={{fontSize:30}}>👨‍👩‍👦</span>
+            <span style={{fontWeight:700,fontSize:14,color:th.accent}}>Family</span>
+            <span style={{fontSize:11,color:C.muted}}>everyone</span>
+          </button>
+        </div>
+        <label style={{display:"flex",alignItems:"center",gap:8,marginTop:18,cursor:"pointer",fontSize:12,color:C.muted}}>
+          <input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/>
+          Remember me on this device (skips the PIN next time)
+        </label>
+        {info&&<div role="status" style={{marginTop:12,fontSize:12,color:C.done,fontWeight:600}}>{info}</div>}
+      </>}
+      {sel&&<>
+        <div style={{textAlign:"center",margin:"14px 0 4px"}}>
+          <div style={{fontSize:36}}>{sel.emoji||"🏃"}</div>
+          <div style={{fontWeight:700,fontSize:16,color:sel.color}}>{sel.name}</div>
+          <div style={{color:C.muted,fontSize:13,marginTop:2}}>{mode==="pin"?"Enter your PIN":(resetters.length?`Enter ${resetters.length===1?resetters[0].name+"'s":"another member's"} PIN to clear ${sel.name}'s PIN`:`Clear ${sel.name}'s PIN?`)}</div>
+        </div>
+        {(mode==="pin"||resetters.length>0)&&<input autoFocus type="password" inputMode="numeric" autoComplete="off" maxLength={6} value={pin}
+          onChange={e=>{setPin(e.target.value.replace(/\D/g,"").slice(0,6));setErr("");}}
+          onKeyDown={e=>{if(e.key==="Enter")submit();}} aria-label="PIN"
+          style={{display:"block",margin:"12px auto 0",width:"70%",textAlign:"center",fontSize:24,letterSpacing:8,padding:"10px 12px",borderRadius:10,border:`2px solid ${C.border}`,outline:"none",boxSizing:"border-box"}}/>}
+        {err&&<div role="alert" style={{textAlign:"center",color:C.missed,fontSize:12,marginTop:8}}>{err}</div>}
+        <div style={{display:"flex",gap:8,marginTop:16}}>
+          <button onClick={back} style={{flex:1,padding:"10px 0",borderRadius:10,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Back</button>
+          {(mode==="pin"||resetters.length>0)
+            ?<button onClick={submit} disabled={busy||locked} style={{flex:2,padding:"10px 0",borderRadius:10,border:"none",background:sel.color,color:"#fff",cursor:"pointer",fontWeight:700,opacity:(busy||locked)?0.5:1}}>{mode==="pin"?"Unlock":"Clear PIN"}</button>
+            :<button onClick={()=>{onClearPin(sel.id);setInfo(`${sel.name}'s PIN was cleared. Tap ${sel.name} to enter, then set a new PIN from Edit.`);back();}} style={{flex:2,padding:"10px 0",borderRadius:10,border:"none",background:sel.color,color:"#fff",cursor:"pointer",fontWeight:700}}>Yes, clear it</button>}
+        </div>
+        {mode==="pin"&&<button onClick={()=>{setMode("reset");setPin("");setErr("");}} style={{display:"block",margin:"14px auto 0",background:"none",border:"none",color:C.muted,fontSize:12,cursor:"pointer",textDecoration:"underline"}}>Forgot PIN?</button>}
+      </>}
+    </div>
+  </div>;
+}
+
 export default function App(){
   const[members,setMembers]=useState(DEF_MEMBERS);
   const[logs,setLogs]=useState({});
@@ -7433,6 +7573,8 @@ export default function App(){
   const[editM,setEditM]=useState(null);
   const[toasts,setToasts]=useState([]);
   const[activeTab,setActiveTab]=useState(null);
+  const[door,setDoor]=useState(false); // true = show the "Who's using this?" screen
+  const doorChosen=useRef(false);      // door already decided the landing tab (incl. Family)
   const[ppPanelFor,setPpPanelFor]=useState(null);
   const[ppView,setPpView]=useState({view:"main",n:0}); // which sub-view the PP drawer opens on
   const[theme,setTheme]=useState("forest");
@@ -7472,6 +7614,16 @@ export default function App(){
         if(d.theme&&(THEMES.some(t=>t.id===d.theme)||d.theme.startsWith('#'))) setTheme(d.theme);
         if(d.pattern&&PATTERN_OPTIONS.some(p=>p.id===d.pattern)) setPattern(d.pattern);
       }
+      // Family door: only when at least one member has opted into a PIN
+      try{
+        const ms=(d&&Array.isArray(d.members)&&d.members.length>0)?d.members:DEF_MEMBERS;
+        if(ms.some(hasPin)){
+          let who=null; try{ who=sessionStorage.getItem("ff_who")||localStorage.getItem("ff_who"); }catch{}
+          if(who==="family"){ doorChosen.current=true; }
+          else if(who&&ms.some(m=>m.id===who)){ doorChosen.current=true; setActiveTab(who); }
+          else setDoor(true);
+        }
+      }catch{}
       setCloudInfo({..._cloud});
       if(!_cloud.ok) setSaveStatus("readonly");
       setLoaded(true);
@@ -7480,7 +7632,7 @@ export default function App(){
 
   // Set active tab to first member once loaded
   useEffect(()=>{
-    if(loaded&&members.length>0&&activeTab===null){
+    if(loaded&&members.length>0&&activeTab===null&&!doorChosen.current&&!door){
       setActiveTab(members[0].id);
     }
   },[loaded]);
@@ -7690,6 +7842,20 @@ export default function App(){
 
   if(!loaded) return <div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{color:C.muted,fontSize:16}}>Loading…</div></div>;
 
+  const doorOn=members.some(hasPin);
+  const enterDoor=(id,remember)=>{
+    doorChosen.current=true;
+    setActiveTab(id); setPpPanelFor(null); setDoor(false);
+    try{ sessionStorage.setItem("ff_who",id||"family"); }catch{}
+    try{ if(remember) localStorage.setItem("ff_who",id||"family"); else localStorage.removeItem("ff_who"); }catch{}
+  };
+  const switchWho=()=>{
+    try{ sessionStorage.removeItem("ff_who"); localStorage.removeItem("ff_who"); }catch{}
+    setDoor(true);
+  };
+  const clearPin=(id)=>setMembers(p=>p.map(m=>{ if(m.id!==id) return m; const {pin:_p,...rest}=m; return rest; }));
+  if(door&&doorOn) return <FamilyDoor members={members} theme={theme} onEnter={enterDoor} onClearPin={clearPin}/>;
+
   // Derive active theme and pattern — per-member if set, otherwise global
   const activeMember = activeTab ? members.find(m=>m.id===activeTab) : null;
   const activeThemeId = (activeMember?.memberTheme) || theme;
@@ -7727,6 +7893,9 @@ export default function App(){
         <button onClick={()=>setShowBackup(true)} style={{background:"none",border:`1px solid ${C.border}`,
           borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:13,color:C.muted,fontWeight:600,
           whiteSpace:"nowrap"}} title="Backup & Restore">💾</button>
+        {doorOn&&<button onClick={switchWho} style={{background:"none",border:`1px solid ${C.border}`,
+          borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:13,color:C.muted,fontWeight:600,
+          whiteSpace:"nowrap"}} title="Switch person">⇄ Switch</button>}
         <ThemePicker theme={theme} setTheme={setTheme}/>
         <PatternPicker pattern={pattern} setPattern={setPattern} accent={currentTheme.accent}/>
         <button onClick={()=>setEditM("new")} style={{background:currentTheme.accent,color:"#fff",border:"none",borderRadius:9,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>+ Add member</button>
