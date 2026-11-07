@@ -113,6 +113,14 @@ button:active:not(:disabled){transform:scale(.97);}
 .ff-pop{animation:ffPop .45s ease;}
 .ff-slideup{animation:ffSlideUp .3s cubic-bezier(.2,.8,.2,1) both;}
 .ff-slidedown{animation:ffSlideDown .45s cubic-bezier(.2,.8,.2,1) both;}
+.ff-cell{animation:ffCell .34s cubic-bezier(.2,.8,.2,1) backwards;}
+@keyframes ffCell{from{opacity:0;transform:scale(.8)}to{opacity:1;transform:none}}
+@keyframes ffSlideX{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+.ff-in-x{animation:ffSlideX .32s cubic-bezier(.2,.8,.2,1) backwards;}
+@keyframes ffToastIn{from{opacity:0;transform:translate(-50%,18px)}to{opacity:1;transform:translate(-50%,0)}}
+@keyframes ffFloatUp{0%{opacity:0;transform:translateY(8px)}20%{opacity:1}100%{opacity:0;transform:translateY(-34px)}}
+.ff-floatup{animation:ffFloatUp 1.5s ease-out forwards;}
+.ff-spark{animation:ffSpark .7s ease;}
 .ff-lift{transition:box-shadow .2s ease, transform .2s ease, border-color .2s ease;}
 .ff-lift:hover{box-shadow:0 8px 24px rgba(16,24,40,.10);transform:translateY(-1px);}
 .ff-bar{transition:width 1.1s cubic-bezier(.2,.8,.2,1);}
@@ -2490,8 +2498,21 @@ function CelebrationScreen({badge, memberName, onClose}){
 // ── Badge Toast ───────────────────────────────────────────────────────────────
 function Toast({badge,onDismiss}){
   const tc=TC[badge.tier];
-  useEffect(()=>{const t=setTimeout(onDismiss,4000);return()=>clearTimeout(t);},[]);
-  return <div style={{position:"fixed",bottom:28,left:"50%",transform:"translateX(-50%)",zIndex:300,
+  const isLevel=String(badge.id||"").startsWith("pp_level_");
+  useEffect(()=>{const t=setTimeout(onDismiss,isLevel?4500:4000);return()=>clearTimeout(t);},[]);
+  if(isLevel) return <div role="status" className="ff-slidedown" onClick={onDismiss} style={{position:"fixed",top:16,left:0,right:0,margin:"0 auto",width:"min(340px, 84vw)",zIndex:300,cursor:"pointer",
+    background:"var(--hero)",color:"#fff",borderRadius:16,padding:"16px 20px",display:"flex",alignItems:"center",gap:16,
+    border:"1px solid rgba(255,213,74,0.5)",boxShadow:"0 12px 40px rgba(0,0,0,0.35)"}}>
+    <div style={{position:"relative",width:52,height:52,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+      <span style={{position:"absolute",inset:0,borderRadius:"50%",border:"3px solid #FFD54A",animation:"ffRing .9s ease-out 2"}}/>
+      <span style={{fontSize:30}}>{badge.e}</span>
+    </div>
+    <div style={{minWidth:0}}>
+      <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:"#FFD54A"}}>LEVEL UP</div>
+      <div style={{fontSize:17,fontWeight:800,lineHeight:1.2}}>{badge.memberName?`${badge.memberName} · `:""}{badge.label}</div>
+    </div>
+  </div>;
+  return <div style={{position:"fixed",bottom:28,left:"50%",transform:"translateX(-50%)",animation:"ffToastIn .3s cubic-bezier(.2,.8,.2,1) both",zIndex:300,
     background:tc.bg,border:`2px solid ${tc.bd}`,borderRadius:16,padding:"14px 22px",
     boxShadow:`0 8px 40px ${tc.gl}`,display:"flex",alignItems:"center",gap:14,minWidth:280,maxWidth:400}}>
     <span style={{fontSize:36}}>{badge.e}</span>
@@ -3057,7 +3078,7 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
 }
 
 // ── Calendar Cell ─────────────────────────────────────────────────────────────
-function CalCell({dateStr,member,logs,isToday,onClick,ppByDate}){
+function CalCell({dateStr,member,logs,isToday,onClick,ppByDate,idx}){
   const future=isFuture(dateStr)||(member.startDate&&dateStr<member.startDate);
   const status=future?"future":dayStatus(member,logs,dateStr);
   const bg={future:"transparent",empty:C.empty,skipped:C.missed,done:C.done,shielded:"var(--tb-blue)"}[status]||C.empty;
@@ -3105,8 +3126,8 @@ function CalCell({dateStr,member,logs,isToday,onClick,ppByDate}){
 
   const[showTip,setShowTip]=useState(false);
 
-  return <div onClick={()=>!future&&onClick(dateStr)} style={{
-    background:bgColor,border:`${borderWidth} solid ${borderColor}`,
+  return <div className="ff-cell" onClick={()=>!future&&onClick(dateStr)} style={{
+    animationDelay:`${Math.min((idx||0),40)*0.012}s`,background:bgColor,border:`${borderWidth} solid ${borderColor}`,
     borderRadius:7,minHeight:46,cursor:future?"default":"pointer",
     opacity:future?0.3:1,display:"flex",flexDirection:"column",
     alignItems:"center",justifyContent:"center",gap:1,
@@ -4093,7 +4114,7 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
     <div>
       <div style={{fontSize:11,fontWeight:700,color:"var(--ink-blue)",letterSpacing:0.5,marginBottom:2}}>🥚 EGG-O-METER</div>
       <div style={{display:"flex",alignItems:"baseline",gap:8}}>
-        <span style={{fontSize:20,fontWeight:900,color:"var(--ink-blue)"}}>{totalCount % 1 === 0 ? totalCount : totalCount.toFixed(1)}</span>
+        <Pop v={totalCount} style={{fontSize:20,fontWeight:900,color:"var(--ink-blue)"}}>{totalCount % 1 === 0 ? totalCount : totalCount.toFixed(1)}</Pop>
         <span style={{fontSize:11,color:"var(--ink-blue)"}}>eggs · {ppLabel}</span>
       </div>
       {todayCount>0&&<div style={{fontSize:11,color:"var(--ink-blue)",marginTop:2}}>{todayCount % 1 === 0 ? todayCount : todayCount.toFixed(1)} today</div>}
@@ -4754,11 +4775,11 @@ function GemVaultCard({member, logs}){
               ? <span style={{fontSize:12,color:"rgba(255,255,255,0.35)"}}>No gems yet — start earning!</span>
               : <>
                   {earned.slice(0,7).map(g=>(
-                    <span key={g.id} style={{fontSize:20,lineHeight:1}}>
+                    <Pop key={g.id} v={counts[g.id]} cls="ff-spark" style={{fontSize:20,lineHeight:1}}>
                       {g.icon}
                       {counts[g.id]>1&&<sup style={{fontSize:9,color:"rgba(255,255,255,0.7)",
                         fontWeight:700,marginLeft:1}}>×{counts[g.id]}</sup>}
-                    </span>
+                    </Pop>
                   ))}
                   {earned.length>7&&<span style={{fontSize:11,color:"rgba(255,255,255,0.4)",marginLeft:4}}>
                     +{earned.length-7} more
@@ -4768,7 +4789,7 @@ function GemVaultCard({member, logs}){
           </div>
         </div>
         <div style={{textAlign:"right",marginLeft:12}}>
-          <div style={{fontSize:22,fontWeight:900,color:"#F9A825"}}>{total}</div>
+          <Pop v={total} style={{fontSize:22,fontWeight:900,color:"#F9A825"}}>{total}</Pop>
           <div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>total gems</div>
           <div style={{fontSize:11,color:"rgba(255,255,255,0.35)",marginTop:2}}>Tap to view ›</div>
         </div>
@@ -4880,6 +4901,33 @@ function GapTrackerCard({member, target, logs}){
   </div>;
 }
 
+// Replays a short animation on an element each time `v` changes (never on first paint).
+function Pop({v,cls="ff-pop",style,children}){
+  const ref=useRef(null); const first=useRef(true);
+  useEffect(()=>{
+    if(first.current){ first.current=false; return; }
+    const el=ref.current; if(!el) return;
+    el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls);
+    const t=setTimeout(()=>{ try{ el.classList.remove(cls); }catch{} },900);
+    return ()=>clearTimeout(t);
+  },[v]);
+  return <span ref={ref} style={{display:"inline-block",...style}}>{children}</span>;
+}
+// Floating "+N PP" that rises from the hero card when power points go up.
+function PPFloat({total}){
+  const prev=useRef(null);
+  const[gain,setGain]=useState(null);
+  useEffect(()=>{
+    const p=prev.current; prev.current=total;
+    if(p===null||total<=p) return;
+    const d=total-p; if(d>20000) return; // ignore big jumps from data refreshes
+    setGain({d,k:Date.now()});
+    const t=setTimeout(()=>setGain(null),1600);
+    return ()=>clearTimeout(t);
+  },[total]);
+  if(!gain) return null;
+  return <div key={gain.k} className="ff-floatup" aria-hidden="true" style={{position:"absolute",right:22,top:"38%",fontWeight:800,fontSize:18,color:"#FFD700",pointerEvents:"none",zIndex:3}}>+{gain.d.toLocaleString()} PP</div>;
+}
 function CountUp({value}){
   const[shown,setShown]=useState(value);
   const prev=useRef(null);
@@ -4991,7 +5039,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
     onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
       <div>
         <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.4)",letterSpacing:1,marginBottom:2}}>⚡ POWER POINTS</div>
-        <div style={{fontSize:40,fontWeight:800,letterSpacing:-1.2,color:"#FFD700",lineHeight:1.05,fontVariantNumeric:"tabular-nums"}}><CountUp value={ppData.total}/></div>
+        <div style={{fontSize:40,fontWeight:800,letterSpacing:-1.2,color:"#FFD700",lineHeight:1.05,fontVariantNumeric:"tabular-nums"}}><Pop v={ppData.total}><CountUp value={ppData.total}/></Pop></div>
         {ppData.weekPP>0&&<div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginTop:2}}>+{ppData.weekPP.toLocaleString()} this week</div>}
       </div>
       <div title="See all levels" onClick={e=>{e.stopPropagation();onOpenPP&&onOpenPP(member.id,"levels");}}
@@ -5003,8 +5051,9 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
         <div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>Level {ppLevel.level} · 📖 levels ›</div>
         {ppNext&&<div style={{fontSize:9,color:"rgba(255,255,255,0.35)",marginTop:2}}>{(ppNext.pp-ppData.total).toLocaleString()} to {ppNext.icon} {ppNext.title}</div>}
       </div>
+      <PPFloat total={ppData.total}/>
       {ppNext&&<div style={{position:"absolute",bottom:0,left:0,right:0,height:3,background:"rgba(255,255,255,0.1)",borderRadius:"0 0 12px 12px",overflow:"hidden"}}>
-        <div style={{height:"100%",width:`${Math.round(((ppData.total-ppLevel.pp)/(ppNext.pp-ppLevel.pp))*100)}%`,background:"linear-gradient(90deg,#FFD700,#FFA500)",transition:"width 0.5s"}}/>
+        <div style={{height:"100%",width:`${Math.round(((ppData.total-ppLevel.pp)/(ppNext.pp-ppLevel.pp))*100)}%`,background:"linear-gradient(90deg,#FFD700,#FFA500)",transition:"width 0.9s cubic-bezier(.2,.8,.2,1)"}}/>
       </div>}
     </div>
 
@@ -5058,15 +5107,15 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
     </div>
     <div className="mc-small mc-w ff-in">
     {/* Today */}
-    <div style={{background:member.color+"0E",border:`1px solid ${member.color}28`,borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+    <div key={"today"} style={{background:member.color+"0E",border:`1px solid ${member.color}28`,borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontSize:11,color:C.muted,marginBottom:3}}>Today</div>
         {loggedCount===0
           ?<span style={{fontSize:13,color:C.muted}}>Not logged yet</span>
           :<div style={{display:"flex",flexWrap:"wrap",gap:"4px 10px"}}>
-            {doneToday.map(({act,log})=><span key={act.id} style={{fontSize:13,fontWeight:700,color:log.value>=act.target?C.done:C.partial}}>
+            {doneToday.map(({act,log})=><Pop key={act.id} v={log.value} style={{fontSize:13,fontWeight:700,color:log.value>=act.target?C.done:C.partial}}>
               {act.name}: {log.value}{act.unit}
-            </span>)}
+            </Pop>)}
           </div>}
       </div>
       <button onClick={()=>setModal(today)} style={{background:member.color,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13,whiteSpace:"nowrap",flexShrink:0}}>
@@ -5123,9 +5172,9 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
       <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:3}}>
         {DAYS.map(d=><div key={d} style={{textAlign:"center",fontSize:9,color:C.muted,fontWeight:600}}>{d}</div>)}
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
+      <div key={`${year}-${month}`} style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
         {calDays.map((ds,i)=>ds===null?<div key={`e${i}`}/>:
-          <CalCell key={ds} dateStr={ds} member={member} logs={logs} isToday={ds===today} onClick={d=>setModal(d)} ppByDate={ppData.dailyEarned}/>)}
+          <CalCell key={ds} idx={i} dateStr={ds} member={member} logs={logs} isToday={ds===today} onClick={d=>setModal(d)} ppByDate={ppData.dailyEarned}/>)}
       </div>
     </div>}
 
@@ -7980,7 +8029,7 @@ export default function App(){
     if(MAJOR_MILESTONE_IDS.has(b.id)){
       setCelebration({...b,memberName});
     } else {
-      setToasts(q=>[...q,{...b,key:Date.now()+Math.random()}]);
+      setToasts(q=>[...q,{...b,memberName,key:Date.now()+Math.random()}]);
     }
   },[]);
 
@@ -8117,7 +8166,7 @@ export default function App(){
       {/* Individual member tab */}
       {activeTab&&members.filter(m=>m.id===activeTab).map(m=>(
         <div key={m.id} style={{display:"flex",gap:20,flexWrap:"wrap",alignItems:"flex-start"}}>
-          <div key={m.id} className="ff-in" style={{flex:"1 1 460px",minWidth:0}}>
+          <div key={m.id} className="ff-in-x" style={{flex:"1 1 460px",minWidth:0}}>
             <MemberCard member={m} logs={logs} allMembers={members}
               onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}
               onOpenPP={(id,view)=>{setPpPanelFor(id);setPpView(v=>({view:view||"main",n:v.n+1}));}} onGrowthSave={handleGrowthSave}
@@ -8130,7 +8179,7 @@ export default function App(){
       ))}
 
       {/* Family tab */}
-      {activeTab===null&&members.length>0&&<FamilyDashboard members={members} logs={logs} yr={yr} mo={mo} MONTHS={MONTHS}/>}
+      {activeTab===null&&members.length>0&&<div key="family" className="ff-in-x"><FamilyDashboard members={members} logs={logs} yr={yr} mo={mo} MONTHS={MONTHS}/></div>}
     </div>
 
     {celebration&&<CelebrationScreen badge={celebration} memberName={celebration.memberName} onClose={()=>setCelebration(null)}/>}
