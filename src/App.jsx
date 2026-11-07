@@ -2036,8 +2036,81 @@ function downloadBackup(data, dateStr){
   URL.revokeObjectURL(url);
 }
 
+
+// ── Cloudflare store (D1 database behind a Worker) ───────────────────────────
+// STORE_MODE:  "jsonbin" = JSONBin only (the original behaviour)
+//              "dual"    = JSONBin is the source of truth; every successful save is also copied to Cloudflare
+//              "cf"      = Cloudflare is the source of truth; JSONBin only gets a write-only copy of each save
+// The Worker only accepts a write that names the version it was based on, so a device working from an old copy
+// is refused instead of overwriting newer data; the app then re-reads, merges and retries.
+const CF_URL   = "https://ff-store.abrg0104.workers.dev";
+const CF_TOKEN = "4de559c8478bd81ef7d43d77ba4203091b9e9fcd4256151d";
+const STORE_MODE = "dual";
+const JSONBIN_MIRROR = true;      // in "cf" mode: keep writing a copy to JSONBin (stops by itself if its quota runs out)
+const CF_ON = STORE_MODE!=="jsonbin" && !!CF_URL && !!CF_TOKEN;
+_cloud.cf = { state: CF_ON?"idle":"off", v:null, at:null, message:"" };
+function _cfNote(state, extra){ _cloud.cf = { ..._cloud.cf, state, at:new Date().toISOString(), message:"", ...extra }; }
+async function cfGet(){
+  const res=await fetch(`${CF_URL}/state`,{headers:{'X-FF-Token':CF_TOKEN},cache:'no-store'});
+  if(!res.ok) throw new Error("Cloudflare read failed ("+res.status+")");
+  return res.json(); // {v, data, updated}
+}
+async function cfPut(base, data){
+  const res=await fetch(`${CF_URL}/state`,{method:'PUT',headers:{'Content-Type':'application/json','X-FF-Token':CF_TOKEN},body:JSON.stringify({base,data})});
+  if(res.status===409) return {conflict:true};
+  if(!res.ok) throw new Error("Cloudflare write failed ("+res.status+")");
+  return res.json(); // {ok:true, v}
+}
+function cfDecodeState(cur){ return cur&&cur.data ? cloudDecode(JSON.parse(cur.data)) : null; }
+// Copy a finished JSON string to Cloudflare (dual mode). Never throws: a Cloudflare problem must not affect saving.
+async function cfMirror(s){
+  if(!CF_ON) return;
+  try{
+    const data=cloudEncode(s);
+    for(let i=0;i<3;i++){
+      const cur=await cfGet();
+      const r=await cfPut(cur.v,data);
+      if(!r.conflict){ _cfNote("ok",{v:r.v}); return; }
+    }
+    throw new Error("Cloudflare kept changing underneath this save");
+  }catch(e){ _cfNote("error",{message:String(e&&e.message||e).slice(0,160)}); }
+}
+// "cf" mode only: write-only copy to JSONBin. Never throws.
+async function jsonbinMirror(s){
+  if(!JSONBIN_MIRROR||!(JSONBIN_BIN_ID&&JSONBIN_API_KEY)) return;
+  try{ await fetch(JSONBIN_URL,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_API_KEY},body:cloudEncode(s)}); }catch{}
+}
+
+// First run only: if Cloudflare has nothing yet, copy what was just loaded from JSONBin into it. Not awaited.
+async function cfSeedIfEmpty(d){
+  try{
+    const cur=await cfGet();
+    if(cur.v===0 && !cur.data){ await cfMirror(JSON.stringify(d)); }
+    else _cfNote("ok",{v:cur.v});
+  }catch(e){ _cfNote("error",{message:String(e&&e.message||e).slice(0,160)}); }
+}
 async function loadData(){
   try{ _cloud.lastSync = localStorage.getItem("ff_last_sync"); }catch{}
+  if(STORE_MODE==="cf" && CF_ON){
+    try{
+      const cur=await cfGet();
+      const raw=cfDecodeState(cur);
+      if(raw){
+        const d=migrateData(raw);
+        try{localStorage.setItem("ff_data",JSON.stringify(d));}catch{}
+        saveLocalBackup(d);
+        _cloud.ok=true; _markSynced(); _cfNote("ok",{v:cur.v});
+        return d;
+      }
+      // Cloudflare is still empty: fall through to JSONBin once, and the first save will fill Cloudflare.
+    }catch(e){
+      // Cloudflare unreachable: never fall back to another store and write from a possibly older copy.
+      _cloud = {..._cloud, ok:false, status:null, message:String(e&&e.message||e).slice(0,160)};
+      _cfNote("error",{message:_cloud.message});
+      try{const r=localStorage.getItem("ff_data");if(r)return JSON.parse(r);}catch{}
+      return null;
+    }
+  }
   if(JSONBIN_BIN_ID&&JSONBIN_API_KEY){
     try{
       const res=await fetch(`${JSONBIN_URL}/latest`,{
@@ -2051,6 +2124,7 @@ async function loadData(){
         // Daily snapshot — silently saves once per day before any writes happen
         saveLocalBackup(d);
         _cloud.ok=true; _markSynced();
+        if(CF_ON) cfSeedIfEmpty(d);
         return d;
       }
       _cloud = {..._cloud, ok:false, status:res.status, message:(await _readErr(res)).slice(0,160)};
@@ -2061,9 +2135,38 @@ async function loadData(){
   try{const r=localStorage.getItem("ff_data");if(r)return JSON.parse(r);}catch{}
   return null;
 }
+async function saveDataCf(p){
+  try{
+    for(let attempt=0;attempt<5;attempt++){
+      const cur=await cfGet();
+      const remote=cfDecodeState(cur)||{};
+      const merged={
+        members: mergeMembers(remote.members, p.members),
+        logs: deepMergeLogs(remote.logs||{}, p.logs||{}),
+        theme: p.theme,
+        pattern: p.pattern,
+      };
+      const s=JSON.stringify(merged);
+      try{localStorage.setItem("ff_data",s);}catch{}
+      const data=cloudEncode(s); // throws (nothing is sent) if the compressed copy doesn't decode back to exactly s
+      const r=await cfPut(cur.v,data);
+      if(r.conflict) continue; // another device saved in between: re-read, merge again, retry
+      _cfNote("ok",{v:r.v}); _markSynced();
+      if(_saveStatusCb) _saveStatusCb("saved");
+      jsonbinMirror(s);
+      return;
+    }
+    throw new Error("Couldn't save: another device kept saving at the same moment. Try again.");
+  }catch(e){
+    _cloud.status=null; _cloud.message=String(e&&e.message||e).slice(0,160); _cfNote("error",{message:_cloud.message});
+    try{localStorage.setItem("ff_data",JSON.stringify(p));}catch{}
+    if(_saveStatusCb) _saveStatusCb("error");
+  }
+}
 async function saveData(p){
   if(!_cloud.ok){ if(_saveStatusCb) _saveStatusCb("readonly"); return; } // loaded from a stale local copy — never write
   if(_saveStatusCb) _saveStatusCb("saving");
+  if(STORE_MODE==="cf" && CF_ON) return saveDataCf(p);
   if(!(JSONBIN_BIN_ID&&JSONBIN_API_KEY)){
     try{localStorage.setItem("ff_data",JSON.stringify(p));}catch{}
     if(_saveStatusCb) _saveStatusCb("saved");
@@ -2099,6 +2202,7 @@ async function saveData(p){
     }
     _markSynced();
     if(_saveStatusCb) _saveStatusCb("saved");
+    if(STORE_MODE==="dual") cfMirror(s); // copy to Cloudflare; never affects this save
   }catch(e){
     _cloud.status=null; _cloud.message=String(e&&e.message||e).slice(0,160);
     try{localStorage.setItem("ff_data",JSON.stringify(p));}catch{}
@@ -6956,6 +7060,13 @@ function BackupDrawer({logs, members, theme, pattern, onRestore, onClose}){
       </div>
 
       <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px"}}>
+
+        {CF_ON&&(()=>{const cf=_cloud.cf||{};const bad=cf.state==="error";
+          const t=cf.at?new Date(cf.at).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}):null;
+          return <div style={{fontSize:11,color:bad?"#B71C1C":C.muted,background:bad?"#FFEBEE":C.bg,border:`1px solid ${bad?"#EF9A9A":C.border}`,borderRadius:10,padding:"8px 12px",marginBottom:14,lineHeight:1.5}}>
+            ☁️ <b>Cloudflare copy:</b> {bad?`problem — ${cf.message||"unknown"}`:cf.state==="ok"?`in sync (version ${cf.v}, ${t})`:"not checked yet in this session"}
+            <div style={{opacity:0.8}}>{STORE_MODE==="dual"?"JSONBin is the main store; every save is also copied here.":"Cloudflare is the main store."}</div>
+          </div>;})()}
 
         {/* Download current */}
         <div style={{background:"linear-gradient(135deg,#E8F5E9,#F1F8E9)",border:"1.5px solid #81C784",
