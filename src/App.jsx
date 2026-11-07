@@ -1,11 +1,135 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 // ── Palette ───────────────────────────────────────────────────────────────────
+// Core colours are CSS variables so one switch flips the whole app between light and dark.
+// (done/partial/missed stay real hex values: the code adds alpha suffixes to them.)
 const C = {
-  bg:"#F7F5F0", surface:"#FFFFFF", border:"#E8E4DC",
-  text:"#1A1A1A", muted:"#8A8580",
-  done:"#3D9E6E", partial:"#E8A838", missed:"#E05C5C", empty:"#D9D5CD",
+  bg:"var(--bg)", surface:"var(--card)", border:"var(--line)",
+  text:"var(--text)", muted:"var(--muted)",
+  done:"#3D9E6E", partial:"#E8A838", missed:"#E05C5C", empty:"var(--empty)",
 };
+
+// ── Look & feel: light/dark mode, accent colour, motion ───────────────────────
+function _hexRgb(h){ const n=parseInt(String(h).replace("#","").slice(0,6),16); return [(n>>16)&255,(n>>8)&255,n&255]; }
+function _rgbHex(a){ return "#"+a.map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,"0")).join(""); }
+function mixHex(a,b,t){ const x=_hexRgb(a),y=_hexRgb(b); return _rgbHex(x.map((v,i)=>v+(y[i]-v)*t)); }
+function hexLum(h){ const c=_hexRgb(h).map(v=>{v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4);}); return 0.2126*c[0]+0.7152*c[1]+0.0722*c[2]; }
+// Accent variables for the current mode: lighter in dark mode, readable text on top of it.
+function accentVars(accent,mode){
+  const ok=/^#[0-9a-fA-F]{6}$/.test(accent||"")?accent:"#3D9E6E";
+  const dark=mode==="dark";
+  const acc=dark?mixHex(ok,"#FFFFFF",0.28):mixHex(ok,"#000000",0.08);
+  return {
+    "--accent":acc,
+    "--accent-soft":dark?mixHex(acc,"#0D0F14",0.80):mixHex(acc,"#FFFFFF",0.86),
+    "--accent-ink":dark?acc:mixHex(ok,"#000000",0.28),
+    "--on-accent":hexLum(acc)>0.42?"#12141A":"#FFFFFF",
+  };
+}
+function readModePref(){ try{ const m=localStorage.getItem("ff_mode"); return (m==="dark"||m==="auto")?m:"light"; }catch{ return "light"; } }
+function resolveMode(pref){
+  if(pref==="auto"){ try{ return window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"; }catch{ return "light"; } }
+  return pref==="dark"?"dark":"light";
+}
+const GLOBAL_CSS = `
+:root{
+  --bg:#F5F6F8; --card:#FFFFFF; --line:#E4E7EC; --text:#12141A; --muted:#5B6370; --bg2:#F3F4F6; --empty:#E4E1DA;
+  --hero:#12141A; --shadow:0 1px 2px rgba(16,24,40,.05);
+  --t-yellow:#FFF8E1; --t-blue:#EBF2FC; --t-green:#E8F5E9; --t-orange:#FFF3E0; --t-red:#FFEBEE; --t-purple:#F3E5F5;
+  --tb-blue:#90CAF9; --tb-red:#EF9A9A; --tb-orange:#FFCC80;
+  --ink-orange:#B84300; --ink-brown:#7B4F00; --ink-blue:#1565C0; --ink-green:#2E7D32; --ink-red:#C62828; --ink-purple:#5E35B1;
+  --accent:#3D9E6E; --accent-soft:#E6F4EC; --accent-ink:#2B7350; --on-accent:#FFFFFF;
+  color-scheme:light;
+}
+:root[data-mode="dark"]{
+  --bg:#0D0F14; --card:#151922; --line:#262C38; --text:#EDEFF4; --muted:#98A1B2; --bg2:#1B202A; --empty:#2A303C;
+  --hero:#1B2132; --shadow:0 1px 2px rgba(0,0,0,.4);
+  --t-yellow:#2E2713; --t-blue:#17263F; --t-green:#14301F; --t-orange:#33200F; --t-red:#3A1A1A; --t-purple:#261D3A;
+  --tb-blue:#2F5C93; --tb-red:#7A3B3B; --tb-orange:#8A5A1F;
+  --ink-orange:#FFB074; --ink-brown:#E8C27A; --ink-blue:#8EC0FF; --ink-green:#6FD39A; --ink-red:#FF8A80; --ink-purple:#C3A8FF;
+  color-scheme:dark;
+}
+html,body{margin:0;background:var(--bg);color:var(--text);}
+body{font-family:Inter,"Helvetica Neue",system-ui,sans-serif;-webkit-font-smoothing:antialiased;}
+button,input,select,textarea{font-family:inherit;}
+button{transition:transform .12s ease, background-color .15s ease, border-color .15s ease, opacity .15s ease;}
+button:active:not(:disabled){transform:scale(.97);}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+.ff-app{display:flex;min-height:100vh;background:var(--bg);color:var(--text);}
+.ff-side{width:232px;flex-shrink:0;box-sizing:border-box;background:var(--card);border-right:1px solid var(--line);
+  padding:24px 14px;display:flex;flex-direction:column;gap:4px;position:sticky;top:0;height:100vh;overflow-y:auto;}
+.ff-logo{display:flex;align-items:center;gap:10px;padding:0 10px 20px;font-weight:800;font-size:16px;letter-spacing:-.2px;}
+.ff-logo-mark{width:30px;height:30px;border-radius:9px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:16px;}
+.ff-side-label{font-size:11px;font-weight:700;letter-spacing:.8px;color:var(--muted);padding:0 10px 6px;}
+.ff-nav{display:flex;align-items:center;gap:12px;padding:9px 10px;border-radius:10px;border:none;background:transparent;
+  color:var(--text);font-size:14px;font-weight:500;cursor:pointer;text-align:left;width:100%;white-space:nowrap;}
+.ff-nav:hover{background:var(--accent-soft);}
+.ff-nav[aria-current="page"]{background:var(--accent-soft);font-weight:700;}
+.ff-avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
+.ff-main{flex:1;min-width:0;display:flex;flex-direction:column;}
+.ff-top{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:14px 32px;background:var(--bg);border-bottom:1px solid var(--line);}
+.ff-wrap{position:relative;width:100%;box-sizing:border-box;padding:24px 32px 56px;margin:0 auto;display:flex;flex-direction:column;gap:20px;transition:max-width .2s;}
+.ff-chip{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 12px;border-radius:10px;border:1px solid var(--line);
+  background:var(--card);color:var(--muted);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
+.ff-chip:hover{border-color:var(--accent);color:var(--text);}
+
+.ff-card{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);box-sizing:border-box;min-width:0;}
+.mc{display:flex;flex-wrap:wrap;gap:16px;align-items:stretch;}
+.mc>*{flex:1 1 100%;min-width:0;}
+.mc>.mc-hero{flex:2 1 420px;}
+.mc>.mc-cons{flex:1 1 240px;}
+.mc>.mc-egg{flex:1 1 500px;}
+.mc>.mc-gem{flex:1 1 500px;}
+.mc>.mc-small{flex:1 1 400px;}
+.mc>.mc-cal{flex:3 1 440px;}
+.mc>.mc-pb{flex:1 1 500px;}
+.mc-w:empty{display:none;}
+.mc-w>*{margin-bottom:0 !important;}
+.mc-w>*{height:100%;box-sizing:border-box;}
+.mc>*:nth-child(2){animation-delay:0.090s;}
+.mc>*:nth-child(3){animation-delay:0.135s;}
+.mc>*:nth-child(4){animation-delay:0.180s;}
+.mc>*:nth-child(5){animation-delay:0.225s;}
+.mc>*:nth-child(6){animation-delay:0.270s;}
+.mc>*:nth-child(7){animation-delay:0.315s;}
+.mc>*:nth-child(8){animation-delay:0.360s;}
+.mc>*:nth-child(9){animation-delay:0.405s;}
+.mc-tabs{display:flex;gap:6px;flex-wrap:wrap;}
+.mc-tab{height:34px;padding:0 14px;border-radius:99px;border:1px solid var(--line);background:var(--card);color:var(--muted);
+  font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap;}
+.mc-tab:hover{border-color:var(--accent);color:var(--text);}
+.mc-tab.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent);}
+
+/* Motion: gentle, fast, and switched off when the device asks for reduced motion */
+@keyframes ffFadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes ffPop{0%{transform:scale(1)}40%{transform:scale(1.18)}100%{transform:scale(1)}}
+@keyframes ffSlideUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+@keyframes ffSlideDown{from{opacity:0;transform:translateY(-18px)}to{opacity:1;transform:none}}
+@keyframes ffRing{0%{transform:scale(.6);opacity:.9}100%{transform:scale(2.2);opacity:0}}
+@keyframes ffSpark{0%{transform:scale(1) rotate(0)}30%{transform:scale(1.3) rotate(10deg)}60%{transform:scale(1.1) rotate(-6deg)}100%{transform:scale(1) rotate(0)}}
+.ff-in{animation:ffFadeUp .38s cubic-bezier(.2,.8,.2,1) backwards;}
+.ff-pop{animation:ffPop .45s ease;}
+.ff-slideup{animation:ffSlideUp .3s cubic-bezier(.2,.8,.2,1) both;}
+.ff-slidedown{animation:ffSlideDown .45s cubic-bezier(.2,.8,.2,1) both;}
+.ff-lift{transition:box-shadow .2s ease, transform .2s ease, border-color .2s ease;}
+.ff-lift:hover{box-shadow:0 8px 24px rgba(16,24,40,.10);transform:translateY(-1px);}
+.ff-bar{transition:width 1.1s cubic-bezier(.2,.8,.2,1);}
+
+@media (max-width:900px){
+  .ff-app{flex-direction:column;}
+  .ff-side{width:auto;height:auto;position:static;flex-direction:row;align-items:center;gap:4px;padding:8px 10px;border-right:none;
+    border-bottom:1px solid var(--line);overflow-x:auto;overflow-y:hidden;}
+  .ff-logo,.ff-side-label,.ff-side-sep,.ff-side-grow{display:none;}
+  .ff-nav{width:auto;flex-shrink:0;padding:8px 12px;}
+  .ff-top{padding:10px 14px;}
+  .ff-wrap{padding:16px 14px 48px;}
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;scroll-behavior:auto !important;}
+}
+`;
 // ── Theme accents — only affects neutral chrome (header, +Add button, Family tab, background tint) ──
 // Never touches semantic colors (done/missed/shielded) or member-specific colors
 const THEMES = [
@@ -1193,7 +1317,7 @@ function getMemberBadges(member){
 const TC={
   bronze:{bg:"#FDF0E0",bd:"#C97D3A",tx:"#7A4A1E",gl:"#C97D3A33"},
   silver:{bg:"#F0F4F8",bd:"#8A9BB0",tx:"#3A4A5E",gl:"#8A9BB033"},
-  gold:  {bg:"#FFFAE0",bd:"#C9A800",tx:"#7A6200",gl:"#C9A80033"},
+  gold:  {bg:"var(--t-yellow)",bd:"#C9A800",tx:"#7A6200",gl:"#C9A80033"},
 };
 
 function computeStats(al,target){
@@ -2260,9 +2384,9 @@ function scheduleSave(p){
 }
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
-const navBtn={background:"#FFFFFF",border:"1px solid #E8E4DC",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16,color:"#1A1A1A"};
-const iStyle={width:"100%",padding:"8px 10px",borderRadius:8,border:"1.5px solid #E8E4DC",fontSize:13,color:"#1A1A1A",boxSizing:"border-box",outline:"none",background:"#F7F5F0"};
-const lStyle={fontSize:11,color:"#8A8580",display:"block",marginBottom:4,fontWeight:600};
+const navBtn={background:"var(--card)",border:"1px solid var(--line)",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16,color:"var(--text)"};
+const iStyle={width:"100%",padding:"8px 10px",borderRadius:8,border:"1.5px solid var(--line)",fontSize:13,color:"var(--text)",boxSizing:"border-box",outline:"none",background:"var(--bg2)"};
+const lStyle={fontSize:11,color:"var(--muted)",display:"block",marginBottom:4,fontWeight:600};
 
 // ── ConsistencyBar ────────────────────────────────────────────────────────────
 function ConsistencyBar({pct}){
@@ -2542,8 +2666,8 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDeleteEntry,onClo
                 </div>
               </div>
 
-              {en.status==="shielded"&&<div style={{fontSize:11,color:"#1976D2",background:"#E3F2FD",
-                border:"1px solid #90CAF9",borderRadius:8,padding:"8px 10px",marginBottom:10}}>
+              {en.status==="shielded"&&<div style={{fontSize:11,color:"#1976D2",background:"var(--t-blue)",
+                border:"1px solid var(--tb-blue)",borderRadius:8,padding:"8px 10px",marginBottom:10}}>
                 🛡️ This will protect just <strong>{act.name}</strong>'s streak today — {shieldsLeft} of 4 shields left this month.
               </div>}
 
@@ -2577,7 +2701,7 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDeleteEntry,onClo
                   value={en.value} onChange={e=>upd(act.id,"value",parseFloat(e.target.value)||0)}
                   placeholder={en.mode==="add"?"e.g. this session's amount":undefined}
                   style={{flex:1,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,
-                  fontSize:20,fontWeight:700,outline:"none",background:"#fff"}}/>
+                  fontSize:20,fontWeight:700,outline:"none",background:"var(--card)"}}/>
                 <span style={{fontSize:13,color:C.muted,fontWeight:600,minWidth:36}}>{act.unit}</span>
               </div>}
 
@@ -2805,7 +2929,7 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
               display:"flex",alignItems:"center",gap:12,padding:"12px 14px",
               borderRadius:isShielded?"10px 10px 0 0":10,
               border:`2px solid ${selected?member.color:isShielded?"#1976D2":C.border}`,
-              background:selected?member.color+"0F":isShielded?"#E3F2FD":"transparent",
+              background:selected?member.color+"0F":isShielded?"var(--t-blue)":"transparent",
               transition:"all 0.15s",
             }}>
               <div onClick={()=>toggleAct(a.id)} style={{
@@ -2826,8 +2950,8 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
                 cursor:"pointer",fontWeight:600,fontSize:11,whiteSpace:"nowrap",
               }}>{isShielded?"🛡️ Shielded":"🛡️ Shield"}</button>}
             </div>
-            {isShielded&&<div style={{fontSize:11,color:"#1976D2",background:"#E3F2FD",
-              border:"1.5px solid #90CAF9",borderTop:"none",borderRadius:"0 0 10px 10px",
+            {isShielded&&<div style={{fontSize:11,color:"#1976D2",background:"var(--t-blue)",
+              border:"1.5px solid var(--tb-blue)",borderTop:"none",borderRadius:"0 0 10px 10px",
               padding:"8px 14px",marginTop:-2}}>
               Protects just <strong>{a.name}</strong>'s streak today — {shieldsLeft} of 4 shields left this month.
             </div>}
@@ -2873,11 +2997,11 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
                 Already logged: <strong style={{color:C.text}}>{en.originalValue} {a.unit}</strong> today
               </div>}
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <button onClick={()=>stepVal(a,-quickStep(a,(qstats[a.id]||{}).usual))} style={{padding:"8px 9px",borderRadius:8,border:`1.5px solid ${C.border}`,background:"#fff",cursor:"pointer",fontWeight:700,fontSize:12,color:C.muted}}>−{quickStep(a,(qstats[a.id]||{}).usual)}</button>
+                <button onClick={()=>stepVal(a,-quickStep(a,(qstats[a.id]||{}).usual))} style={{padding:"8px 9px",borderRadius:8,border:`1.5px solid ${C.border}`,background:"var(--card)",cursor:"pointer",fontWeight:700,fontSize:12,color:C.muted}}>−{quickStep(a,(qstats[a.id]||{}).usual)}</button>
                 <input type="number" min={0} step={isDecimal(a.unit)?0.1:1}
                   value={en.value} onChange={e=>updVal(a.id,parseFloat(e.target.value)||0)}
-                  style={{flex:1,minWidth:0,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,fontSize:20,fontWeight:700,outline:"none",background:"#fff"}}/>
-                <button onClick={()=>stepVal(a,quickStep(a,(qstats[a.id]||{}).usual))} style={{padding:"8px 9px",borderRadius:8,border:`1.5px solid ${C.border}`,background:"#fff",cursor:"pointer",fontWeight:700,fontSize:12,color:C.muted}}>+{quickStep(a,(qstats[a.id]||{}).usual)}</button>
+                  style={{flex:1,minWidth:0,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,fontSize:20,fontWeight:700,outline:"none",background:"var(--card)"}}/>
+                <button onClick={()=>stepVal(a,quickStep(a,(qstats[a.id]||{}).usual))} style={{padding:"8px 9px",borderRadius:8,border:`1.5px solid ${C.border}`,background:"var(--card)",cursor:"pointer",fontWeight:700,fontSize:12,color:C.muted}}>+{quickStep(a,(qstats[a.id]||{}).usual)}</button>
                 <span style={{fontSize:13,color:C.muted,fontWeight:600,minWidth:28}}>{a.unit}</span>
               </div>
               {en.alreadyLogged&&en.mode==="add"&&en.originalValue>0&&<div style={{fontSize:12,color:member.color,fontWeight:600,marginTop:6}}>
@@ -2936,7 +3060,7 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
 function CalCell({dateStr,member,logs,isToday,onClick,ppByDate}){
   const future=isFuture(dateStr)||(member.startDate&&dateStr<member.startDate);
   const status=future?"future":dayStatus(member,logs,dateStr);
-  const bg={future:"transparent",empty:C.empty,skipped:C.missed,done:C.done,shielded:"#BBDEFB"}[status]||C.empty;
+  const bg={future:"transparent",empty:C.empty,skipped:C.missed,done:C.done,shielded:"var(--tb-blue)"}[status]||C.empty;
   const illnessEntry = !future ? getIllnessLog(logs, member.id)[dateStr] : null;
 
   const acts=member.activities||[];
@@ -2977,7 +3101,7 @@ function CalCell({dateStr,member,logs,isToday,onClick,ppByDate}){
 
   const borderColor = illnessEntry?"#8E5FA8":aboveTarget?"#C9A800":isToday?member.color:C.border;
   const borderWidth = illnessEntry||aboveTarget||isToday?"2px":"1px";
-  const bgColor = illnessEntry?"#F3E5F5":aboveTarget?"#2E8B57":bg;
+  const bgColor = illnessEntry?"var(--t-purple)":aboveTarget?"#2E8B57":bg;
 
   const[showTip,setShowTip]=useState(false);
 
@@ -3034,8 +3158,8 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
 
   function levelBadgeTier(lvl){
     if(lvl>=50) return {bg:"#E8F4FD",bd:"#1565C0",tx:"#0D47A1",tier:"Diamond"};
-    if(lvl>=30) return {bg:"#FFF9E6",bd:"#F9A825",tx:"#E65100",tier:"Gold"};
-    if(lvl>=20) return {bg:"#F5F5F5",bd:"#9E9E9E",tx:"#424242",tier:"Silver"};
+    if(lvl>=30) return {bg:"var(--t-yellow)",bd:"#F9A825",tx:"#E65100",tier:"Gold"};
+    if(lvl>=20) return {bg:"var(--bg2)",bd:"#9E9E9E",tx:"#424242",tier:"Silver"};
     if(lvl>=10) return {bg:"#FBF0E6",bd:"#A0522D",tx:"#795548",tier:"Bronze"};
     return {bg:C.bg,bd:C.border,tx:C.muted,tier:"Iron"};
   }
@@ -3314,7 +3438,7 @@ function LevelsList({total, level, nextLevel, completeLevelDates}){
       const isOpen=open.has(g.key), isCurG=g.key===curGroup;
       return <div key={g.key} style={{marginBottom:6}}>
         <div onClick={()=>toggle(g.key)} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:8,cursor:"pointer",
-          background:isCurG?"#FFF9E6":C.bg,border:`1px solid ${isCurG?"#F9A825":C.border}`}}>
+          background:isCurG?"var(--t-yellow)":C.bg,border:`1px solid ${isCurG?"#F9A825":C.border}`}}>
           <span style={{fontSize:11,color:C.muted,width:10}}>{isOpen?"▾":"▸"}</span>
           <span style={{flex:1,fontSize:12,fontWeight:700,color:C.text}}>Lv {first}–{last} <span style={{fontWeight:500,color:C.muted}}>· {levelTierName(first)}</span></span>
           <span style={{fontSize:11,fontWeight:700,color:earned===g.levels.length?"#2E7D32":C.muted}}>
@@ -3335,7 +3459,7 @@ function LevelsList({total, level, nextLevel, completeLevelDates}){
                 <span style={{flex:1,fontSize:12,fontWeight:isCur||isNext?700:500,color:isCur?"#FFD700":C.text}}>
                   {l.title}
                   {isCur&&<span style={{marginLeft:6,fontSize:9,fontWeight:800,color:"#1a1a2e",background:"#FFD700",borderRadius:99,padding:"1px 6px"}}>YOU</span>}
-                  {isNext&&<span style={{marginLeft:6,fontSize:9,fontWeight:800,color:"#E65100",background:"#FFF3E0",borderRadius:99,padding:"1px 6px"}}>NEXT</span>}
+                  {isNext&&<span style={{marginLeft:6,fontSize:9,fontWeight:800,color:"var(--ink-orange)",background:"var(--t-orange)",borderRadius:99,padding:"1px 6px"}}>NEXT</span>}
                 </span>
                 <span style={{fontSize:9,color:isCur?"rgba(255,255,255,0.4)":C.muted,textAlign:"right"}}>
                   {l.pp.toLocaleString()} PP
@@ -3346,7 +3470,7 @@ function LevelsList({total, level, nextLevel, completeLevelDates}){
                 <div style={{background:C.bg,borderRadius:99,height:5,overflow:"hidden",border:`1px solid ${C.border}`}}>
                   <div style={{height:"100%",width:`${nextPct}%`,background:"linear-gradient(90deg,#FFD700,#FFA500)"}}/>
                 </div>
-                <div style={{fontSize:10,color:"#E65100",fontWeight:600,marginTop:3}}>{(l.pp-total).toLocaleString()} PP to go · {nextPct}%</div>
+                <div style={{fontSize:10,color:"var(--ink-orange)",fontWeight:600,marginTop:3}}>{(l.pp-total).toLocaleString()} PP to go · {nextPct}%</div>
               </div>}
             </div>;
           })}
@@ -3510,9 +3634,9 @@ function PowerPointsPanel({member, logs, onClose, view="main", viewNonce=0}){
 
       {tab==="overview"&&<>
         {projection&&projection.daysAway!==null&&<div style={{
-          background:"#FFFDE7",border:"1px solid #F9A825",borderRadius:10,padding:"10px 12px",marginBottom:14,
+          background:"var(--t-yellow)",border:"1px solid #F9A825",borderRadius:10,padding:"10px 12px",marginBottom:14,
         }}>
-          <div style={{fontSize:11,color:"#7A6200"}}>
+          <div style={{fontSize:11,color:"var(--ink-brown)"}}>
             🔮 At this pace, <strong>{projection.nextLevel.icon} {projection.nextLevel.title}</strong> in{" "}
             <strong>{projection.daysAway===1?"~1 day":projection.daysAway<7?`~${projection.daysAway} days`:projection.weeksAway===1?"~1 week":`~${projection.weeksAway} weeks`}</strong>
           </div>
@@ -3820,17 +3944,17 @@ function EggHistoryDrawer({member, logs, onEggChange, onClose}){
             borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:14,color:C.text,opacity:isCurMo?0.3:1}}>›</button>
         </div>
 
-        <div style={{background:"linear-gradient(135deg,#EBF2FC,#DCE9F9)",border:"1.5px solid #5B8FD4",
+        <div style={{background:"linear-gradient(135deg,var(--t-blue),var(--t-blue))",border:"1.5px solid #5B8FD4",
           borderRadius:12,padding:"14px 16px",marginBottom:16,textAlign:"center"}}>
-          <div style={{fontSize:10,fontWeight:700,color:"#2C5FA8",letterSpacing:0.5,marginBottom:2}}>MONTHLY TOTAL</div>
-          <div style={{fontSize:24,fontWeight:900,color:"#2C5FA8"}}>{monthTotal % 1 === 0 ? monthTotal : monthTotal.toFixed(1)} <span style={{fontSize:14}}>🥚</span></div>
-          <div style={{fontSize:11,color:"#4A6B94"}}>+{(monthTotal*1000).toLocaleString()} ⚡ this month</div>
+          <div style={{fontSize:10,fontWeight:700,color:"var(--ink-blue)",letterSpacing:0.5,marginBottom:2}}>MONTHLY TOTAL</div>
+          <div style={{fontSize:24,fontWeight:900,color:"var(--ink-blue)"}}>{monthTotal % 1 === 0 ? monthTotal : monthTotal.toFixed(1)} <span style={{fontSize:14}}>🥚</span></div>
+          <div style={{fontSize:11,color:"var(--ink-blue)"}}>+{(monthTotal*1000).toLocaleString()} ⚡ this month</div>
         </div>
 
         {/* Inline editor for selected date */}
-        {selectedDate&&<div style={{background:"#EBF2FC",border:"1.5px solid #5B8FD4",borderRadius:12,
+        {selectedDate&&<div style={{background:"var(--t-blue)",border:"1.5px solid #5B8FD4",borderRadius:12,
           padding:"14px 16px",marginBottom:14}}>
-          <div style={{fontWeight:700,fontSize:13,color:"#2C5FA8",marginBottom:10}}>
+          <div style={{fontWeight:700,fontSize:13,color:"var(--ink-blue)",marginBottom:10}}>
             🥚 {new Date(selectedDate+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"})}
             {selectedDate===today ? " (Today)" : ""}
           </div>
@@ -3838,20 +3962,20 @@ function EggHistoryDrawer({member, logs, onEggChange, onClose}){
             <div style={{display:"flex",gap:6}}>
               {selectedCount>0&&<button onClick={()=>onEggChange(member.id,selectedDate,-0.5)} style={{
                 background:"none",border:"1.5px solid #5B8FD4",borderRadius:8,padding:"6px 12px",
-                cursor:"pointer",fontWeight:700,fontSize:13,color:"#2C5FA8",
+                cursor:"pointer",fontWeight:700,fontSize:13,color:"var(--ink-blue)",
               }}>−½</button>}
               {selectedCount>0&&<button onClick={()=>onEggChange(member.id,selectedDate,-1)} style={{
                 background:"none",border:"1.5px solid #5B8FD4",borderRadius:8,padding:"6px 12px",
-                cursor:"pointer",fontWeight:700,fontSize:13,color:"#2C5FA8",
+                cursor:"pointer",fontWeight:700,fontSize:13,color:"var(--ink-blue)",
               }}>−1</button>}
             </div>
-            <div style={{fontSize:22,fontWeight:900,color:"#2C5FA8",minWidth:40,textAlign:"center"}}>
+            <div style={{fontSize:22,fontWeight:900,color:"var(--ink-blue)",minWidth:40,textAlign:"center"}}>
               {selectedCount % 1 === 0 ? selectedCount : selectedCount.toFixed(1)} 🥚
             </div>
             <div style={{display:"flex",gap:6}}>
               <button onClick={()=>onEggChange(member.id,selectedDate,0.5)} style={{
                 background:"none",border:"1.5px solid #5B8FD4",borderRadius:8,padding:"6px 12px",
-                cursor:"pointer",fontWeight:700,fontSize:13,color:"#2C5FA8",
+                cursor:"pointer",fontWeight:700,fontSize:13,color:"var(--ink-blue)",
               }}>+½</button>
               <button onClick={()=>onEggChange(member.id,selectedDate,1)} style={{
                 background:"#5B8FD4",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",
@@ -3929,7 +4053,7 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
 
   return <>
   <div style={{
-    background:"linear-gradient(135deg,#EBF2FC,#DCE9F9)",border:"1.5px solid #5B8FD4",
+    background:"linear-gradient(135deg,var(--t-blue),var(--t-blue))",border:"1.5px solid #5B8FD4",
     borderRadius:12,padding:"12px 16px",marginBottom:12,position:"relative",overflow:"hidden",
     display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,
   }}>
@@ -3967,29 +4091,29 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
         whiteSpace:"nowrap",animation:"ppFloat 1.2s 0.2s ease-out both"}}>+500 ⚡</span>
     </div>}
     <div>
-      <div style={{fontSize:11,fontWeight:700,color:"#2C5FA8",letterSpacing:0.5,marginBottom:2}}>🥚 EGG-O-METER</div>
+      <div style={{fontSize:11,fontWeight:700,color:"var(--ink-blue)",letterSpacing:0.5,marginBottom:2}}>🥚 EGG-O-METER</div>
       <div style={{display:"flex",alignItems:"baseline",gap:8}}>
-        <span style={{fontSize:20,fontWeight:900,color:"#2C5FA8"}}>{totalCount % 1 === 0 ? totalCount : totalCount.toFixed(1)}</span>
-        <span style={{fontSize:11,color:"#4A6B94"}}>eggs · {ppLabel}</span>
+        <span style={{fontSize:20,fontWeight:900,color:"var(--ink-blue)"}}>{totalCount % 1 === 0 ? totalCount : totalCount.toFixed(1)}</span>
+        <span style={{fontSize:11,color:"var(--ink-blue)"}}>eggs · {ppLabel}</span>
       </div>
-      {todayCount>0&&<div style={{fontSize:11,color:"#4A6B94",marginTop:2}}>{todayCount % 1 === 0 ? todayCount : todayCount.toFixed(1)} today</div>}
+      {todayCount>0&&<div style={{fontSize:11,color:"var(--ink-blue)",marginTop:2}}>{todayCount % 1 === 0 ? todayCount : todayCount.toFixed(1)} today</div>}
     </div>
     <div style={{display:"flex",alignItems:"center",gap:8}}>
       <button onClick={()=>setShowHistory(true)} style={{
         background:"none",border:"1.5px solid #5B8FD4",borderRadius:8,
-        width:32,height:32,cursor:"pointer",fontSize:14,color:"#2C5FA8",
+        width:32,height:32,cursor:"pointer",fontSize:14,color:"var(--ink-blue)",
       }}>📅</button>
       {todayCount>0&&<button onClick={()=>handleTap(-0.5)} style={{
         background:"none",border:"1.5px solid #5B8FD4",borderRadius:8,
-        width:32,height:32,cursor:"pointer",fontSize:13,color:"#2C5FA8",fontWeight:700,
+        width:32,height:32,cursor:"pointer",fontSize:13,color:"var(--ink-blue)",fontWeight:700,
       }}>−½</button>}
       {todayCount>0&&<button onClick={()=>handleTap(-1)} style={{
         background:"none",border:"1.5px solid #5B8FD4",borderRadius:8,
-        width:32,height:32,cursor:"pointer",fontSize:16,color:"#2C5FA8",fontWeight:700,
+        width:32,height:32,cursor:"pointer",fontSize:16,color:"var(--ink-blue)",fontWeight:700,
       }}>−</button>}
       <div style={{display:"flex",flexDirection:"column",gap:4}}>
         <button onClick={()=>handleTap(0.5)} style={{
-          background:"none",border:"1.5px solid #5B8FD4",color:"#2C5FA8",borderRadius:8,
+          background:"none",border:"1.5px solid #5B8FD4",color:"var(--ink-blue)",borderRadius:8,
           padding:"4px 10px",cursor:"pointer",fontWeight:700,fontSize:11,whiteSpace:"nowrap",
         }}>🥚 +½</button>
         <button onClick={()=>handleTap(1)} style={{
@@ -4352,7 +4476,7 @@ function GoldenGoalDrawer({member, logs, onSave, onDelete, onClose}){
 
   const selAct = acts.find(a=>a.id===actId);
   const iStyle = {width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid #F9A825`,
-    fontSize:13,outline:"none",background:"#FFFDF0",color:C.text,boxSizing:"border-box",marginBottom:10};
+    fontSize:13,outline:"none",background:"var(--t-yellow)",color:C.text,boxSizing:"border-box",marginBottom:10};
 
   function handleSave(){
     onSave(member.id, {
@@ -4388,30 +4512,30 @@ function GoldenGoalDrawer({member, logs, onSave, onDelete, onClose}){
         {/* Current goal display */}
         {goal && prog && !editing && <>
           {prog.achieved
-            ? <div style={{background:"linear-gradient(135deg,#FFF8E1,#FFF3CD)",border:"2px solid #F9A825",
+            ? <div style={{background:"linear-gradient(135deg,var(--t-yellow),var(--t-yellow))",border:"2px solid #F9A825",
                 borderRadius:16,padding:"20px",textAlign:"center",marginBottom:16}}>
                 <div style={{fontSize:40,marginBottom:6}}>🏆</div>
-                <div style={{fontSize:18,fontWeight:900,color:"#E65100"}}>GOLDEN GOAL ACHIEVED!</div>
-                <div style={{fontSize:13,color:"#BF6900",marginTop:4}}>
+                <div style={{fontSize:18,fontWeight:900,color:"var(--ink-orange)"}}>GOLDEN GOAL ACHIEVED!</div>
+                <div style={{fontSize:13,color:"var(--ink-orange)",marginTop:4}}>
                   {prog.a.name} — reached {goal.targetValue}{prog.a.unit}
                 </div>
               </div>
             : prog.expired
-              ? <div style={{background:"#FFF5F5",border:"1.5px solid #FFCDD2",borderRadius:12,
+              ? <div style={{background:"var(--t-red)",border:"1.5px solid #FFCDD2",borderRadius:12,
                   padding:"14px",textAlign:"center",marginBottom:16}}>
-                  <div style={{fontSize:13,fontWeight:700,color:"#C62828"}}>⏰ Goal expired — best was {prog.bestAllTime}{prog.a.unit}</div>
+                  <div style={{fontSize:13,fontWeight:700,color:"var(--ink-red)"}}>⏰ Goal expired — best was {prog.bestAllTime}{prog.a.unit}</div>
                 </div>
               : null
           }
 
           {/* Progress card */}
-          <div style={{background:"linear-gradient(135deg,#FFF8E1,#FFFDF0)",border:"2px solid #F9A825",
+          <div style={{background:"linear-gradient(135deg,var(--t-yellow),var(--t-yellow))",border:"2px solid #F9A825",
             borderRadius:16,padding:"18px",marginBottom:14}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#BF6900",letterSpacing:0.5,marginBottom:4}}>🥇 THE GOLDEN GOAL</div>
-            <div style={{fontSize:22,fontWeight:900,color:"#7B4F00",marginBottom:2}}>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--ink-orange)",letterSpacing:0.5,marginBottom:4}}>🥇 THE GOLDEN GOAL</div>
+            <div style={{fontSize:22,fontWeight:900,color:"var(--ink-brown)",marginBottom:2}}>
               {prog.a.name} → {goal.targetValue}{prog.a.unit}
             </div>
-            <div style={{fontSize:12,color:"#BF6900",marginBottom:14}}>
+            <div style={{fontSize:12,color:"var(--ink-orange)",marginBottom:14}}>
               {prog.daysLeft > 0 ? `${prog.daysLeft} days remaining` : "Deadline passed"}
               {" · "}Deadline: {new Date(goal.deadline+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}
             </div>
@@ -4419,8 +4543,8 @@ function GoldenGoalDrawer({member, logs, onSave, onDelete, onClose}){
             {/* PB progress bar */}
             <div style={{marginBottom:10}}>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                <span style={{fontSize:12,color:"#7B4F00",fontWeight:600}}>Best: {prog.bestAllTime}{prog.a.unit}</span>
-                <span style={{fontSize:12,fontWeight:800,color:"#E65100"}}>{prog.pct}%</span>
+                <span style={{fontSize:12,color:"var(--ink-brown)",fontWeight:600}}>Best: {prog.bestAllTime}{prog.a.unit}</span>
+                <span style={{fontSize:12,fontWeight:800,color:"var(--ink-orange)"}}>{prog.pct}%</span>
               </div>
               <div style={{height:10,borderRadius:99,background:"rgba(0,0,0,0.1)",overflow:"hidden"}}>
                 <div style={{height:"100%",width:`${prog.pct}%`,
@@ -4432,8 +4556,8 @@ function GoldenGoalDrawer({member, logs, onSave, onDelete, onClose}){
             {/* Time progress bar */}
             <div>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                <span style={{fontSize:11,color:"#BF6900"}}>Time elapsed</span>
-                <span style={{fontSize:11,color:"#BF6900"}}>{prog.timeProgress}% of deadline</span>
+                <span style={{fontSize:11,color:"var(--ink-orange)"}}>Time elapsed</span>
+                <span style={{fontSize:11,color:"var(--ink-orange)"}}>{prog.timeProgress}% of deadline</span>
               </div>
               <div style={{height:5,borderRadius:99,background:"rgba(0,0,0,0.1)",overflow:"hidden"}}>
                 <div style={{height:"100%",width:`${prog.timeProgress}%`,
@@ -4442,7 +4566,7 @@ function GoldenGoalDrawer({member, logs, onSave, onDelete, onClose}){
             </div>
 
             {/* Pace insight */}
-            <div style={{marginTop:12,padding:"8px 12px",background:"rgba(0,0,0,0.05)",borderRadius:8,fontSize:11,color:"#7B4F00"}}>
+            <div style={{marginTop:12,padding:"8px 12px",background:"rgba(0,0,0,0.05)",borderRadius:8,fontSize:11,color:"var(--ink-brown)"}}>
               {prog.pct >= prog.timeProgress
                 ? `✅ On track — PB progress (${prog.pct}%) ahead of time elapsed (${prog.timeProgress}%)`
                 : `⚠️ Behind pace — PB at ${prog.pct}% but ${prog.timeProgress}% of time used`
@@ -4454,7 +4578,7 @@ function GoldenGoalDrawer({member, logs, onSave, onDelete, onClose}){
           <div style={{display:"flex",gap:8}}>
             <button onClick={()=>{setActId(goal.activityId);setTargetVal(String(goal.targetValue));setDeadline(goal.deadline);setEditing(true);}}
               style={{flex:1,padding:"10px",borderRadius:10,border:`1.5px solid #F9A825`,
-              background:"none",cursor:"pointer",fontWeight:700,fontSize:13,color:"#E65100"}}>
+              background:"none",cursor:"pointer",fontWeight:700,fontSize:13,color:"var(--ink-orange)"}}>
               ✏️ Edit Goal
             </button>
             <button onClick={()=>{if(window.confirm("Delete this Golden Goal?")) onDelete(member.id);}}
@@ -4466,15 +4590,15 @@ function GoldenGoalDrawer({member, logs, onSave, onDelete, onClose}){
         </>}
 
         {/* Set / Edit form */}
-        {(editing || !goal) && <div style={{background:"#FFFDF0",border:"1.5px solid #F9A825",
+        {(editing || !goal) && <div style={{background:"var(--t-yellow)",border:"1.5px solid #F9A825",
           borderRadius:14,padding:"16px"}}>
-          <div style={{fontSize:11,fontWeight:700,color:"#BF6900",letterSpacing:0.5,marginBottom:14}}>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--ink-orange)",letterSpacing:0.5,marginBottom:14}}>
             {goal ? "EDIT GOLDEN GOAL" : "SET YOUR GOLDEN GOAL"}
           </div>
-          <div style={{fontSize:12,color:"#BF6900",marginBottom:16,fontStyle:"italic"}}>
+          <div style={{fontSize:12,color:"var(--ink-orange)",marginBottom:16,fontStyle:"italic"}}>
             Make it ambitious — something that takes months of real effort to achieve.
           </div>
-          <label style={{fontSize:12,fontWeight:600,color:"#7B4F00",display:"block",marginBottom:4}}>Activity</label>
+          <label style={{fontSize:12,fontWeight:600,color:"var(--ink-brown)",display:"block",marginBottom:4}}>Activity</label>
           <select value={actId} onChange={e=>setActId(e.target.value)} style={iStyle}>
             {acts.map(a=><option key={a.id} value={a.id}>{a.name} (current best: {
               Math.max(0,...Object.values(getActivityLogs(logs,member.id,a.id)).map(l=>{
@@ -4483,13 +4607,13 @@ function GoldenGoalDrawer({member, logs, onSave, onDelete, onClose}){
               }))
             }{a.unit})</option>)}
           </select>
-          <label style={{fontSize:12,fontWeight:600,color:"#7B4F00",display:"block",marginBottom:4}}>
+          <label style={{fontSize:12,fontWeight:600,color:"var(--ink-brown)",display:"block",marginBottom:4}}>
             Target value ({selAct?.unit||""})
           </label>
           <input type="number" value={targetVal} onChange={e=>setTargetVal(e.target.value)}
             placeholder={`e.g. ${selAct?.target ? selAct.target*2 : 100}`}
             style={iStyle}/>
-          <label style={{fontSize:12,fontWeight:600,color:"#7B4F00",display:"block",marginBottom:4}}>Deadline</label>
+          <label style={{fontSize:12,fontWeight:600,color:"var(--ink-brown)",display:"block",marginBottom:4}}>Deadline</label>
           <input type="date" value={deadline} min={today}
             max={new Date(new Date().setFullYear(new Date().getFullYear()+1)).toISOString().slice(0,10)}
             onChange={e=>setDeadline(e.target.value)} style={{...iStyle,marginBottom:16}}/>
@@ -4756,6 +4880,22 @@ function GapTrackerCard({member, target, logs}){
   </div>;
 }
 
+function CountUp({value}){
+  const[shown,setShown]=useState(value);
+  const prev=useRef(null);
+  useEffect(()=>{
+    let reduce=false; try{ reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches; }catch{}
+    const from=prev.current===null?Math.round(value*0.9):prev.current;
+    prev.current=value;
+    if(reduce||from===value){ setShown(value); return; }
+    let raf, t0=null; const D=800;
+    const step=(t)=>{ if(t0===null) t0=t; const k=Math.min(1,(t-t0)/D), e=1-Math.pow(1-k,3);
+      setShown(Math.round(from+(value-from)*e)); if(k<1) raf=requestAnimationFrame(step); };
+    raf=requestAnimationFrame(step);
+    return ()=>{ cancelAnimationFrame(raf); setShown(value); };
+  },[value]);
+  return <>{shown.toLocaleString()}</>;
+}
 function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onGkUpdate,onGkDelete,onBraverySave,onBraveryDelete,onBraveryUpdate,onIllnessSave,onIllnessDelete,onOlympiadSave,onOlympiadDelete,onOlympiadUpdate,onGoldenGoalSave,onGoldenGoalDelete,onDeleteEntry}){
   const today=todayStr();
   const[showCal,setShowCal]=useState(true);
@@ -4798,20 +4938,10 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
   const themeAccent = (THEMES.find(t=>t.id===theme)||THEMES[0]).accent;
   const[hovered,setHovered]=useState(false);
 
-  return <div
-    onMouseEnter={()=>setHovered(true)}
-    onMouseLeave={()=>setHovered(false)}
-    style={{
-      background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,
-      padding:20,paddingTop:24,position:"relative",overflow:"hidden",
-      boxShadow:hovered?"0 8px 28px rgba(0,0,0,0.10)":"0 2px 12px rgba(0,0,0,0.05)",
-      transform:hovered?"translateY(-2px)":"translateY(0)",
-      transition:"box-shadow 0.2s ease, transform 0.2s ease",
-    }}>
-    {/* Themed top border strip */}
-    <div style={{position:"absolute",top:0,left:0,right:0,height:4,background:themeAccent}}/>
+  return <div className="mc">
+    <div className="ff-card ff-in" style={{padding:20,borderTop:`3px solid ${themeAccent}`}}>
     {/* Header */}
-    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
       <div style={{display:"flex",alignItems:"center",gap:10}}>
         <div style={{
           width:44,height:44,borderRadius:"50%",background:member.color+"22",
@@ -4827,17 +4957,33 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
         {bestStreak>0&&<div style={{display:"flex",alignItems:"center",gap:4,background:member.color+"18",border:`1px solid ${member.color}44`,borderRadius:99,padding:"3px 10px"}}>
           <span>🔥</span><span style={{fontSize:12,fontWeight:700,color:member.color}}>{bestStreak}d streak</span>
         </div>}
-        {(()=>{const sl=4-shieldsUsed(logs,member.id,acts);return sl<4&&<div style={{display:"flex",alignItems:"center",gap:3,background:"#E3F2FD",border:"1px solid #90CAF9",borderRadius:99,padding:"3px 9px"}}>
-          <span style={{fontSize:11}}>🛡️</span><span style={{fontSize:11,fontWeight:700,color:"#1565C0"}}>{sl} left</span>
+        {(()=>{const sl=4-shieldsUsed(logs,member.id,acts);return sl<4&&<div style={{display:"flex",alignItems:"center",gap:3,background:"var(--t-blue)",border:"1px solid var(--tb-blue)",borderRadius:99,padding:"3px 9px"}}>
+          <span style={{fontSize:11}}>🛡️</span><span style={{fontSize:11,fontWeight:700,color:"var(--ink-blue)"}}>{sl} left</span>
         </div>;})()}
         <button onClick={()=>onEdit(member)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"4px 10px",cursor:"pointer",fontSize:12,color:C.muted}}>✏️ Edit</button>
       </div>
     </div>
 
+    {/* Badges + Stats footer */}
+    <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+      <span style={{fontSize:12,color:C.muted}}><span style={{fontWeight:700,color:C.text}}>{allEarned.size + levelCount}</span> / {personalBadges.length + PP_LEVELS.length} badges earned</span>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        <button onClick={()=>setShowStats(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:C.muted}}>📊 Stats</button>
+        <button onClick={()=>setShowGrowth(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:C.muted}}>📏 Growth</button>
+        {member.gkEnabled&&<button onClick={()=>setShowGK(true)} style={{background:"none",border:"1px solid #7E57C2",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#7E57C2"}}>🧠 GK</button>}
+        {member.braveryEnabled&&<button onClick={()=>setShowBravery(true)} style={{background:"none",border:"1px solid #F57C00",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#F57C00"}}>🦁 Bravery</button>}
+        {member.illnessEnabled&&<button onClick={()=>setShowIllness(true)} style={{background:"none",border:"1px solid #8E5FA8",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#8E5FA8"}}>🤒 Illness</button>}
+        {member.id==="son"&&<button onClick={()=>setShowOlympiad(true)} style={{background:"none",border:"1px solid #F9A825",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"var(--ink-orange)"}}>🏅 Olympiad</button>}
+        <button onClick={()=>setShowGoldenGoal(true)} style={{background:"none",border:"1.5px solid #C8860A",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:700,fontSize:12,color:"var(--ink-brown)"}}>🥇 Golden Goal</button>
+        <button onClick={()=>setShowBadges(true)} style={{background:member.color,color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12}}>🏆 Badges</button>
+      </div>
+    </div>
+    </div>
+    <div className="mc-hero mc-w ff-in" style={{display:"flex",flexDirection:"column"}}>
     {/* Power Points Banner */}
-    <div onClick={()=>onOpenPP&&onOpenPP(member.id)} style={{
-      background:"linear-gradient(135deg,#1a1a2e,#16213e)",
-      borderRadius:12,padding:"12px 16px",marginBottom:12,cursor:"pointer",
+    <div className="ff-lift" onClick={()=>onOpenPP&&onOpenPP(member.id)} style={{flex:1,
+      background:"var(--hero)",
+      borderRadius:16,padding:"22px 26px",marginBottom:0,cursor:"pointer",
       display:"flex",alignItems:"center",justifyContent:"space-between",
       transition:"opacity 0.15s",position:"relative",overflow:"hidden",
     }}
@@ -4845,7 +4991,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
     onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
       <div>
         <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.4)",letterSpacing:1,marginBottom:2}}>⚡ POWER POINTS</div>
-        <div style={{fontSize:24,fontWeight:900,color:"#FFD700",lineHeight:1}}>{ppData.total.toLocaleString()}</div>
+        <div style={{fontSize:40,fontWeight:800,letterSpacing:-1.2,color:"#FFD700",lineHeight:1.05,fontVariantNumeric:"tabular-nums"}}><CountUp value={ppData.total}/></div>
         {ppData.weekPP>0&&<div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginTop:2}}>+{ppData.weekPP.toLocaleString()} this week</div>}
       </div>
       <div title="See all levels" onClick={e=>{e.stopPropagation();onOpenPP&&onOpenPP(member.id,"levels");}}
@@ -4862,21 +5008,8 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
       </div>}
     </div>
 
-    {/* Level path — current level and the next few */}
-    <LevelPathStrip total={ppData.total} color={member.color} onOpen={()=>onOpenPP&&onOpenPP(member.id,"levels")}/>
-
-    {/* Gem Vault */}
-    <GemVaultCard member={member} logs={logs}/>
-
-    {/* Egg-O-Meter */}
-    {member.eggMeter&&<EggMeter member={member} logs={logs} onEggChange={onEggChange} onNewBadge={onNewBadge}/>}
-
-    {/* Gap Tracker — vs chosen target member; only shown on devices where it is switched on */}
-    {member.chaseTarget&&gapVisibleOnDevice()&&(()=>{
-      const target = (allMembers||[]).find(m=>m.id===member.chaseTarget);
-      return target ? <GapTrackerCard member={member} target={target} logs={logs}/> : null;
-    })()}
-
+    </div>
+    <div className="mc-cons ff-card ff-in" style={{padding:"18px 20px"}}>
     {/* Consistency */}
     <div style={{marginBottom:12}}>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
@@ -4894,12 +5027,55 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
       return <div style={{display:"flex",gap:12,marginBottom:12,marginTop:-6,flexWrap:"wrap"}}>
         <span style={{fontSize:12,color:C.done,fontWeight:600}}>✓ {done} done</span>
         <span style={{fontSize:12,color:C.missed,fontWeight:600}}>✗ {missed} missed</span>
-        {used>0&&<span style={{fontSize:12,color:"#1565C0",fontWeight:600}}>🛡️ {used} used</span>}
+        {used>0&&<span style={{fontSize:12,color:"var(--ink-blue)",fontWeight:600}}>🛡️ {used} used</span>}
         {used>0&&<span style={{fontSize:12,color:"#1976D2",fontWeight:600}}>🛡️ {left} left</span>}
         {remaining>0&&<span style={{fontSize:12,color:C.muted}}>{remaining} {remaining===1?'day':'days'} remaining</span>}
       </div>;
     })()}
 
+    </div>
+    <div className="mc-w ff-in">
+    {/* Level path — current level and the next few */}
+    <LevelPathStrip total={ppData.total} color={member.color} onOpen={()=>onOpenPP&&onOpenPP(member.id,"levels")}/>
+
+    </div>
+    <div className="mc-gem mc-w ff-in">
+    {/* Gem Vault */}
+    <GemVaultCard member={member} logs={logs}/>
+
+    </div>
+    {member.eggMeter&&<div className="mc-egg mc-w ff-in">
+{/* Egg-O-Meter */}
+    <EggMeter member={member} logs={logs} onEggChange={onEggChange} onNewBadge={onNewBadge}/>
+    </div>}
+    <div className="mc-w ff-in">
+    {/* Gap Tracker — vs chosen target member; only shown on devices where it is switched on */}
+    {member.chaseTarget&&gapVisibleOnDevice()&&(()=>{
+      const target = (allMembers||[]).find(m=>m.id===member.chaseTarget);
+      return target ? <GapTrackerCard member={member} target={target} logs={logs}/> : null;
+    })()}
+
+    </div>
+    <div className="mc-small mc-w ff-in">
+    {/* Today */}
+    <div style={{background:member.color+"0E",border:`1px solid ${member.color}28`,borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:11,color:C.muted,marginBottom:3}}>Today</div>
+        {loggedCount===0
+          ?<span style={{fontSize:13,color:C.muted}}>Not logged yet</span>
+          :<div style={{display:"flex",flexWrap:"wrap",gap:"4px 10px"}}>
+            {doneToday.map(({act,log})=><span key={act.id} style={{fontSize:13,fontWeight:700,color:log.value>=act.target?C.done:C.partial}}>
+              {act.name}: {log.value}{act.unit}
+            </span>)}
+          </div>}
+      </div>
+      <button onClick={()=>setModal(today)} style={{background:member.color,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13,whiteSpace:"nowrap",flexShrink:0}}>
+        {loggedCount>0?"Edit":"Log today"}
+      </button>
+    </div>
+
+    </div>
+    <div className="mc-pb mc-w ff-in">
     {/* PB Tile */}
     {(()=>{
       const pbs=acts.map(a=>{
@@ -4918,18 +5094,18 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
       }).filter(Boolean);
       if(!pbs.length) return null;
       return <div style={{
-        background:"#FFFDE7",border:"1.5px solid #F9A825",
+        background:"var(--t-yellow)",border:"1.5px solid #F9A825",
         borderRadius:10,padding:"10px 14px",marginBottom:12,
       }}>
-        <div style={{fontSize:11,fontWeight:700,color:"#F57F17",letterSpacing:0.5,marginBottom:6}}>👑 PERSONAL BEST{pbs.length>1?"S":""}</div>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--ink-orange)",letterSpacing:0.5,marginBottom:6}}>👑 PERSONAL BEST{pbs.length>1?"S":""}</div>
         {pbs.map(({act,val,date})=>(
           <div key={act.id} style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:pbs.length>1?4:0}}>
             <div style={{display:"flex",alignItems:"baseline",gap:8}}>
-              {pbs.length>1&&<span style={{fontSize:12,color:"#795548"}}>{act.name}</span>}
-              <span style={{fontSize:22,fontWeight:800,color:"#E65100",lineHeight:1}}>{val}</span>
-              <span style={{fontSize:13,fontWeight:600,color:"#E65100"}}>{act.unit}</span>
+              {pbs.length>1&&<span style={{fontSize:12,color:"var(--ink-brown)"}}>{act.name}</span>}
+              <span style={{fontSize:22,fontWeight:800,color:"var(--ink-orange)",lineHeight:1}}>{val}</span>
+              <span style={{fontSize:13,fontWeight:600,color:"var(--ink-orange)"}}>{act.unit}</span>
             </div>
-            <span style={{fontSize:11,color:"#795548"}}>
+            <span style={{fontSize:11,color:"var(--ink-brown)"}}>
               {date?new Date(date+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}):""}
             </span>
           </div>
@@ -4937,23 +5113,8 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
       </div>;
     })()}
 
-    {/* Today */}
-    <div style={{background:member.color+"0E",border:`1px solid ${member.color}28`,borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
-      <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:11,color:C.muted,marginBottom:3}}>Today</div>
-        {loggedCount===0
-          ?<span style={{fontSize:13,color:C.muted}}>Not logged yet</span>
-          :<div style={{display:"flex",flexWrap:"wrap",gap:"4px 10px"}}>
-            {doneToday.map(({act,log})=><span key={act.id} style={{fontSize:13,fontWeight:700,color:log.value>=act.target?C.done:C.partial}}>
-              {act.name}: {log.value}{act.unit}
-            </span>)}
-          </div>}
-      </div>
-      <button onClick={()=>setModal(today)} style={{background:member.color,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13,whiteSpace:"nowrap",flexShrink:0}}>
-        {loggedCount>0?"Edit":"Log today"}
-      </button>
     </div>
-
+    <div className="ff-card ff-in" style={{padding:"16px 20px"}}>
     {/* Calendar */}
     <button onClick={()=>setShowCal(s=>!s)} style={{background:"none",border:"none",cursor:"pointer",fontSize:11,color:member.color,fontWeight:600,padding:0,marginBottom:8}}>
       {showCal?"▾ Hide calendar":"▸ Show calendar"}
@@ -4968,19 +5129,6 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
       </div>
     </div>}
 
-    {/* Badges + Stats footer */}
-    <div style={{borderTop:`1px solid ${C.border}`,marginTop:12,paddingTop:12,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
-      <span style={{fontSize:12,color:C.muted}}><span style={{fontWeight:700,color:C.text}}>{allEarned.size + levelCount}</span> / {personalBadges.length + PP_LEVELS.length} badges earned</span>
-      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-        <button onClick={()=>setShowStats(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:C.muted}}>📊 Stats</button>
-        <button onClick={()=>setShowGrowth(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:C.muted}}>📏 Growth</button>
-        {member.gkEnabled&&<button onClick={()=>setShowGK(true)} style={{background:"none",border:"1px solid #7E57C2",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#7E57C2"}}>🧠 GK</button>}
-        {member.braveryEnabled&&<button onClick={()=>setShowBravery(true)} style={{background:"none",border:"1px solid #F57C00",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#F57C00"}}>🦁 Bravery</button>}
-        {member.illnessEnabled&&<button onClick={()=>setShowIllness(true)} style={{background:"none",border:"1px solid #8E5FA8",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#8E5FA8"}}>🤒 Illness</button>}
-        {member.id==="son"&&<button onClick={()=>setShowOlympiad(true)} style={{background:"none",border:"1px solid #F9A825",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#E65100"}}>🏅 Olympiad</button>}
-        <button onClick={()=>setShowGoldenGoal(true)} style={{background:"none",border:"1.5px solid #C8860A",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:700,fontSize:12,color:"#7B4F00"}}>🥇 Golden Goal</button>
-        <button onClick={()=>setShowBadges(true)} style={{background:member.color,color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12}}>🏆 Badges</button>
-      </div>
     </div>
     {showBadges&&<BadgeDrawer member={member} allEarned={allEarned} acts={acts} logs={logs} onClose={()=>setShowBadges(false)}/>}
     {showGoldenGoal&&<GoldenGoalDrawer member={member} logs={logs}
@@ -5191,11 +5339,11 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
       <div style={{marginBottom:18}}>
         <div onClick={()=>setEggMeter(e=>!e)} style={{
           display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
-          background:eggMeter?"#FFFDE7":"#F7F5F0",border:`1.5px solid ${eggMeter?"#F9A825":C.border}`,
+          background:eggMeter?"var(--t-yellow)":"var(--bg2)",border:`1.5px solid ${eggMeter?"#F9A825":C.border}`,
           borderRadius:10,cursor:"pointer",userSelect:"none",
         }}>
           <div style={{width:36,height:20,borderRadius:99,background:eggMeter?"#F9A825":C.border,position:"relative",transition:"background 0.2s",flexShrink:0}}>
-            <div style={{position:"absolute",top:2,left:eggMeter?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+            <div style={{position:"absolute",top:2,left:eggMeter?18:2,width:16,height:16,borderRadius:"50%",background:"var(--card)",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
           </div>
           <div>
             <div style={{fontSize:13,fontWeight:600,color:eggMeter?"#F57F17":C.text}}>🥚 Egg-O-Meter</div>
@@ -5206,11 +5354,11 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
       <div style={{marginBottom:18}}>
         <div onClick={()=>setGkEnabled(g=>!g)} style={{
           display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
-          background:gkEnabled?"#EDE7F6":"#F7F5F0",border:`1.5px solid ${gkEnabled?"#7E57C2":C.border}`,
+          background:gkEnabled?"var(--t-purple)":"var(--bg2)",border:`1.5px solid ${gkEnabled?"#7E57C2":C.border}`,
           borderRadius:10,cursor:"pointer",userSelect:"none",
         }}>
           <div style={{width:36,height:20,borderRadius:99,background:gkEnabled?"#7E57C2":C.border,position:"relative",transition:"background 0.2s",flexShrink:0}}>
-            <div style={{position:"absolute",top:2,left:gkEnabled?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+            <div style={{position:"absolute",top:2,left:gkEnabled?18:2,width:16,height:16,borderRadius:"50%",background:"var(--card)",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
           </div>
           <div>
             <div style={{fontSize:13,fontWeight:600,color:gkEnabled?"#5E35B1":C.text}}>🧠 General Knowledge</div>
@@ -5221,11 +5369,11 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
       <div style={{marginBottom:18}}>
         <div onClick={()=>setBraveryEnabled(b=>!b)} style={{
           display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
-          background:braveryEnabled?"#FFF3E0":"#F7F5F0",border:`1.5px solid ${braveryEnabled?"#F57C00":C.border}`,
+          background:braveryEnabled?"var(--t-orange)":"var(--bg2)",border:`1.5px solid ${braveryEnabled?"#F57C00":C.border}`,
           borderRadius:10,cursor:"pointer",userSelect:"none",
         }}>
           <div style={{width:36,height:20,borderRadius:99,background:braveryEnabled?"#F57C00":C.border,position:"relative",transition:"background 0.2s",flexShrink:0}}>
-            <div style={{position:"absolute",top:2,left:braveryEnabled?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+            <div style={{position:"absolute",top:2,left:braveryEnabled?18:2,width:16,height:16,borderRadius:"50%",background:"var(--card)",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
           </div>
           <div>
             <div style={{fontSize:13,fontWeight:600,color:braveryEnabled?"#E65100":C.text}}>🦁 Bravery Points</div>
@@ -5236,11 +5384,11 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
       <div style={{marginBottom:18}}>
         <div onClick={()=>setIllnessEnabled(b=>!b)} style={{
           display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
-          background:illnessEnabled?"#F3E5F5":"#F7F5F0",border:`1.5px solid ${illnessEnabled?"#8E5FA8":C.border}`,
+          background:illnessEnabled?"var(--t-purple)":"var(--bg2)",border:`1.5px solid ${illnessEnabled?"#8E5FA8":C.border}`,
           borderRadius:10,cursor:"pointer",userSelect:"none",
         }}>
           <div style={{width:36,height:20,borderRadius:99,background:illnessEnabled?"#8E5FA8":C.border,position:"relative",transition:"background 0.2s",flexShrink:0}}>
-            <div style={{position:"absolute",top:2,left:illnessEnabled?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+            <div style={{position:"absolute",top:2,left:illnessEnabled?18:2,width:16,height:16,borderRadius:"50%",background:"var(--card)",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
           </div>
           <div>
             <div style={{fontSize:13,fontWeight:600,color:illnessEnabled?"#6A3E7C":C.text}}>🤒 Illness Log</div>
@@ -5282,11 +5430,11 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
         </div>
         {acts.length>1&&<div onClick={()=>setAlternating(a=>!a)} style={{
           display:"flex",alignItems:"center",gap:10,padding:"10px 12px",marginBottom:10,
-          background:alternating?"#E8F5E9":"#F7F5F0",border:`1.5px solid ${alternating?C.done:C.border}`,
+          background:alternating?"var(--t-green)":"var(--bg2)",border:`1.5px solid ${alternating?C.done:C.border}`,
           borderRadius:10,cursor:"pointer",userSelect:"none",
         }}>
           <div style={{width:36,height:20,borderRadius:99,background:alternating?C.done:C.border,position:"relative",transition:"background 0.2s",flexShrink:0}}>
-            <div style={{position:"absolute",top:2,left:alternating?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+            <div style={{position:"absolute",top:2,left:alternating?18:2,width:16,height:16,borderRadius:"50%",background:"var(--card)",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
           </div>
           <div>
             <div style={{fontSize:13,fontWeight:600,color:alternating?C.done:C.text}}>Alternating activities</div>
@@ -5295,11 +5443,11 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
         </div>}
         {acts.length>1&&alternating&&<div onClick={()=>setStackPoints(s=>!s)} style={{
           display:"flex",alignItems:"center",gap:10,padding:"10px 12px",marginBottom:10,
-          background:stackPoints?"#E3F2FD":"#F7F5F0",border:`1.5px solid ${stackPoints?"#1976D2":C.border}`,
+          background:stackPoints?"var(--t-blue)":"var(--bg2)",border:`1.5px solid ${stackPoints?"#1976D2":C.border}`,
           borderRadius:10,cursor:"pointer",userSelect:"none",
         }}>
           <div style={{width:36,height:20,borderRadius:99,background:stackPoints?"#1976D2":C.border,position:"relative",transition:"background 0.2s",flexShrink:0}}>
-            <div style={{position:"absolute",top:2,left:stackPoints?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+            <div style={{position:"absolute",top:2,left:stackPoints?18:2,width:16,height:16,borderRadius:"50%",background:"var(--card)",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
           </div>
           <div>
             <div style={{fontSize:13,fontWeight:600,color:stackPoints?"#1565C0":C.text}}>⚡ Stack Points</div>
@@ -5382,7 +5530,7 @@ function FamilyFeed({members,logs}){
         return <div key={`${en.member.id}-${en.activity.id}-${en.date}-${i}`} style={{
           display:"flex",alignItems:"center",gap:10,
           padding:"9px 12px",borderRadius:10,
-          background:isSkip?C.bg:en.isPB?"#FFFDE7":en.isAbove?C.done+"0F":C.bg,
+          background:isSkip?C.bg:en.isPB?"var(--t-yellow)":en.isAbove?C.done+"0F":C.bg,
           border:`1px solid ${isSkip?C.border:en.isPB?"#F9A825":en.isAbove?C.done+"33":C.border}`,
         }}>
           <span style={{fontSize:20,flexShrink:0}}>{en.member.emoji}</span>
@@ -5719,7 +5867,7 @@ function GkAddEntry({member, logs, onGkSave}){
   }, [open, dateOk, pts, kind, date, weekKey, logs, member]);
 
   const iStyle = {width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #7E57C2",
-    fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,background:"#fff"};
+    fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,background:"var(--card)"};
 
   function reset(){ setKind("daily"); setDate(today); setReason(""); setPoints(""); setOpen(false); }
   function submit(){
@@ -5744,7 +5892,7 @@ function GkAddEntry({member, logs, onGkSave}){
       {[{id:"daily",label:"🧠 Daily quiz"},{id:"weekend",label:"🏆 Weekly review"}].map(o=>(
         <button key={o.id} onClick={()=>setKind(o.id)} style={{flex:1,padding:"8px 0",borderRadius:8,cursor:"pointer",
           fontSize:12,fontWeight:700,border:`1.5px solid ${kind===o.id?"#7E57C2":C.border}`,
-          background:kind===o.id?"#EDE7F6":"none",color:kind===o.id?"#4A148C":C.muted}}>{o.label}</button>
+          background:kind===o.id?"var(--t-purple)":"none",color:kind===o.id?"#4A148C":C.muted}}>{o.label}</button>
       ))}
     </div>
 
@@ -5767,10 +5915,10 @@ function GkAddEntry({member, logs, onGkSave}){
     </div>}
 
     {impact!==null && (impact===pts
-      ? <div style={{fontSize:12,color:"#5E35B1",marginBottom:10}}>
+      ? <div style={{fontSize:12,color:"var(--ink-purple)",marginBottom:10}}>
           Adds <strong>+{impact.toLocaleString()} ⚡</strong> to {member.name}'s PP.
         </div>
-      : <div style={{background:"#FFF3E0",border:"1px solid #FFCC80",borderRadius:8,padding:"8px 10px",
+      : <div style={{background:"var(--t-orange)",border:"1px solid var(--tb-orange)",borderRadius:8,padding:"8px 10px",
           fontSize:12,color:"#BF5B00",marginBottom:10}}>
           Net PP change: <strong>{impact>=0?"+":""}{impact.toLocaleString()} ⚡</strong> (not +{pts.toLocaleString()}).
           No activity was logged on this date, so it also counts as a missed day. Pick a date with activity to avoid that.
@@ -5780,7 +5928,7 @@ function GkAddEntry({member, logs, onGkSave}){
       <button onClick={reset} style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${C.border}`,
         background:"none",cursor:"pointer",fontSize:13,fontWeight:600,color:C.muted}}>Cancel</button>
       <button disabled={!valid} onClick={submit} style={{flex:2,padding:"10px",borderRadius:10,border:"none",
-        background:valid?"#7E57C2":"#D1C4E9",color:"#fff",cursor:valid?"pointer":"not-allowed",
+        background:valid?"#7E57C2":"var(--t-purple)",color:"#fff",cursor:valid?"pointer":"not-allowed",
         fontSize:13,fontWeight:700}}>Add entry</button>
     </div>
   </div>;
@@ -5801,7 +5949,7 @@ function GkHistory({member, logs, onGkUpdate, onGkDelete}){
   if(rows.length===0) return null;
 
   const iStyle = {width:"100%",padding:"9px 11px",borderRadius:8,border:"1.5px solid #7E57C2",
-    fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:8,background:"#fff"};
+    fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:8,background:"var(--card)"};
 
   function startEdit(r){
     setEditing(r.id);
@@ -5843,7 +5991,7 @@ function GkHistory({member, logs, onGkUpdate, onGkDelete}){
                 border:`1px solid ${C.border}`,background:"none",cursor:"pointer",fontSize:12,fontWeight:600,color:C.muted}}>Cancel</button>
               <button disabled={!parseInt(editPoints)||parseInt(editPoints)<=0} onClick={()=>saveEdit(r)}
                 style={{flex:2,padding:"8px",borderRadius:8,border:"none",
-                background:(!parseInt(editPoints)||parseInt(editPoints)<=0)?"#D1C4E9":"#7E57C2",
+                background:(!parseInt(editPoints)||parseInt(editPoints)<=0)?"var(--t-purple)":"#7E57C2",
                 color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Save changes</button>
             </div>
           </> : <div style={{display:"flex",alignItems:"center",gap:12}}>
@@ -5879,16 +6027,16 @@ function GkPointsForm({points, setPoints, reason, setReason, onGive, placeholder
     <input value={reason} onChange={e=>setReason(e.target.value)}
       placeholder={reasonPlaceholder} style={{width:"100%",padding:"10px 12px",borderRadius:8,
       border:"1.5px solid #7E57C2",fontSize:13,outline:"none",
-      boxSizing:"border-box",marginBottom:10,background:"#fff"}}/>
+      boxSizing:"border-box",marginBottom:10,background:"var(--card)"}}/>
     <input type="number" min={1} value={points} onChange={e=>setPoints(e.target.value)}
       placeholder={placeholder} style={{width:"100%",padding:"11px 12px",borderRadius:8,
       border:"1.5px solid #7E57C2",fontSize:16,fontWeight:700,outline:"none",
-      boxSizing:"border-box",marginBottom:10,background:"#fff",textAlign:"center"}}/>
+      boxSizing:"border-box",marginBottom:10,background:"var(--card)",textAlign:"center"}}/>
     <button disabled={!points||parseInt(points)<=0||!reason.trim()} onClick={()=>{
       onGive(parseInt(points), reason.trim());
       setPoints(""); setReason("");
     }} style={{width:"100%",padding:"11px 0",borderRadius:10,border:"none",
-      background:(!points||parseInt(points)<=0||!reason.trim())?"#D1C4E9":"#7E57C2",
+      background:(!points||parseInt(points)<=0||!reason.trim())?"var(--t-purple)":"#7E57C2",
       color:"#fff",cursor:(!points||parseInt(points)<=0||!reason.trim())?"not-allowed":"pointer",
       fontWeight:700,fontSize:14}}>Give Points</button>
   </div>;
@@ -5905,11 +6053,11 @@ function GKView({member, logs, onGkSave}){
   // Done-state card: total across every award in the period, each topic listed.
   const doneCard = (icon, title, list, periodLabel) => {
     const sum = list.reduce((s,e)=>s+e.points,0);
-    return <div style={{background:"linear-gradient(135deg,#EDE7F6,#D1C4E9)",border:"1.5px solid #7E57C2",
+    return <div style={{background:"linear-gradient(135deg,var(--t-purple),var(--t-purple))",border:"1.5px solid #7E57C2",
       borderRadius:16,padding:24,textAlign:"center"}}>
       <div style={{fontSize:icon==="🏆"?40:36,marginBottom:8}}>{icon}</div>
-      <div style={{fontWeight:800,fontSize:16,color:"#4A148C"}}>{title}</div>
-      <div style={{fontSize:13,color:"#5E35B1",marginTop:4}}>
+      <div style={{fontWeight:800,fontSize:16,color:"var(--ink-purple)"}}>{title}</div>
+      <div style={{fontSize:13,color:"var(--ink-purple)",marginTop:4}}>
         +{sum.toLocaleString()} ⚡ earned {periodLabel}{list.length>1?` (${list.length} entries)`:""}.
       </div>
       {list.filter(e=>e.reason).map(e=>(
@@ -6046,11 +6194,11 @@ function OlympiadView({member, logs, onOlympiadSave, onOlympiadDelete, onOlympia
 
   return <div style={{display:"flex",flexDirection:"column",gap:14}}>
     {/* Total summary */}
-    <div style={{background:"linear-gradient(135deg,#FFF8E1,#FFF3CD)",border:"1.5px solid #F9A825",
+    <div style={{background:"linear-gradient(135deg,var(--t-yellow),var(--t-yellow))",border:"1.5px solid #F9A825",
       borderRadius:16,padding:20,textAlign:"center"}}>
       <div style={{fontSize:36,marginBottom:4}}>🏅</div>
-      <div style={{fontWeight:800,fontSize:22,color:"#E65100"}}>{total.total.toLocaleString()} PP</div>
-      <div style={{fontSize:12,color:"#BF6900",marginTop:2}}>{total.count} session{total.count!==1?"s":""} logged</div>
+      <div style={{fontWeight:800,fontSize:22,color:"var(--ink-orange)"}}>{total.total.toLocaleString()} PP</div>
+      <div style={{fontSize:12,color:"var(--ink-orange)",marginTop:2}}>{total.count} session{total.count!==1?"s":""} logged</div>
     </div>
 
     {/* Log new session */}
@@ -6085,7 +6233,7 @@ function OlympiadView({member, logs, onOlympiadSave, onOlympiadDelete, onOlympia
           const origIndex = e._origIndex;
           const isEditing = editingIndex === origIndex;
           return <div key={origIndex} style={{
-            padding:"10px 12px",background:"#FFFBF0",borderRadius:8,
+            padding:"10px 12px",background:"var(--t-yellow)",borderRadius:8,
             border:`1px solid ${isEditing?"#F9A825":"#FFE082"}`,
           }}>
             {isEditing ? (
@@ -6118,7 +6266,7 @@ function OlympiadView({member, logs, onOlympiadSave, onOlympiadDelete, onOlympia
                   </div>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <div style={{fontSize:16,fontWeight:900,color:"#E65100"}}>+{(e.points||0).toLocaleString()}</div>
+                  <div style={{fontSize:16,fontWeight:900,color:"var(--ink-orange)"}}>+{(e.points||0).toLocaleString()}</div>
                   <button onClick={()=>startEdit(e,origIndex)} style={{background:"none",border:`1px solid ${C.border}`,
                     borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.muted,fontWeight:600}}>Edit</button>
                   <button onClick={()=>{
@@ -6176,7 +6324,7 @@ function BraveryView({member, logs, onBraverySave, onBraveryDelete, onBraveryUpd
 
   const iStyle = {width:"100%",padding:"10px 12px",borderRadius:8,
     border:"1.5px solid #F57C00",fontSize:13,outline:"none",
-    boxSizing:"border-box",marginBottom:8,background:"#fff"};
+    boxSizing:"border-box",marginBottom:8,background:"var(--card)"};
 
   const sorted = entries.map((e,i)=>({...e,_origIndex:i}))
     .sort((a,b)=>b.date.localeCompare(a.date));
@@ -6196,10 +6344,10 @@ function BraveryView({member, logs, onBraverySave, onBraveryDelete, onBraveryUpd
   }
 
   return <div style={{display:"flex",flexDirection:"column",gap:14}}>
-    <div style={{background:"linear-gradient(135deg,#FFF3E0,#FFE0B2)",border:"1.5px solid #F57C00",
+    <div style={{background:"linear-gradient(135deg,var(--t-orange),var(--t-orange))",border:"1.5px solid #F57C00",
       borderRadius:16,padding:20,textAlign:"center"}}>
       <div style={{fontSize:36,marginBottom:6}}>🦁</div>
-      <div style={{fontWeight:800,fontSize:16,color:"#E65100",marginBottom:2}}>Give Bravery Points</div>
+      <div style={{fontWeight:800,fontSize:16,color:"var(--ink-orange)",marginBottom:2}}>Give Bravery Points</div>
       <div style={{fontSize:12,color:"#F57C00",marginBottom:16}}>
         Award {member.name} points for anything brave — you choose why and how much
       </div>
@@ -6234,7 +6382,7 @@ function BraveryView({member, logs, onBraverySave, onBraveryDelete, onBraveryUpd
           const origIndex = e._origIndex;
           const isEditing = editingIndex === origIndex;
           return <div key={origIndex} style={{
-            padding:"10px 12px",background:"#FFF8F0",borderRadius:8,
+            padding:"10px 12px",background:"var(--t-yellow)",borderRadius:8,
             border:`1px solid ${isEditing?"#F57C00":"#FFD0A0"}`,
           }}>
             {isEditing ? (
@@ -6295,10 +6443,10 @@ function IllnessView({member, logs, onIllnessSave, onIllnessDelete}){
 
   return <div style={{display:"flex",flexDirection:"column",gap:14}}>
     {todayEntry ? (
-      <div style={{background:"linear-gradient(135deg,#F3E5F5,#E1BEE7)",border:"1.5px solid #8E5FA8",
+      <div style={{background:"linear-gradient(135deg,var(--t-purple),var(--t-purple))",border:"1.5px solid #8E5FA8",
         borderRadius:16,padding:20,textAlign:"center"}}>
         <div style={{fontSize:36,marginBottom:6}}>🤒</div>
-        <div style={{fontWeight:800,fontSize:16,color:"#6A3E7C",marginBottom:2}}>Marked sick today</div>
+        <div style={{fontWeight:800,fontSize:16,color:"var(--ink-purple)",marginBottom:2}}>Marked sick today</div>
         <div style={{fontSize:12,color:"#8E5FA8",marginBottom:14,fontStyle:"italic"}}>"{todayEntry.reason}"</div>
         <button onClick={()=>onIllnessDelete(member.id, today)} style={{
           background:"none",border:"1.5px solid #8E5FA8",borderRadius:8,padding:"7px 14px",
@@ -6306,16 +6454,16 @@ function IllnessView({member, logs, onIllnessSave, onIllnessDelete}){
         }}>Remove today's entry</button>
       </div>
     ) : (
-      <div style={{background:"linear-gradient(135deg,#F3E5F5,#E1BEE7)",border:"1.5px solid #8E5FA8",
+      <div style={{background:"linear-gradient(135deg,var(--t-purple),var(--t-purple))",border:"1.5px solid #8E5FA8",
         borderRadius:16,padding:20,textAlign:"center"}}>
         <div style={{fontSize:36,marginBottom:6}}>🤒</div>
-        <div style={{fontWeight:800,fontSize:16,color:"#6A3E7C",marginBottom:2}}>Mark {member.name} as sick today</div>
+        <div style={{fontWeight:800,fontSize:16,color:"var(--ink-purple)",marginBottom:2}}>Mark {member.name} as sick today</div>
         <div style={{fontSize:12,color:"#8E5FA8",marginBottom:16}}>
           A note for the record — doesn't affect Power Points or streaks
         </div>
         <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="What's going on? (e.g. Fever, stomach bug)"
           style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #8E5FA8",
-          fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:12,background:"#fff"}}/>
+          fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:12,background:"var(--card)"}}/>
         <button disabled={!reason.trim()} onClick={()=>{
           onIllnessSave(member.id, today, reason.trim());
           setReason("");
@@ -6447,8 +6595,8 @@ function AllTimeStats({member,logs,onClose}){
               </div>
             </div>;
           })()}
-          {s.pbTimeline.length>0&&<div style={{marginTop:10,background:"#FFFDE7",border:"1px solid #F9A825",borderRadius:12,padding:"10px 14px"}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#F57F17",letterSpacing:0.5,marginBottom:8}}>👑 PB TIMELINE</div>
+          {s.pbTimeline.length>0&&<div style={{marginTop:10,background:"var(--t-yellow)",border:"1px solid #F9A825",borderRadius:12,padding:"10px 14px"}}>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--ink-orange)",letterSpacing:0.5,marginBottom:8}}>👑 PB TIMELINE</div>
             <div style={{display:"flex",flexDirection:"column",gap:5}}>
               {[...s.pbTimeline].reverse().map((p,i)=>(
                 <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:12}}>
@@ -6518,7 +6666,7 @@ function HeatmapView({member,logs}){
   }
 
   const heatBg={
-    empty:"#E8E4DC",skipped:"#E05C5C",
+    empty:"var(--line)",skipped:"#E05C5C",
     done:"#3D9E6E",above:"#2E8B57",pb:"#1B5E20",
     shielded:"#B0BEC5",future:"transparent"
   };
@@ -6817,7 +6965,7 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
             {[{id:"at",label:"At target"},{id:"above",label:"Above target"},{id:"pb",label:"PB pace"}].map(o=>(
               <button key={o.id} onClick={()=>setSimActivityLevel(o.id)} style={{
                 flex:1,padding:"8px 0",borderRadius:8,border:`1.5px solid ${simActivityLevel===o.id?"#5B8FD4":C.border}`,
-                background:simActivityLevel===o.id?"#EBF2FC":"none",
+                background:simActivityLevel===o.id?"var(--t-blue)":"none",
                 color:simActivityLevel===o.id?"#2C5FA8":C.muted,
                 cursor:"pointer",fontWeight:700,fontSize:11,
               }}>{o.label}</button>
@@ -6875,7 +7023,7 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
                     Paces are the average of the last {simResult.paceDays} completed day{simResult.paceDays===1?"":"s"} (same as the Gap Tracker)
                   </div>
                   {simResult.simEggBoostPerWeek>0&&<div style={{marginTop:8,padding:"6px 10px",
-                    background:"#FFF8E1",borderRadius:8,fontSize:11,color:"#E65100",fontWeight:600,textAlign:"center"}}>
+                    background:"var(--t-yellow)",borderRadius:8,fontSize:11,color:"var(--ink-orange)",fontWeight:600,textAlign:"center"}}>
                     🥚 Egg boost: +{simResult.simEggBoostPerWeek.toLocaleString()} PP/week
                   </div>}
                 </div>
@@ -7146,7 +7294,7 @@ function PatternPicker({pattern, setPattern, accent}){
             }}>
               <div style={{
                 width:72,height:52,borderRadius:8,
-                background:`${p.id==="none"?"#f5f5f5":`${previewUrl}, #f0f0f0`}`,
+                background:`${p.id==="none"?"var(--bg2)":`${previewUrl}, var(--bg2)`}`,
                 backgroundRepeat:"repeat",
                 border:`2px solid ${isSelected?accent:C.border}`,
                 display:"flex",alignItems:"center",justifyContent:"center",
@@ -7235,7 +7383,7 @@ function BackupDrawer({logs, members, theme, pattern, onRestore, onClose}){
 
         {CF_ON&&(()=>{const cf=_cloud.cf||{};const bad=cf.state==="error";
           const t=cf.at?new Date(cf.at).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}):null;
-          return <div style={{fontSize:11,color:bad?"#B71C1C":C.muted,background:bad?"#FFEBEE":C.bg,border:`1px solid ${bad?"#EF9A9A":C.border}`,borderRadius:10,padding:"8px 12px",marginBottom:14,lineHeight:1.5}}>
+          return <div style={{fontSize:11,color:bad?"#B71C1C":C.muted,background:bad?"var(--t-red)":C.bg,border:`1px solid ${bad?"var(--tb-red)":C.border}`,borderRadius:10,padding:"8px 12px",marginBottom:14,lineHeight:1.5}}>
             ☁️ <b>Cloudflare copy:</b> {bad?`problem — ${cf.message||"unknown"}`:cf.state==="ok"?`in sync (version ${cf.v}, ${t})`:"not checked yet in this session"}
             <div style={{opacity:0.8}}>{STORE_MODE==="dual"?"JSONBin is the main store; every save is also copied here.":"Cloudflare is the main store."}</div>
           </div>;})()}
@@ -7246,10 +7394,10 @@ function BackupDrawer({logs, members, theme, pattern, onRestore, onClose}){
               {cmp&&cmp.busy?"Comparing…":"🔍 Compare JSONBin and Cloudflare"}
             </button>
             <div style={{fontSize:10,color:C.muted,marginTop:4}}>Read-only. Uses 1 JSONBin request. Changes nothing.</div>
-            {cmp&&cmp.err&&<div style={{marginTop:8,fontSize:11,color:"#B71C1C",background:"#FFEBEE",border:"1px solid #EF9A9A",borderRadius:10,padding:"8px 12px"}}>Couldn't compare: {cmp.err}</div>}
+            {cmp&&cmp.err&&<div style={{marginTop:8,fontSize:11,color:"var(--ink-red)",background:"var(--t-red)",border:"1px solid var(--tb-red)",borderRadius:10,padding:"8px 12px"}}>Couldn't compare: {cmp.err}</div>}
             {cmp&&cmp.res&&(cmp.res.same
-              ? <div style={{marginTop:8,fontSize:11,color:"#2E7D32",background:"#E8F5E9",border:"1px solid #81C784",borderRadius:10,padding:"8px 12px",lineHeight:1.5}}>✅ <b>Identical.</b> {cmp.res.nJ.toLocaleString()} values checked in each store (Cloudflare version {cmp.res.v}).</div>
-              : <div style={{marginTop:8,fontSize:11,color:"#E65100",background:"#FFF8E1",border:"1px solid #FFCC80",borderRadius:10,padding:"8px 12px",lineHeight:1.5}}>
+              ? <div style={{marginTop:8,fontSize:11,color:"var(--ink-green)",background:"var(--t-green)",border:"1px solid #81C784",borderRadius:10,padding:"8px 12px",lineHeight:1.5}}>✅ <b>Identical.</b> {cmp.res.nJ.toLocaleString()} values checked in each store (Cloudflare version {cmp.res.v}).</div>
+              : <div style={{marginTop:8,fontSize:11,color:"var(--ink-orange)",background:"var(--t-yellow)",border:"1px solid var(--tb-orange)",borderRadius:10,padding:"8px 12px",lineHeight:1.5}}>
                   ⚠️ <b>The stores differ.</b> JSONBin {cmp.res.nJ.toLocaleString()} values · Cloudflare {cmp.res.nC.toLocaleString()} values.
                   {list("Only in JSONBin",cmp.res.onlyJ)}{list("Only in Cloudflare",cmp.res.onlyC)}{list("Different values",cmp.res.diff)}
                   <div style={{marginTop:6,opacity:0.85}}>A save made while this ran can cause a brief difference. Wait a few seconds and compare again. If it persists, send this to Claude.</div>
@@ -7257,9 +7405,9 @@ function BackupDrawer({logs, members, theme, pattern, onRestore, onClose}){
           </div>;})()}
 
         {/* Download current */}
-        <div style={{background:"linear-gradient(135deg,#E8F5E9,#F1F8E9)",border:"1.5px solid #81C784",
+        <div style={{background:"linear-gradient(135deg,var(--t-green),var(--t-green))",border:"1.5px solid #81C784",
           borderRadius:14,padding:"14px 16px",marginBottom:20}}>
-          <div style={{fontSize:11,fontWeight:700,color:"#2E7D32",letterSpacing:0.5,marginBottom:6}}>📥 DOWNLOAD CURRENT BACKUP</div>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--ink-green)",letterSpacing:0.5,marginBottom:6}}>📥 DOWNLOAD CURRENT BACKUP</div>
           <div style={{fontSize:12,color:"#388E3C",marginBottom:12}}>
             Save today's full data as a JSON file — store in Google Drive or iCloud for safekeeping.
           </div>
@@ -7267,7 +7415,7 @@ function BackupDrawer({logs, members, theme, pattern, onRestore, onClose}){
             width:"100%",padding:"10px",borderRadius:10,border:"none",
             background:"#4CAF50",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13,
           }}>⬇️ Download fitness_backup_{today}.json</button>
-          <div style={{marginTop:10,fontSize:11,color:"#2E7D32"}}>
+          <div style={{marginTop:10,fontSize:11,color:"var(--ink-green)"}}>
             {summariseBackup(currentData).map(r=>(
               <div key={r.name} style={{display:"flex",justifyContent:"space-between",padding:"1px 0"}}>
                 <span style={{fontWeight:600}}>{r.name}</span>
@@ -7278,14 +7426,14 @@ function BackupDrawer({logs, members, theme, pattern, onRestore, onClose}){
         </div>
 
         {/* Restore from a backup file */}
-        <div style={{background:"#E3F2FD",border:"1.5px solid #90CAF9",borderRadius:14,padding:"14px 16px",marginBottom:20}}>
-          <div style={{fontSize:11,fontWeight:700,color:"#1565C0",letterSpacing:0.5,marginBottom:6}}>📤 RESTORE FROM A BACKUP FILE</div>
-          <div style={{fontSize:12,color:"#1565C0",marginBottom:10}}>
+        <div style={{background:"var(--t-blue)",border:"1.5px solid var(--tb-blue)",borderRadius:14,padding:"14px 16px",marginBottom:20}}>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--ink-blue)",letterSpacing:0.5,marginBottom:6}}>📤 RESTORE FROM A BACKUP FILE</div>
+          <div style={{fontSize:12,color:"var(--ink-blue)",marginBottom:10}}>
             Pick a fitness_backup_….json file. You'll see what's inside before anything changes.
           </div>
           <input type="file" accept=".json,application/json" onChange={onPickFile} style={{fontSize:12,width:"100%"}}/>
-          {fileErr&&<div style={{fontSize:12,color:"#C62828",marginTop:8,fontWeight:600}}>{fileErr}</div>}
-          {fileData&&<div style={{marginTop:10,background:"#fff",borderRadius:10,padding:"10px 12px",border:"1px solid #BBDEFB"}}>
+          {fileErr&&<div style={{fontSize:12,color:"var(--ink-red)",marginTop:8,fontWeight:600}}>{fileErr}</div>}
+          {fileData&&<div style={{marginTop:10,background:"var(--card)",borderRadius:10,padding:"10px 12px",border:"1px solid var(--tb-blue)"}}>
             <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6}}>INSIDE THIS FILE</div>
             {summariseBackup(fileData).map(r=>(
               <div key={r.name} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"2px 0"}}>
@@ -7363,7 +7511,7 @@ function BackupDrawer({logs, members, theme, pattern, onRestore, onClose}){
 function ThemePicker({theme, setTheme}){
   const[open,setOpen]=useState(false);
   const[customColor,setCustomColor]=useState("#5B8FD4");
-  const current = THEMES.find(t=>t.id===theme) || {accent:theme,light:"#E8E4DC",name:"Custom"};
+  const current = THEMES.find(t=>t.id===theme) || {accent:theme,light:"var(--line)",name:"Custom"};
 
   // Seasonal suggestion based on current month
   const month = new Date().getMonth();
@@ -7488,7 +7636,7 @@ function FamilyDoor({members,theme,onEnter,onClearPin}){
   const[lockUntil,setLockUntil]=useState(0);
   const[busy,setBusy]=useState(false);
   const[,setTick]=useState(0);
-  const th=THEMES.find(t=>t.id===theme)||(typeof theme==="string"&&theme.startsWith("#")?{accent:theme,light:"#F0F0F0"}:THEMES[0]);
+  const th=THEMES.find(t=>t.id===theme)||(typeof theme==="string"&&theme.startsWith("#")?{accent:theme,light:"var(--bg2)"}:THEMES[0]);
   const locked=Date.now()<lockUntil;
   const admin=members.find(m=>m.id==="1785579180664"||/^abrg$/i.test(m.name||""));
   const resetters=sel?(admin&&admin.id!==sel.id?(hasPin(admin)?[admin]:[]):members.filter(m=>m.id!==sel.id&&hasPin(m))):[];
@@ -7519,7 +7667,7 @@ function FamilyDoor({members,theme,onEnter,onClearPin}){
       }
     }finally{ setBusy(false); }
   };
-  const tile={background:"#fff",border:`2px solid ${C.border}`,borderRadius:16,padding:"18px 10px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:6,fontFamily:"inherit",minWidth:0};
+  const tile={background:"var(--card)",border:`2px solid ${C.border}`,borderRadius:16,padding:"18px 10px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:6,fontFamily:"inherit",minWidth:0};
   return <div style={{minHeight:"100vh",background:th.light,display:"flex",alignItems:"center",justifyContent:"center",padding:16,fontFamily:"'Inter','Helvetica Neue',sans-serif",color:C.text}}>
     <div style={{background:C.surface,borderRadius:20,padding:"28px 22px",width:"100%",maxWidth:420,boxShadow:"0 8px 40px rgba(0,0,0,0.12)",borderTop:`5px solid ${th.accent}`}}>
       <div style={{fontWeight:800,fontSize:20,letterSpacing:-0.5,textAlign:"center"}}>⚡ Family Fitness</div>
@@ -7840,6 +7988,37 @@ export default function App(){
   const nextMo=()=>{if(mo===11){setYr(y=>y+1);setMo(0);}else setMo(m=>m+1);};
   const isCurMo=yr===now.getFullYear()&&mo===now.getMonth();
 
+  // Look & feel hooks (must stay above the early returns below)
+  const[modePref,setModePref]=useState(readModePref);
+  const[sysTick,setSysTick]=useState(0);
+  useEffect(()=>{
+    if(modePref!=="auto") return;
+    let mq; try{ mq=window.matchMedia("(prefers-color-scheme: dark)"); }catch{ return; }
+    const f=()=>setSysTick(t=>t+1);
+    mq.addEventListener?.("change",f); return ()=>mq.removeEventListener?.("change",f);
+  },[modePref]);
+  const mode=resolveMode(modePref); void sysTick;
+  const cycleMode=()=>{ const nx=modePref==="light"?"dark":modePref==="dark"?"auto":"light"; setModePref(nx); try{ localStorage.setItem("ff_mode",nx); }catch{} };
+  const _tabMember=activeTab?members.find(m=>m.id===activeTab):null;
+  const _accentId=(_tabMember?.memberTheme)||theme;
+  const _accentBase=(THEMES.find(t=>t.id===_accentId)||{}).accent||(String(_accentId).startsWith("#")?_accentId:THEMES[0].accent);
+  useEffect(()=>{
+    const el=document.documentElement;
+    el.setAttribute("data-mode",mode);
+    const v=accentVars(_accentBase,mode);
+    Object.keys(v).forEach(k=>el.style.setProperty(k,v[k]));
+  },[mode,_accentBase]);
+  useEffect(()=>{
+    let s=document.getElementById("ff-global-css");
+    if(!s){ s=document.createElement("style"); s.id="ff-global-css"; document.head.appendChild(s); }
+    s.textContent=GLOBAL_CSS;
+    if(!document.getElementById("ff-inter")){
+      const l=document.createElement("link"); l.id="ff-inter"; l.rel="stylesheet";
+      l.href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap";
+      document.head.appendChild(l);
+    }
+  },[]);
+
   if(!loaded) return <div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{color:C.muted,fontSize:16}}>Loading…</div></div>;
 
   const doorOn=members.some(hasPin);
@@ -7871,39 +8050,53 @@ export default function App(){
   } : THEMES[0]);
   const bgPattern = `url("data:image/svg+xml,${encodeURIComponent(getPatternSvg(activePatternId, currentTheme.accent))}")`;
 
-  return <div style={{background:`${bgPattern}, ${currentTheme.light}`,backgroundRepeat:"repeat",minHeight:"100vh",fontFamily:"'Inter','Helvetica Neue',sans-serif",color:C.text,transition:"background 0.3s"}}>
-    <div style={{height:4,background:currentTheme.accent,transition:"background 0.3s"}}/>
-    <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"16px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
-      <div style={{minWidth:120}}>
-        <div style={{fontWeight:800,fontSize:20,letterSpacing:-0.5}}>⚡ Family Fitness</div>
-      </div>
+  return <div className="ff-app" style={{color:C.text}}>
+    <aside className="ff-side" aria-label="People">
+      <div className="ff-logo"><span className="ff-logo-mark">⚡</span><span>Family Fitness</span></div>
+      <div className="ff-side-label">PEOPLE</div>
+      {members.map(m=>(
+        <button key={m.id} className="ff-nav" aria-label={m.name} aria-current={activeTab===m.id?"page":undefined}
+          onClick={()=>{setActiveTab(m.id);setPpPanelFor(null);}}>
+          <span className="ff-avatar" style={{background:m.color+"33",color:m.color}}>{m.emoji||m.name.slice(0,1)}</span>
+          <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{m.name}</span>
+        </button>
+      ))}
+      <div className="ff-side-sep" style={{height:1,background:C.border,margin:"10px 6px"}}/>
+      <button className="ff-nav" aria-label="Family" aria-current={activeTab===null?"page":undefined} onClick={()=>{setActiveTab(null);setPpPanelFor(null);}}>
+        <span className="ff-avatar" style={{background:"var(--accent-soft)"}}>👨‍👩‍👧</span><span>Family</span>
+      </button>
+      <div className="ff-side-grow" style={{flex:1}}/>
+      <button className="ff-nav ff-side-add" aria-label="Add member" onClick={()=>setEditM("new")} style={{color:"var(--accent-ink)",fontWeight:700}}>
+        <span className="ff-avatar" style={{background:"var(--accent-soft)"}}>＋</span><span>Add member</span>
+      </button>
+    </aside>
+    <div className="ff-main" style={{position:"relative"}}>
+    {mode==="light"&&<div aria-hidden="true" style={{position:"absolute",inset:0,backgroundImage:bgPattern,backgroundRepeat:"repeat",opacity:0.28,pointerEvents:"none"}}/>}
+    <div className="ff-top">
+      <div style={{fontWeight:800,fontSize:18,letterSpacing:-0.4}}>{activeMember?activeMember.name:"Family"}</div>
       <div style={{flex:1}}/>
-      <div style={{display:"flex",alignItems:"center",gap:10,minWidth:120,justifyContent:"flex-end"}}>
-        <button onClick={prevMo} style={navBtn}>‹</button>
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
+        <button onClick={prevMo} style={navBtn} aria-label="Previous month">‹</button>
         <span style={{fontWeight:700,fontSize:14,minWidth:100,textAlign:"center"}}>{MONTHS[mo]} {yr}</span>
-        <button onClick={nextMo} disabled={isCurMo} style={{...navBtn,opacity:isCurMo?0.3:1}}>›</button>
+        <button onClick={nextMo} disabled={isCurMo} style={{...navBtn,opacity:isCurMo?0.3:1}} aria-label="Next month">›</button>
         {/* Save status indicator */}
         <div style={{fontSize:11,fontWeight:600,padding:"4px 8px",borderRadius:6,
-          background:saveStatus==="saving"?"#FFF8E1":saveStatus==="pending"?"#FFF8E1":(saveStatus==="error"||saveStatus==="readonly")?"#FFEBEE":"#E8F5E9",
-          color:saveStatus==="saving"?"#F9A825":saveStatus==="pending"?"#F9A825":(saveStatus==="error"||saveStatus==="readonly")?"#C62828":"#2E7D32",
+          background:saveStatus==="saving"?"var(--t-yellow)":saveStatus==="pending"?"var(--t-yellow)":(saveStatus==="error"||saveStatus==="readonly")?"var(--t-red)":"var(--t-green)",
+          color:saveStatus==="saving"?"var(--ink-brown)":saveStatus==="pending"?"var(--ink-brown)":(saveStatus==="error"||saveStatus==="readonly")?"var(--ink-red)":"var(--ink-green)",
           transition:"all 0.3s",whiteSpace:"nowrap",
         }}>
           {saveStatus==="saving"?"⟳ Saving...":saveStatus==="pending"?"⟳ Saving...":saveStatus==="error"?`⚠️ Save failed${_cloud.status?` (${_cloud.status})`:""}`:saveStatus==="readonly"?"🔒 Not saving":"✓ Saved"}
         </div>
-        <button onClick={()=>setShowBackup(true)} style={{background:"none",border:`1px solid ${C.border}`,
-          borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:13,color:C.muted,fontWeight:600,
-          whiteSpace:"nowrap"}} title="Backup & Restore">💾</button>
-        {doorOn&&<button onClick={switchWho} style={{background:"none",border:`1px solid ${C.border}`,
-          borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:13,color:C.muted,fontWeight:600,
-          whiteSpace:"nowrap"}} title="Switch person">⇄ Switch</button>}
+        <button onClick={()=>setShowBackup(true)} className="ff-chip" title="Backup & Restore">💾</button>
+        {doorOn&&<button onClick={switchWho} className="ff-chip" title="Switch person">⇄ Switch</button>}
+        <button onClick={cycleMode} className="ff-chip" data-testid="mode-toggle" title={`Appearance: ${modePref} (click to change)`}>{modePref==="dark"?"🌙 Dark":modePref==="auto"?"🖥 Auto":"☀️ Light"}</button>
         <ThemePicker theme={theme} setTheme={setTheme}/>
         <PatternPicker pattern={pattern} setPattern={setPattern} accent={currentTheme.accent}/>
-        <button onClick={()=>setEditM("new")} style={{background:currentTheme.accent,color:"#fff",border:"none",borderRadius:9,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>+ Add member</button>
         {showBackup&&<BackupDrawer logs={logs} members={members} theme={theme} pattern={pattern}
           onRestore={handleRestore} onClose={()=>setShowBackup(false)}/>}
       </div>
     </div>
-    {cloudInfo&&!cloudInfo.ok&&<div role="alert" style={{background:"#FFEBEE",borderBottom:"1px solid #EF9A9A",color:"#B71C1C",padding:"10px 24px",fontSize:13,lineHeight:1.5}}>
+    {cloudInfo&&!cloudInfo.ok&&<div role="alert" style={{background:"var(--t-red)",borderBottom:"1px solid var(--tb-red)",color:"var(--ink-red)",padding:"10px 24px",fontSize:13,lineHeight:1.5}}>
       <div style={{maxWidth:860,margin:"0 auto",display:"flex",gap:12,alignItems:"flex-start",flexWrap:"wrap"}}>
         <div style={{flex:"1 1 300px"}}>
           <b>⚠️ Couldn't load the latest data from the cloud{cloudInfo.status?` (HTTP ${cloudInfo.status})`:""}.</b>{" "}
@@ -7915,27 +8108,7 @@ export default function App(){
       </div>
     </div>}
 
-    {/* Tab bar */}
-    {members.length>0&&<div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,position:"sticky",top:65,zIndex:40}}>
-      <div style={{maxWidth:860,margin:"0 auto",padding:"0 16px",display:"flex",gap:0,overflowX:"auto"}}>
-        {members.map(m=>(
-          <button key={m.id} onClick={()=>{setActiveTab(m.id);setPpPanelFor(null);}} style={{
-            padding:"12px 20px",border:"none",borderBottom:`3px solid ${activeTab===m.id?m.color:"transparent"}`,
-            background:"none",cursor:"pointer",fontWeight:activeTab===m.id?700:500,
-            fontSize:14,color:activeTab===m.id?m.color:C.muted,
-            whiteSpace:"nowrap",transition:"all 0.15s",
-          }}>{m.name}</button>
-        ))}
-        <button onClick={()=>{setActiveTab(null);setPpPanelFor(null);}} style={{
-          padding:"12px 20px",border:"none",borderBottom:`3px solid ${activeTab===null?currentTheme.accent:"transparent"}`,
-          background:"none",cursor:"pointer",fontWeight:activeTab===null?700:500,
-          fontSize:14,color:activeTab===null?currentTheme.accent:C.muted,
-          whiteSpace:"nowrap",transition:"all 0.15s",
-        }}>Family</button>
-      </div>
-    </div>}
-
-    <div style={{maxWidth:(activeTab&&ppPanelFor===activeTab)?1300:860,margin:"0 auto",padding:"24px 16px",display:"flex",flexDirection:"column",gap:20,transition:"max-width 0.2s"}}>
+    <div className="ff-wrap" style={{maxWidth:(activeTab&&ppPanelFor===activeTab)?1500:1180}}>
       {members.length===0&&<div style={{textAlign:"center",padding:60,color:C.muted}}>
         <div style={{fontSize:40,marginBottom:12}}>🌱</div>
         <div style={{fontSize:16,fontWeight:600}}>No members yet. Add one to get started.</div>
@@ -7943,8 +8116,8 @@ export default function App(){
 
       {/* Individual member tab */}
       {activeTab&&members.filter(m=>m.id===activeTab).map(m=>(
-        <div key={m.id} style={{display:"flex",gap:20,flexWrap:"wrap",alignItems:"flex-start",justifyContent:"center"}}>
-          <div style={{flex:"1 1 460px",maxWidth:860,minWidth:0}}>
+        <div key={m.id} style={{display:"flex",gap:20,flexWrap:"wrap",alignItems:"flex-start"}}>
+          <div key={m.id} className="ff-in" style={{flex:"1 1 460px",minWidth:0}}>
             <MemberCard member={m} logs={logs} allMembers={members}
               onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}
               onOpenPP={(id,view)=>{setPpPanelFor(id);setPpView(v=>({view:view||"main",n:v.n+1}));}} onGrowthSave={handleGrowthSave}
@@ -7963,5 +8136,6 @@ export default function App(){
     {celebration&&<CelebrationScreen badge={celebration} memberName={celebration.memberName} onClose={()=>setCelebration(null)}/>}
     {toasts.length>0&&<Toast badge={toasts[0]} onDismiss={()=>setToasts(q=>q.slice(1))}/>}
     {editM&&<EditModal member={editM==="new"?null:editM} isNew={editM==="new"} allMembers={members} onSave={handleSave} onDelete={handleDel} onClose={()=>setEditM(null)}/>}
+    </div>
   </div>;
 }
