@@ -26,6 +26,45 @@ function accentVars(accent,mode){
     "--on-accent":hexLum(acc)>0.42?"#12141A":"#FFFFFF",
   };
 }
+
+// ── Sound effects: tiny synthesized sounds (no audio files). Off by default; per-device toggle. ──
+const SFX={on:false,ctx:null,master:null,lastEgg:0};
+function readSoundPref(){ try{ return localStorage.getItem("ff_sound")==="on"; }catch{ return false; } }
+SFX.on=readSoundPref();
+function sfxCtx(){
+  try{
+    if(!SFX.ctx){
+      const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return null;
+      SFX.ctx=new AC(); SFX.master=SFX.ctx.createGain(); SFX.master.gain.value=0.16; SFX.master.connect(SFX.ctx.destination);
+    }
+    if(SFX.ctx.state==="suspended") SFX.ctx.resume();
+    return SFX.ctx;
+  }catch{ return null; }
+}
+function sfxTone(freq,t0,dur,o){
+  const {type="sine",vol=1,glideTo}=o||{}; const c=SFX.ctx;
+  const osc=c.createOscillator(), g=c.createGain();
+  osc.type=type; osc.frequency.setValueAtTime(freq,t0);
+  if(glideTo) osc.frequency.exponentialRampToValueAtTime(glideTo,t0+dur);
+  g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(vol,t0+0.015); g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+  osc.connect(g); g.connect(SFX.master); osc.start(t0); osc.stop(t0+dur+0.05);
+}
+function sfx(name,delay){
+  try{
+    if(delay){ setTimeout(()=>sfx(name),delay); return; }
+    if(!SFX.on||(typeof document!=="undefined"&&document.hidden)) return;
+    const c=sfxCtx(); if(!c) return; const t=c.currentTime+0.01;
+    if(name==="egg"){ SFX.lastEgg=Date.now(); sfxTone(380,t,0.13,{glideTo:720}); sfxTone(1200,t+0.11,0.05,{vol:0.3}); }
+    else if(name==="log"){ [523.25,659.25,783.99].forEach((f,i)=>sfxTone(f,t+i*0.09,0.18,{type:"triangle",vol:0.8})); }
+    else if(name==="gem"){ [1318.5,1568,1975.5,2637].forEach((f,i)=>sfxTone(f,t+i*0.07,0.16,{vol:0.45})); }
+    else if(name==="badge"){ sfxTone(783.99,t,0.2,{type:"triangle",vol:0.7}); sfxTone(1174.7,t+0.12,0.35,{type:"triangle",vol:0.7}); }
+    else if(name==="level"){
+      [523.25,659.25,783.99].forEach((f,i)=>sfxTone(f,t+i*0.12,0.16,{type:"triangle",vol:0.8}));
+      sfxTone(1046.5,t+0.42,0.7,{type:"triangle",vol:0.8}); sfxTone(1318.5,t+0.42,0.7,{vol:0.4}); sfxTone(1568,t+0.42,0.7,{vol:0.3});
+    }
+    else if(name==="on"){ sfxTone(660,t,0.14,{type:"triangle",vol:0.6}); sfxTone(880,t+0.1,0.2,{type:"triangle",vol:0.6}); }
+  }catch{}
+}
 function readModePref(){ try{ const m=localStorage.getItem("ff_mode"); return (m==="dark"||m==="auto")?m:"light"; }catch{ return "light"; } }
 function resolveMode(pref){
   if(pref==="auto"){ try{ return window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"; }catch{ return "light"; } }
@@ -2422,6 +2461,7 @@ const MAJOR_MILESTONE_IDS = new Set([
 
 function CelebrationScreen({badge, memberName, onClose}){
   const tc=TC[badge.tier];
+  useEffect(()=>{ sfx("level",250); },[]);
   useEffect(()=>{
     const t=setTimeout(onClose,3800);
     return()=>clearTimeout(t);
@@ -2499,6 +2539,7 @@ function CelebrationScreen({badge, memberName, onClose}){
 function Toast({badge,onDismiss}){
   const tc=TC[badge.tier];
   const isLevel=String(badge.id||"").startsWith("pp_level_");
+  useEffect(()=>{ sfx(isLevel?"level":"badge",isLevel?250:0); },[]);
   useEffect(()=>{const t=setTimeout(onDismiss,isLevel?4500:4000);return()=>clearTimeout(t);},[]);
   if(isLevel) return <div role="status" className="ff-slidedown" onClick={onDismiss} style={{position:"fixed",top:16,left:0,right:0,margin:"0 auto",width:"min(340px, 84vw)",zIndex:300,cursor:"pointer",
     background:"var(--hero)",color:"#fff",borderRadius:16,padding:"16px 20px",display:"flex",alignItems:"center",gap:16,
@@ -4048,6 +4089,7 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
   const[showHistory,setShowHistory]=useState(false);
 
   function handleTap(delta){
+    if(delta>0) sfx("egg");
     if(delta>0){
       if(delta===0.5){ setCelebrateHalf(true); setTimeout(()=>setCelebrateHalf(false),1400); }
       else { setCelebrate(true); setTimeout(()=>setCelebrate(false),1400); }
@@ -4753,6 +4795,8 @@ function GemVaultCard({member, logs}){
   const counts = computeGemVault(member, logs);
   const total = Object.values(counts).reduce((s,v)=>s+v, 0);
   const [showDrawer, setShowDrawer] = useState(false);
+  const prevGems=useRef(null);
+  useEffect(()=>{ if(prevGems.current!==null&&total>prevGems.current) sfx("gem",350); prevGems.current=total; },[total]);
 
   const rarityOrder = ["Legendary","Epic","Rare","Uncommon","Common"];
   const earned = GEM_DEFS.filter(g=>counts[g.id]>0).sort((a,b)=>
@@ -4921,6 +4965,7 @@ function PPFloat({total}){
     const p=prev.current; prev.current=total;
     if(p===null||total<=p) return;
     const d=total-p; if(d>20000) return; // ignore big jumps from data refreshes
+    if(Date.now()-SFX.lastEgg>1500) sfx("log");
     setGain({d,k:Date.now()});
     const t=setTimeout(()=>setGain(null),1600);
     return ()=>clearTimeout(t);
@@ -8047,6 +8092,18 @@ export default function App(){
     mq.addEventListener?.("change",f); return ()=>mq.removeEventListener?.("change",f);
   },[modePref]);
   const mode=resolveMode(modePref); void sysTick;
+  const[soundOn,setSoundOn]=useState(()=>SFX.on);
+  const toggleSound=()=>{
+    const nx=!soundOn; SFX.on=nx; setSoundOn(nx);
+    try{ localStorage.setItem("ff_sound",nx?"on":"off"); }catch{}
+    if(nx){ sfxCtx(); sfx("on"); }
+  };
+  useEffect(()=>{
+    // browsers only allow audio after a tap: prepare it on the first tap when sound is on
+    const unlock=()=>{ if(SFX.on) sfxCtx(); };
+    window.addEventListener("pointerdown",unlock,{passive:true});
+    return ()=>window.removeEventListener("pointerdown",unlock);
+  },[]);
   const cycleMode=()=>{ const nx=modePref==="light"?"dark":modePref==="dark"?"auto":"light"; setModePref(nx); try{ localStorage.setItem("ff_mode",nx); }catch{} };
   const _tabMember=activeTab?members.find(m=>m.id===activeTab):null;
   const _accentId=(_tabMember?.memberTheme)||theme;
@@ -8138,6 +8195,7 @@ export default function App(){
         </div>
         <button onClick={()=>setShowBackup(true)} className="ff-chip" title="Backup & Restore">💾</button>
         {doorOn&&<button onClick={switchWho} className="ff-chip" title="Switch person">⇄ Switch</button>}
+        <button onClick={toggleSound} className="ff-chip" data-testid="sound-toggle" aria-pressed={soundOn} title={soundOn?"Sound effects on (click to mute)":"Sound effects off (click to turn on)"}>{soundOn?"🔊":"🔇"}</button>
         <button onClick={cycleMode} className="ff-chip" data-testid="mode-toggle" title={`Appearance: ${modePref} (click to change)`}>{modePref==="dark"?"🌙 Dark":modePref==="auto"?"🖥 Auto":"☀️ Light"}</button>
         <ThemePicker theme={theme} setTheme={setTheme}/>
         <PatternPicker pattern={pattern} setPattern={setPattern} accent={currentTheme.accent}/>
