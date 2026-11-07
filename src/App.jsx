@@ -1926,6 +1926,24 @@ function cloudEncode(json){
   return wrapped;
 }
 
+// ── Deletions that survive the cloud merge ───────────────────────────────────
+// The merge below keeps anything either copy has, so a deleted entry would be brought back by the next save.
+// A deleted day-entry is remembered here until a save that carried the deletion succeeds, and removed from the
+// merged result before it is written. Re-logging the same activity/day cancels the pending deletion.
+let _tombs=[];
+function _tombAdd(mid,actId,date){ _tombs=_tombs.filter(t=>!(t.mid===mid&&t.actId===actId&&t.date===date)); _tombs.push({mid,actId,date}); }
+function _tombClear(mid,actId,date){ _tombs=_tombs.filter(t=>!(t.mid===mid&&t.actId===actId&&t.date===date)); }
+function _tombApply(logs){
+  if(!_tombs.length) return logs;
+  let out=logs;
+  for(const t of _tombs){
+    const al=out&&out[t.mid]&&out[t.mid][t.actId];
+    if(al&&Object.prototype.hasOwnProperty.call(al,t.date)){ const na={...al}; delete na[t.date]; out={...out,[t.mid]:{...out[t.mid],[t.actId]:na}}; }
+  }
+  return out;
+}
+function _tombDone(applied){ _tombs=_tombs.filter(t=>!applied.some(a=>a.mid===t.mid&&a.actId===t.actId&&a.date===t.date)); }
+
 // Deep-merge two log trees
 // right now, which represents the most recent deliberate action.
 function deepMergeLogs(remote, local){
@@ -2163,9 +2181,10 @@ async function saveDataCf(p){
     for(let attempt=0;attempt<5;attempt++){
       const cur=await cfGet();
       const remote=cfDecodeState(cur)||{};
+      const tombsNow=_tombs.slice();
       const merged={
         members: mergeMembers(remote.members, p.members),
-        logs: deepMergeLogs(remote.logs||{}, p.logs||{}),
+        logs: _tombApply(deepMergeLogs(remote.logs||{}, p.logs||{})),
         theme: p.theme,
         pattern: p.pattern,
       };
@@ -2174,7 +2193,7 @@ async function saveDataCf(p){
       const data=cloudEncode(s); // throws (nothing is sent) if the compressed copy doesn't decode back to exactly s
       const r=await cfPut(cur.v,data);
       if(r.conflict) continue; // another device saved in between: re-read, merge again, retry
-      _cfNote("ok",{v:r.v}); _markSynced();
+      _cfNote("ok",{v:r.v}); _markSynced(); _tombDone(tombsNow);
       if(_saveStatusCb) _saveStatusCb("saved");
       jsonbinMirror(s);
       return;
@@ -2208,9 +2227,10 @@ async function saveData(p){
       return;
     }
     const remote=cloudDecode(await res.json());
+    const tombsNow=_tombs.slice();
     const merged={
       members: mergeMembers(remote.members, p.members),
-      logs: deepMergeLogs(remote.logs||{}, p.logs||{}),
+      logs: _tombApply(deepMergeLogs(remote.logs||{}, p.logs||{})),
       theme: p.theme,
       pattern: p.pattern,
     };
@@ -2223,7 +2243,7 @@ async function saveData(p){
       if(_saveStatusCb) _saveStatusCb("error");
       return;
     }
-    _markSynced();
+    _markSynced(); _tombDone(tombsNow);
     if(_saveStatusCb) _saveStatusCb("saved");
     if(STORE_MODE==="dual") cfMirror(s); // copy to Cloudflare; never affects this save
   }catch(e){
@@ -2596,6 +2616,29 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDeleteEntry,onClo
   </div>;
 }
 
+// ── Quick-log helpers ─────────────────────────────────────────────────────────
+// Looks at an activity's own history (never the day being edited): the 3 most-used session sizes of the last 60
+// logged days (plus the last one), so the one-tap buttons are each person's own numbers.
+function quickValueStats(logs,memberId,actId,skipDate){
+  const al=getActivityLogs(logs,memberId,actId)||{};
+  const days=Object.keys(al).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)&&d!==skipDate&&al[d]&&al[d].status==="done"&&al[d].value>0).sort().slice(-60);
+  const freq=new Map(); let last=null;
+  days.forEach((d,i)=>{
+    const l=al[d]; const vals=l.sessions&&l.sessions.length>1?l.sessions:[l.value];
+    vals.forEach(v=>{ if(!(v>0)) return; const f=freq.get(v)||{n:0,at:0}; f.n++; f.at=i; freq.set(v,f); });
+    const lv=vals[vals.length-1]; if(lv>0) last=lv;
+  });
+  const common=[...freq.entries()].sort((a,b)=>b[1].n-a[1].n||b[1].at-a[1].at).slice(0,3).map(e=>e[0]);
+  return {last,common,usual:common.length?common[0]:last};
+}
+function quickStep(a,usual){
+  if(["km","miles","kg","hrs"].includes(a.unit)) return 0.5;
+  if(a.unit==="steps") return 500;
+  const ref=Math.max(a.target||0,usual||0);
+  return ref>=20?5:ref>=8?2:1;
+}
+const _fmtClock=ms=>{const t=Math.max(0,Math.floor(ms/1000));return String(Math.floor(t/60)).padStart(2,"0")+":"+String(t%60).padStart(2,"0");};
+
 // ── Alternating Log Modal (pick one or more activities) ──────────────────────
 function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDeleteEntry,onClose}){
   const displayDate=new Date(dateStr+"T00:00:00").toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"short"});
@@ -2609,7 +2652,8 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
       actId:a.id,
       selected:ex&&ex.status!=="skipped"&&ex.status!=="shielded",
       status:ex?.status??"none",
-      value:ex?.value??a.target,
+      hadEntry:!!ex,
+      value:ex?.value??(quickValueStats(logs,member.id,a.id,dateStr).usual??a.target), // your usual value (most-used recently), else the target
       originalValue:ex?.value??0, // snapshot for "add session"
       sessions:ex?.sessions||null, // MUST preserve existing sessions array
       alreadyLogged:!!alreadyLogged,
@@ -2618,6 +2662,48 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
   });
   const[entries,setEntries]=useState(init);
   const[isRest,setIsRest]=useState(init.every(e=>e.status==="skipped"));
+
+  // ── Quick log: one tap logs a session instantly; the last tap can be undone for 5 seconds ──
+  const qstats=useMemo(()=>Object.fromEntries(acts.map(a=>[a.id,quickValueStats(logs,member.id,a.id,dateStr)])),[logs,member.id,dateStr]);
+  const quickChips=(a)=>{ const st=qstats[a.id]||{}; const out=[]; const add=v=>{ if(v>0&&!out.includes(v)) out.push(v); }; (st.common||[]).forEach(add); add(st.last); add(a.target); return out.slice(0,4); };
+  const[editOpen,setEditOpen]=useState({});
+  const[undo,setUndo]=useState(null);
+  const[committed,setCommitted]=useState(false);
+  const undoT=useRef(null);
+  useEffect(()=>()=>clearTimeout(undoT.current),[]);
+  const round2=n=>Math.round(n*100)/100;
+  function commitQuick(a,v){
+    v=round2(Number(v)); if(!(v>0)) return;
+    const en=entries.find(e=>e.actId===a.id); if(!en||en.status==="shielded") return;
+    const hadDone=!!(en.alreadyLogged&&en.originalValue>0);
+    const prior=hadDone?(en.sessions&&en.sessions.length>0?en.sessions:[en.originalValue]):[];
+    const sessions=prior.length?[...prior,v]:undefined;
+    const total=round2(prior.reduce((t,x)=>t+x,0)+v);
+    const snapshot=en;
+    onSaveAll([{actId:a.id,value:total,status:"done",target:a.target,sessions}],{keepOpen:true});
+    setIsRest(false); setCommitted(true);
+    setEntries(p=>p.map(e=>e.actId===a.id?{...e,selected:true,status:"done",alreadyLogged:true,hadEntry:true,originalValue:total,value:total,sessions:sessions||null,mode:"replace"}:e));
+    clearTimeout(undoT.current);
+    setUndo({label:`${a.name} +${v} ${a.unit}`,total,unit:a.unit,run:()=>{
+      if(snapshot.hadEntry){
+        if(hadDone) onSaveAll([{actId:a.id,value:snapshot.originalValue,status:"done",target:a.target,sessions:snapshot.sessions&&snapshot.sessions.length>1?snapshot.sessions:undefined}],{keepOpen:true});
+        else onSaveAll([{actId:a.id,value:0,status:snapshot.status==="shielded"?"shielded":"skipped",target:a.target}],{keepOpen:true});
+      } else onDeleteEntry(member.id,a.id,dateStr);
+      setEntries(p=>p.map(e=>e.actId===a.id?snapshot:e));
+    }});
+    undoT.current=setTimeout(()=>setUndo(null),5000);
+  }
+  function doUndo(){ if(!undo) return; clearTimeout(undoT.current); const r=undo.run; setUndo(null); r(); }
+  const stepVal=(a,d)=>setEntries(p=>p.map(e=>e.actId===a.id?{...e,value:Math.max(0,round2((e.value||0)+d))}:e));
+
+  // ── Optional stopwatch for sec/min activities (kept in localStorage so it survives closing the sheet) ──
+  const tKey=a=>`ff_timer_${member.id}_${a.id}`;
+  const[timers,setTimers]=useState(()=>{ const o={}; for(const a of acts){ try{ const r=localStorage.getItem(`ff_timer_${member.id}_${a.id}`); if(r){ const j=JSON.parse(r); if(j&&j.t0&&Date.now()-j.t0<12*3600*1000) o[a.id]=j.t0; } }catch{} } return o; });
+  const[tick,setTick]=useState(Date.now());
+  useEffect(()=>{ if(!Object.keys(timers).length) return; const i=setInterval(()=>setTick(Date.now()),500); return ()=>clearInterval(i); },[timers]);
+  function startTimer(a){ const t0=Date.now(); try{localStorage.setItem(tKey(a),JSON.stringify({t0}));}catch{} setTick(t0); setTimers(p=>({...p,[a.id]:t0})); }
+  function dropTimer(a){ try{localStorage.removeItem(tKey(a));}catch{} setTimers(p=>{ const n={...p}; delete n[a.id]; return n; }); }
+  function stopTimer(a){ const t0=timers[a.id]; if(!t0) return; const secs=(Date.now()-t0)/1000; const v=a.unit==="sec"?Math.round(secs):Math.max(1,Math.round(secs/60)); dropTimer(a); if(v>0) commitQuick(a,v); }
 
   const toggleAct=(actId)=>{
     setIsRest(false);
@@ -2708,6 +2794,12 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
           const en=entries.find(e=>e.actId===a.id);
           const selected=en?.selected&&!isRest;
           const isShielded=en?.status==="shielded"&&!isRest;
+          const logged=!!(en?.alreadyLogged&&en.originalValue>0&&!isRest&&!isShielded);
+          const editing=!!editOpen[a.id];
+          const showPanel=!!(selected&&(!logged||editing));
+          const chips=quickChips(a);
+          const timed=(a.unit==="sec"||a.unit==="min")&&dateStr===todayStr();
+          const t0=timers[a.id];
           return <div key={a.id}>
             <div style={{
               display:"flex",alignItems:"center",gap:12,padding:"12px 14px",
@@ -2739,8 +2831,25 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
               padding:"8px 14px",marginTop:-2}}>
               Protects just <strong>{a.name}</strong>'s streak today — {shieldsLeft} of 4 shields left this month.
             </div>}
+            {!isShielded&&<div style={{padding:"8px 14px 4px"}}>
+              {logged&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+                <span style={{fontSize:12,color:C.text}}>Today: <strong>{en.originalValue} {a.unit}</strong>{en.sessions&&en.sessions.length>1?` · ${en.sessions.length} sessions`:""}</span>
+                <button onClick={()=>setEditOpen(pv=>({...pv,[a.id]:!pv[a.id]}))} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:600,color:C.muted}}>{editing?"Close edit":"Edit"}</button>
+              </div>}
+              <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:6}}>
+                <span style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.3}}>{logged?"ADD SESSION":"QUICK LOG"}</span>
+                {chips.map(v=><button key={v} onClick={()=>commitQuick(a,v)} style={{padding:"6px 12px",borderRadius:99,border:`1.5px solid ${member.color}`,background:member.color+"12",color:member.color,cursor:"pointer",fontWeight:700,fontSize:13}}>{logged?"+":""}{v}</button>)}
+                {timed&&(t0
+                  ?<>
+                    <span style={{fontSize:13,fontWeight:700,color:C.text,fontVariantNumeric:"tabular-nums"}}>⏱ {_fmtClock(tick-t0)}</span>
+                    <button onClick={()=>stopTimer(a)} style={{padding:"6px 12px",borderRadius:99,border:"none",background:member.color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:12}}>Stop & log</button>
+                    <button onClick={()=>dropTimer(a)} aria-label="Cancel timer" style={{padding:"6px 9px",borderRadius:99,border:`1px solid ${C.border}`,background:"none",color:C.muted,cursor:"pointer",fontSize:12}}>✕</button>
+                  </>
+                  :<button onClick={()=>startTimer(a)} style={{padding:"6px 12px",borderRadius:99,border:`1.5px dashed ${C.border}`,background:"none",color:C.muted,cursor:"pointer",fontWeight:600,fontSize:12}}>⏱ Start timer</button>)}
+              </div>
+            </div>}
             {/* Value input when selected */}
-            {selected&&<div style={{background:member.color+"0D",borderRadius:"0 0 10px 10px",padding:"10px 14px",marginTop:-4}}>
+            {showPanel&&<div style={{background:member.color+"0D",borderRadius:"0 0 10px 10px",padding:"10px 14px",marginTop:-4}}>
               {/* Add Session / Correct Total toggle — only when this activity was already logged today */}
               {en.alreadyLogged&&en.originalValue>0&&<div style={{display:"flex",gap:6,marginBottom:8}}>
                 <button onClick={()=>switchMode(a.id,"add")} style={{flex:1,padding:"6px 0",borderRadius:7,
@@ -2763,10 +2872,12 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
               {en.alreadyLogged&&en.mode==="add"&&en.originalValue>0&&<div style={{fontSize:11,color:C.muted,marginBottom:6}}>
                 Already logged: <strong style={{color:C.text}}>{en.originalValue} {a.unit}</strong> today
               </div>}
-              <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <button onClick={()=>stepVal(a,-quickStep(a,(qstats[a.id]||{}).usual))} style={{padding:"8px 9px",borderRadius:8,border:`1.5px solid ${C.border}`,background:"#fff",cursor:"pointer",fontWeight:700,fontSize:12,color:C.muted}}>−{quickStep(a,(qstats[a.id]||{}).usual)}</button>
                 <input type="number" min={0} step={isDecimal(a.unit)?0.1:1}
                   value={en.value} onChange={e=>updVal(a.id,parseFloat(e.target.value)||0)}
-                  style={{flex:1,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,fontSize:20,fontWeight:700,outline:"none",background:"#fff"}}/>
+                  style={{flex:1,minWidth:0,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,fontSize:20,fontWeight:700,outline:"none",background:"#fff"}}/>
+                <button onClick={()=>stepVal(a,quickStep(a,(qstats[a.id]||{}).usual))} style={{padding:"8px 9px",borderRadius:8,border:`1.5px solid ${C.border}`,background:"#fff",cursor:"pointer",fontWeight:700,fontSize:12,color:C.muted}}>+{quickStep(a,(qstats[a.id]||{}).usual)}</button>
                 <span style={{fontSize:13,color:C.muted,fontWeight:600,minWidth:28}}>{a.unit}</span>
               </div>
               {en.alreadyLogged&&en.mode==="add"&&en.originalValue>0&&<div style={{fontSize:12,color:member.color,fontWeight:600,marginTop:6}}>
@@ -2803,9 +2914,14 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
         </div>
       </div>
 
+      {/* Undo toast for the last quick-log tap */}
+      {undo&&<div role="status" style={{position:"sticky",bottom:0,marginBottom:10,background:"#1F2933",color:"#fff",borderRadius:12,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,boxShadow:"0 4px 16px rgba(0,0,0,0.25)",zIndex:5}}>
+        <span style={{fontSize:12,lineHeight:1.4}}>✓ Logged <b>{undo.label}</b><br/><span style={{opacity:0.75}}>Total today: {undo.total} {undo.unit}</span></span>
+        <button onClick={doUndo} style={{background:"none",border:"1.5px solid #fff",color:"#fff",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontWeight:700,fontSize:12}}>Undo</button>
+      </div>}
       {/* Footer */}
       <div style={{display:"flex",gap:8}}>
-        <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
+        <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>{committed?"Done":"Cancel"}</button>
         <button onClick={handleSave} disabled={!anySelected&&!isRest&&!entries.some(e=>e.status==="shielded")} style={{
           flex:2,padding:"10px 0",borderRadius:8,border:"none",
           background:(!anySelected&&!isRest&&!entries.some(e=>e.status==="shielded"))?C.border:member.color,
@@ -4880,7 +4996,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
     {modal&&(member.alternating&&acts.length>1
       ?<AlternatingLogModal dateStr={modal} member={member} logs={logs} shieldsLeft={4-shieldsUsed(logs,member.id,acts)}
       onDeleteEntry={onDeleteEntry}
-      onSaveAll={entries=>{
+      onSaveAll={(entries,opts)=>{
         // Preserve the correct historical target if this entry already existed (so editing/adding a
         // session on an old date never gets silently re-stamped with today's current target).
         // Only stamp today's current target for entries that never existed before.
@@ -4928,7 +5044,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
             }
           },200);
         },50);
-        setModal(null);
+        if(!(opts&&opts.keepOpen)) setModal(null); // quick-log taps keep the sheet open
       }}
       onClose={()=>setModal(null)}/>
       :<LogModal dateStr={modal} member={member} logs={logs} shieldsLeft={4-shieldsUsed(logs,member.id,acts)}
@@ -7381,6 +7497,7 @@ export default function App(){
         const entry={value,status};
         if(target!==undefined) entry.target=target;
         if(sessions&&sessions.length>0) entry.sessions=sessions;
+        _tombClear(mid,actId,dateStr);
         next[mid][actId]={...next[mid]?.[actId],[dateStr]:entry};
       }
       return next;
@@ -7394,6 +7511,7 @@ export default function App(){
       const actLogs={...next[mid][actId]};
       delete actLogs[dateStr];
       next[mid][actId]=actLogs;
+      _tombAdd(mid,actId,dateStr);
       return next;
     });
   },[]);
