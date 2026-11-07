@@ -2062,6 +2062,29 @@ async function cfPut(base, data){
   return res.json(); // {ok:true, v}
 }
 function cfDecodeState(cur){ return cur&&cur.data ? cloudDecode(JSON.parse(cur.data)) : null; }
+// Read-only comparison of the two stores (members, logs, theme, pattern). Costs 1 JSONBin read. Writes nothing.
+function _leafMap(o,path=[],out=new Map()){
+  if(o!==null&&typeof o==="object"){ const ks=Object.keys(o); if(!ks.length) out.set(path.join(" › ")+" (empty)","{}"); for(const k of ks) _leafMap(o[k],path.concat(k),out); }
+  else out.set(path.join(" › "),o);
+  return out;
+}
+async function compareStores(){
+  if(!CF_ON) throw new Error("Cloudflare isn't switched on in this version");
+  if(!(JSONBIN_BIN_ID&&JSONBIN_API_KEY)) throw new Error("JSONBin isn't configured");
+  const [jr,cur]=await Promise.all([
+    fetch(`${JSONBIN_URL}/latest`,{headers:{'X-Master-Key':JSONBIN_API_KEY,'X-Bin-Meta':'false'},cache:'no-store'}),
+    cfGet(),
+  ]);
+  if(!jr.ok) throw new Error("JSONBin read failed ("+jr.status+")");
+  const jb=cloudDecode(await jr.json()), cfd=cfDecodeState(cur);
+  if(!cfd) throw new Error("Cloudflare is still empty");
+  const norm=d=>({members:d.members||[],logs:d.logs||{},theme:d.theme??null,pattern:d.pattern??null});
+  const a=_leafMap(norm(jb)), b=_leafMap(norm(cfd));
+  const onlyJ=[],onlyC=[],diff=[];
+  for(const [k,v] of a){ if(!b.has(k)) onlyJ.push(k); else if(b.get(k)!==v) diff.push(k); }
+  for(const k of b.keys()) if(!a.has(k)) onlyC.push(k);
+  return {nJ:a.size, nC:b.size, v:cur.v, onlyJ, onlyC, diff, same:!onlyJ.length&&!onlyC.length&&!diff.length, at:new Date().toISOString()};
+}
 // Copy a finished JSON string to Cloudflare (dual mode). Never throws: a Cloudflare problem must not affect saving.
 async function cfMirror(s){
   if(!CF_ON) return;
@@ -7004,6 +7027,8 @@ function PatternPicker({pattern, setPattern, accent}){
 function BackupDrawer({logs, members, theme, pattern, onRestore, onClose}){
   const backups = getLocalBackups();
   const [confirmRestore, setConfirmRestore] = useState(null);
+  const [cmp, setCmp] = useState(null); // {busy} | {err} | {res}
+  async function runCompare(){ setCmp({busy:true}); try{ setCmp({res:await compareStores()}); }catch(e){ setCmp({err:String(e&&e.message||e).slice(0,160)}); } }
   const today = todayStr();
   const [fileData, setFileData] = useState(null);   // parsed backup chosen from a file
   const [fileName, setFileName] = useState("");
@@ -7066,6 +7091,22 @@ function BackupDrawer({logs, members, theme, pattern, onRestore, onClose}){
           return <div style={{fontSize:11,color:bad?"#B71C1C":C.muted,background:bad?"#FFEBEE":C.bg,border:`1px solid ${bad?"#EF9A9A":C.border}`,borderRadius:10,padding:"8px 12px",marginBottom:14,lineHeight:1.5}}>
             ☁️ <b>Cloudflare copy:</b> {bad?`problem — ${cf.message||"unknown"}`:cf.state==="ok"?`in sync (version ${cf.v}, ${t})`:"not checked yet in this session"}
             <div style={{opacity:0.8}}>{STORE_MODE==="dual"?"JSONBin is the main store; every save is also copied here.":"Cloudflare is the main store."}</div>
+          </div>;})()}
+        {CF_ON&&(()=>{const short=k=>{const p=k.split(" › ");return p.length>4?"… › "+p.slice(-4).join(" › "):k;};
+          const list=(t,arr)=>arr.length?<div style={{marginTop:6}}><b>{t}: {arr.length}</b>{arr.slice(0,6).map(k=><div key={k} style={{fontFamily:"monospace",fontSize:10,wordBreak:"break-all"}}>{short(k)}</div>)}{arr.length>6&&<div>…and {arr.length-6} more</div>}</div>:null;
+          return <div style={{marginBottom:14}}>
+            <button onClick={runCompare} disabled={!!(cmp&&cmp.busy)} style={{width:"100%",padding:"9px",borderRadius:10,border:`1.5px solid ${C.border}`,background:C.surface,color:C.text,cursor:"pointer",fontWeight:700,fontSize:12}}>
+              {cmp&&cmp.busy?"Comparing…":"🔍 Compare JSONBin and Cloudflare"}
+            </button>
+            <div style={{fontSize:10,color:C.muted,marginTop:4}}>Read-only. Uses 1 JSONBin request. Changes nothing.</div>
+            {cmp&&cmp.err&&<div style={{marginTop:8,fontSize:11,color:"#B71C1C",background:"#FFEBEE",border:"1px solid #EF9A9A",borderRadius:10,padding:"8px 12px"}}>Couldn't compare: {cmp.err}</div>}
+            {cmp&&cmp.res&&(cmp.res.same
+              ? <div style={{marginTop:8,fontSize:11,color:"#2E7D32",background:"#E8F5E9",border:"1px solid #81C784",borderRadius:10,padding:"8px 12px",lineHeight:1.5}}>✅ <b>Identical.</b> {cmp.res.nJ.toLocaleString()} values checked in each store (Cloudflare version {cmp.res.v}).</div>
+              : <div style={{marginTop:8,fontSize:11,color:"#E65100",background:"#FFF8E1",border:"1px solid #FFCC80",borderRadius:10,padding:"8px 12px",lineHeight:1.5}}>
+                  ⚠️ <b>The stores differ.</b> JSONBin {cmp.res.nJ.toLocaleString()} values · Cloudflare {cmp.res.nC.toLocaleString()} values.
+                  {list("Only in JSONBin",cmp.res.onlyJ)}{list("Only in Cloudflare",cmp.res.onlyC)}{list("Different values",cmp.res.diff)}
+                  <div style={{marginTop:6,opacity:0.85}}>A save made while this ran can cause a brief difference. Wait a few seconds and compare again. If it persists, send this to Claude.</div>
+                </div>)}
           </div>;})()}
 
         {/* Download current */}
