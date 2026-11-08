@@ -310,7 +310,10 @@ function getHistoricalTarget(logEntry, activityId, currentTarget, logs, memberId
 }
 
 function getEggLogs(logs, memberId){
-  return (logs[memberId] && logs[memberId].eggs) || {};
+  const raw=(logs[memberId] && logs[memberId].eggs) || {};
+  // A day whose eggs were all removed is stored as 0 (so the removal survives the cloud merge); hide those.
+  const out={}; for(const d of Object.keys(raw)) if(raw[d]>0) out[d]=raw[d];
+  return out;
 }
 function totalEggCount(logs, memberId){
   const eggs = getEggLogs(logs, memberId);
@@ -393,7 +396,9 @@ function getBraveryLog(logs, memberId){
   return (logs[memberId] && logs[memberId].bravery) || [];
 }
 function getIllnessLog(logs, memberId){
-  return (logs[memberId] && logs[memberId].illness) || {};
+  const raw=(logs[memberId] && logs[memberId].illness) || {};
+  const out={}; for(const d of Object.keys(raw)) if(raw[d]) out[d]=raw[d]; // removed days are stored as null
+  return out;
 }
 function getOlympiadLog(logs, memberId){
   return (logs[memberId] && logs[memberId].olympiad) || [];
@@ -7915,7 +7920,8 @@ export default function App(){
       const next={...prev,[mid]:{...(prev[mid]||{})}};
       const eggs={...(next[mid].eggs||{})};
       const newCount=Math.max(0,(eggs[dateStr]||0)+delta);
-      if(newCount===0) delete eggs[dateStr]; else eggs[dateStr]=newCount;
+      // Keep a 0 instead of deleting the key: a missing key would be refilled from the cloud copy on merge.
+      if(newCount===0&&!(dateStr in eggs)) { /* nothing to remove */ } else eggs[dateStr]=newCount;
       next[mid].eggs=eggs;
       return next;
     });
@@ -7988,7 +7994,7 @@ export default function App(){
       const next={...prev,[mid]:{...(prev[mid]||{})}};
       if(!next[mid].illness) return prev;
       const illness={...next[mid].illness};
-      delete illness[dateStr];
+      illness[dateStr]=null; // null (not delete) so the removal wins over the cloud copy on merge
       next[mid].illness=illness;
       return next;
     });
@@ -8034,7 +8040,7 @@ export default function App(){
   const handleGoldenGoalDelete=useCallback((mid)=>{
     setLogs(prev=>{
       const next={...prev,[mid]:{...(prev[mid]||{})}};
-      delete next[mid].goldenGoal;
+      next[mid].goldenGoal=null; // null (not delete) so the removal wins over the cloud copy on merge
       return next;
     });
   },[]);
