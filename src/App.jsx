@@ -105,7 +105,7 @@ button:active:not(:disabled){transform:scale(.97);}
   color:var(--text);font-size:14px;font-weight:500;cursor:pointer;text-align:left;width:100%;white-space:nowrap;}
 .ff-nav:hover{background:var(--accent-soft);}
 .ff-nav[aria-current="page"]{background:var(--accent-soft);font-weight:700;}
-.ff-avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
+.ff-avatar{overflow:hidden;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
 .ff-main{flex:1;min-width:0;display:flex;flex-direction:column;}
 .ff-top{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
   padding:14px 32px;background:var(--bg);border-bottom:1px solid var(--line);}
@@ -117,6 +117,7 @@ button:active:not(:disabled){transform:scale(.97);}
 .ff-card{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);box-sizing:border-box;min-width:0;}
 .mc{display:flex;flex-wrap:wrap;gap:16px;align-items:stretch;}
 .mc>*{flex:1 1 100%;min-width:0;}
+.mc>.mc-today{flex:1 1 100%;}
 .mc>.mc-hero{flex:2 1 420px;}
 .mc>.mc-cons{flex:1 1 240px;}
 .mc>.mc-egg{flex:1 1 500px;}
@@ -135,6 +136,10 @@ button:active:not(:disabled){transform:scale(.97);}
 .mc>*:nth-child(7){animation-delay:0.315s;}
 .mc>*:nth-child(8){animation-delay:0.360s;}
 .mc>*:nth-child(9){animation-delay:0.405s;}
+.ff-fab{position:fixed;right:24px;bottom:24px;z-index:250;height:48px;padding:0 22px;border-radius:99px;border:none;cursor:pointer;
+  background:var(--accent);color:var(--on-accent);font-weight:800;font-size:15px;box-shadow:0 10px 28px rgba(0,0,0,.28);}
+.ff-fab:hover{filter:brightness(1.06);}
+@media (max-width:900px){.ff-fab{right:16px;bottom:16px;}}
 .mc-tabs{display:flex;gap:6px;flex-wrap:wrap;}
 .mc-tab{height:34px;padding:0 14px;border-radius:99px;border:1px solid var(--line);background:var(--card);color:var(--muted);
   font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap;}
@@ -160,6 +165,14 @@ button:active:not(:disabled){transform:scale(.97);}
 @keyframes ffFloatUp{0%{opacity:0;transform:translateY(8px)}20%{opacity:1}100%{opacity:0;transform:translateY(-34px)}}
 .ff-floatup{animation:ffFloatUp 1.5s ease-out forwards;}
 .ff-spark{animation:ffSpark .7s ease;}
+.ff-drawer{animation:ffDrawerIn .28s cubic-bezier(.2,.8,.2,1) backwards !important;border-left:1px solid var(--line);border-radius:18px 0 0 18px;box-shadow:-16px 0 56px rgba(0,0,0,.28) !important;}
+.ff-scrim{animation:ffScrimIn .22s ease backwards;backdrop-filter:blur(2px);}
+.ff-closing .ff-drawer{animation:ffDrawerOut .2s ease-in forwards !important;}
+.ff-closing .ff-scrim{animation:ffScrimOut .2s ease forwards;}
+@keyframes ffDrawerIn{from{transform:translateX(48px);opacity:0}to{transform:none;opacity:1}}
+@keyframes ffDrawerOut{from{transform:none;opacity:1}to{transform:translateX(48px);opacity:0}}
+@keyframes ffScrimIn{from{opacity:0}to{opacity:1}}
+@keyframes ffScrimOut{from{opacity:1}to{opacity:0}}
 .ff-lift{transition:box-shadow .2s ease, transform .2s ease, border-color .2s ease;}
 .ff-lift:hover{box-shadow:0 8px 24px rgba(16,24,40,.10);transform:translateY(-1px);}
 .ff-bar{transition:width 1.1s cubic-bezier(.2,.8,.2,1);}
@@ -2668,7 +2681,7 @@ function LogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDeleteEntry,onClo
   return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
     <div style={{background:C.surface,borderRadius:18,padding:24,width:"100%",maxWidth:360,boxShadow:"0 8px 40px rgba(0,0,0,0.2)",maxHeight:"88vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
-        <span style={{fontSize:26}}>{member.emoji}</span>
+        <span style={{fontSize:26}}><Face m={member}/></span>
         <div><div style={{fontWeight:700,fontSize:16}}>{member.name}</div><div style={{fontSize:12,color:C.muted}}>{displayDate}</div></div>
       </div>
 
@@ -2974,7 +2987,7 @@ function AlternatingLogModal({dateStr,member,logs,shieldsLeft,onSaveAll,onDelete
     <div style={{background:C.surface,borderRadius:18,padding:24,width:"100%",maxWidth:360,boxShadow:"0 8px 40px rgba(0,0,0,0.2)",maxHeight:"88vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
-        <span style={{fontSize:26}}>{member.emoji}</span>
+        <span style={{fontSize:26}}><Face m={member}/></span>
         <div><div style={{fontWeight:700,fontSize:16}}>{member.name}</div><div style={{fontSize:12,color:C.muted}}>{displayDate}</div></div>
       </div>
 
@@ -3166,6 +3179,7 @@ function CalCell({dateStr,member,logs,isToday,onClick,ppByDate,idx}){
     tooltipLines.push(`⚡ ${dayPP>0?"+":""}${dayPP.toLocaleString()} PP${isMystery?" 🎁 2x Mystery!":""}`);
   }
 
+  if(!future){ const eg=getEggLogs(logs,member.id)[dateStr]; if(eg>0) tooltipLines.push(`🥚 ${eg} egg${eg===1?"":"s"}`); }
   const borderColor = illnessEntry?"#8E5FA8":aboveTarget?"#C9A800":isToday?member.color:C.border;
   const borderWidth = illnessEntry||aboveTarget||isToday?"2px":"1px";
   const bgColor = illnessEntry?"var(--t-purple)":aboveTarget?"#2E8B57":bg;
@@ -3191,23 +3205,22 @@ function CalCell({dateStr,member,logs,isToday,onClick,ppByDate,idx}){
     {(isPB||displayVal)&&<span style={{fontSize:8,color:"rgba(255,255,255,0.9)",fontWeight:700,lineHeight:1}}>
       {isPB?`PB ${displayVal||""}`:displayVal}
     </span>}
-    {showTip&&tooltipLines.length>0&&<div style={{
-      position:"absolute",bottom:"110%",left:"50%",transform:"translateX(-50%)",
+    {showTip&&!future&&<div style={{
+      position:"absolute",...((idx||0)<7?{top:"110%"}:{bottom:"110%"}),left:"50%",transform:"translateX(-50%)",
       background:"rgba(20,20,20,0.92)",color:"#fff",borderRadius:8,padding:"6px 10px",
       fontSize:10,whiteSpace:"nowrap",zIndex:100,pointerEvents:"none",
       boxShadow:"0 4px 12px rgba(0,0,0,0.3)",lineHeight:1.6,
     }}>
+      <div style={{fontWeight:700,opacity:0.8,marginBottom:2}}>{new Date(dateStr+"T00:00:00").toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"})}</div>
+      {tooltipLines.length===0&&<div style={{opacity:0.7}}>Nothing logged</div>}
       {tooltipLines.map((l,i)=><div key={i}>{l}</div>)}
-      <div style={{position:"absolute",top:"100%",left:"50%",transform:"translateX(-50%)",
-        width:0,height:0,borderLeft:"5px solid transparent",borderRight:"5px solid transparent",
-        borderTop:"5px solid rgba(20,20,20,0.92)"}}/>
     </div>}
   </div>;
 }
 
 
 // ── Badge Drawer ──────────────────────────────────────────────────────────────
-function BadgeDrawer({member, allEarned, acts, logs, onClose}){
+function BadgeDrawerImpl({member, allEarned, acts, logs, onClose}){
   const personalBadges = getMemberBadges(member);
   const earnedList     = personalBadges.filter(b=>allEarned.has(b.id));
   const lockedList     = personalBadges.filter(b=>!allEarned.has(b.id));
@@ -3291,15 +3304,15 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
   const tierOrder={bronze:0,silver:1,gold:2};
 
   return <>
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
-    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(480px,92vw)",
+    <div className="ff-scrim" onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:400}}/>
+    <div className="ff-drawer" style={{position:"fixed",top:0,right:0,height:"100%",width:"min(480px,92vw)",
       background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
       display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
       <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
       <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:28}}>{member.emoji}</span>
+            <span style={{fontSize:28}}><Face m={member}/></span>
             <div>
               <div style={{fontWeight:800,fontSize:18}}>{member.name}</div>
               <div style={{fontSize:12,color:C.muted}}>Achievement progress</div>
@@ -3423,6 +3436,7 @@ function BadgeDrawer({member, allEarned, acts, logs, onClose}){
 // ── Power Points Drawer ──────────────────────────────────────────────────────
 // ── Power Points Panel (in-flow, tabbed — sits beside the card via flexbox, never fixed/floating) ──
 // ── Level display helpers (display only — never write data or affect scoring) ──
+const BadgeDrawer=withSlide(BadgeDrawerImpl);
 function levelTierName(lvl){
   if(lvl>=50) return "Diamond";
   if(lvl>=30) return "Gold";
@@ -3566,7 +3580,7 @@ function FamilyLevelLadder({members, logs}){
         <div key={r.m.id}>
           <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:8,marginBottom:6,flexWrap:"wrap"}}>
             <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
-              <span style={{fontSize:15}}>{r.m.emoji}</span>
+              <span style={{fontSize:15}}><Face m={r.m}/></span>
               <span style={{fontSize:12,fontWeight:700,color:C.text}}>{r.m.name}</span>
               <span style={{fontSize:12,fontWeight:800,color:C.text,marginLeft:4}}>Lv {r.lv.level}</span>
               <span style={{fontSize:12,fontWeight:600,color:C.muted}}>· {r.lv.title}</span>
@@ -3648,7 +3662,7 @@ function PowerPointsPanel({member, logs, onClose, view="main", viewNonce=0}){
     <div style={{padding:"16px 18px",background:"linear-gradient(135deg,#1a1a2e,#16213e)",flexShrink:0}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <span style={{fontSize:20}}>{member.emoji}</span>
+          <span style={{fontSize:20}}><Face m={member}/></span>
           <span style={{fontWeight:700,fontSize:14,color:"#fff"}}>{member.name}</span>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:6}}>
@@ -3954,7 +3968,7 @@ function MysteryBonusReveal({normalPP, bonusPP, onClose}){
 
 // ── Egg-O-Meter (isolated bonus PP feature) ───────────────────────────────────
 // ── Egg History Drawer — calendar view + monthly total ──────────────────────
-function EggHistoryDrawer({member, logs, onEggChange, onClose}){
+function EggHistoryDrawerImpl({member, logs, onEggChange, onClose}){
   const now = new Date();
   const[yr, setYr] = useState(now.getFullYear());
   const[mo, setMo] = useState(now.getMonth());
@@ -3980,15 +3994,15 @@ function EggHistoryDrawer({member, logs, onEggChange, onClose}){
   const selectedCount = selectedDate ? (eggLogs[selectedDate] || 0) : 0;
 
   return <>
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
-    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
+    <div className="ff-scrim" onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:400}}/>
+    <div className="ff-drawer" style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
       background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
       display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
       <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
       <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:26}}>{member.emoji}</span>
+            <span style={{fontSize:26}}><Face m={member}/></span>
             <div>
               <div style={{fontWeight:800,fontSize:16}}>🥚 Egg History</div>
               <div style={{fontSize:11,color:C.muted}}>{member.name} · tap any day to edit</div>
@@ -4084,6 +4098,7 @@ function EggHistoryDrawer({member, logs, onEggChange, onClose}){
   </>;
 }
 
+const EggHistoryDrawer=withSlide(EggHistoryDrawerImpl);
 function EggMeter({member, logs, onEggChange, onNewBadge}){
   const today = todayStr();
   const eggLogs = getEggLogs(logs, member.id);
@@ -4217,6 +4232,95 @@ function _addDaysStr(dateStr, n){
 }
 function _daysBetweenStr(a, b){ // whole days from a to b
   return Math.round((new Date(b+"T00:00:00")-new Date(a+"T00:00:00"))/86400000);
+}
+// ── PP trend chart: week / month / year / all, with hover (or touch) values ──────────────
+function fmtK(n){ const a=Math.abs(n); return a>=1000000?(n/1000000).toFixed(a>=10000000?0:1)+"M":a>=1000?(n/1000).toFixed(a>=10000?0:1)+"k":String(Math.round(n)); }
+function PPTrendChart({members,logs,title}){
+  const[range,setRange]=useState("month");
+  const[hov,setHov]=useState(null);
+  const today=todayStr();
+  const series=useMemo(()=>members.map(m=>{
+    let de={}; try{ de=computePowerPoints(m,logs).dailyEarned||{}; }catch{}
+    const ds=Object.keys(de).filter(d=>d<=today).sort(); let run=0; const cum=ds.map(d=>{ run+=de[d]||0; return [d,run]; });
+    return {id:m.id,name:m.name,color:m.color,cum};
+  }),[members,logs,today]);
+  const axis=useMemo(()=>{
+    const n=range==="week"?7:range==="month"?30:range==="year"?365:0;
+    let start;
+    if(n) start=_addDaysStr(today,-(n-1));
+    else { const firsts=series.map(x=>x.cum[0]&&x.cum[0][0]).filter(Boolean).sort(); start=firsts[0]||today; }
+    const out=[]; let d=start; let guard=0; while(d<=today&&guard++<4000){ out.push(d); d=_addDaysStr(d,1); }
+    return out;
+  },[range,series,today]);
+  const lines=useMemo(()=>series.map(sr=>{
+    const at=(d)=>{ let v=0; for(const [dd,t] of sr.cum){ if(dd<=d) v=t; else break; } return v; };
+    const base=range==="all"?0:at(_addDaysStr(axis[0]||today,-1));
+    const total=axis.map(d=>at(d));
+    return {...sr,vals:total.map(t=>t-base),totals:total};
+  }),[series,axis,range,today]);
+  const W=640,H=230,padL=46,padR=14,padT=14,padB=28, cW=W-padL-padR, cH=H-padT-padB;
+  const allVals=lines.flatMap(l=>l.vals); let yMin=Math.min(0,...allVals), yMax=Math.max(1,...allVals);
+  if(yMax===yMin) yMax=yMin+1;
+  const x=(i)=>padL+(axis.length<=1?cW/2:(i/(axis.length-1))*cW);
+  const y=(v)=>padT+cH-((v-yMin)/(yMax-yMin))*cH;
+  const ticks=[0,1,2,3].map(k=>yMin+((yMax-yMin)*k)/3);
+  const labelIdx=axis.length<=1?[0]:[0,1,2,3,4].map(k=>Math.round((k/4)*(axis.length-1)));
+  const flat=allVals.every(v=>v===0);
+  function onMove(e){
+    const r=e.currentTarget.getBoundingClientRect(); if(!r.width) return;
+    const vx=((e.clientX-r.left)/r.width)*W;
+    const i=Math.round(((vx-padL)/cW)*(axis.length-1));
+    setHov(axis.length?Math.max(0,Math.min(axis.length-1,i)):null);
+  }
+  const fmtD=(d)=>new Date(d+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",...(range==="year"||range==="all"?{year:"2-digit"}:{})});
+  const RB=[["week","Week"],["month","Month"],["year","Year"],["all","All"]];
+  return <div>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginBottom:10}}>
+      <div style={{fontSize:11,fontWeight:700,letterSpacing:0.9,color:C.muted}}>{(title||"POWER POINTS").toUpperCase()} · {range==="all"?"TOTAL":"GAINED"}</div>
+      <div role="group" aria-label="Chart range" style={{display:"flex",gap:4,background:C.bg,padding:3,borderRadius:99}}>
+        {RB.map(([k,l])=><button key={k} onClick={()=>{setRange(k);setHov(null);}} aria-pressed={range===k}
+          style={{border:"none",borderRadius:99,padding:"4px 12px",fontSize:12,fontWeight:600,cursor:"pointer",
+            background:range===k?"var(--accent)":"transparent",color:range===k?"var(--on-accent)":C.muted}}>{l}</button>)}
+      </div>
+    </div>
+    <div style={{position:"relative"}}>
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Power points ${range==="all"?"total":"gained"} over time`}
+        style={{width:"100%",height:"auto",display:"block",touchAction:"pan-y"}}
+        onPointerMove={onMove} onPointerDown={onMove} onPointerLeave={()=>setHov(null)}>
+        {ticks.map((t,k)=><g key={k}>
+          <line x1={padL} x2={W-padR} y1={y(t)} y2={y(t)} stroke={C.border} strokeWidth={1} strokeDasharray={k===0?"":"3,4"}/>
+          <text x={padL-6} y={y(t)+3} textAnchor="end" fontSize={10} fill={C.muted}>{fmtK(t)}</text>
+        </g>)}
+        {labelIdx.map((i,k)=><text key={k} x={x(i)} y={H-8} textAnchor={k===0?"start":k===labelIdx.length-1?"end":"middle"} fontSize={10} fill={C.muted}>{axis[i]?fmtD(axis[i]):""}</text>)}
+        {lines.map(l=><g key={l.id}>
+          <path d={l.vals.map((v,i)=>`${i===0?"M":"L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")} fill="none" stroke={l.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"/>
+          {l.vals.length>0&&<circle cx={x(l.vals.length-1)} cy={y(l.vals[l.vals.length-1])} r={4} fill={l.color} stroke="var(--card)" strokeWidth={2}/>}
+        </g>)}
+        {hov!==null&&axis[hov]&&<g>
+          <line x1={x(hov)} x2={x(hov)} y1={padT} y2={padT+cH} stroke={C.muted} strokeWidth={1} strokeDasharray="3,3"/>
+          {lines.map(l=><circle key={l.id} cx={x(hov)} cy={y(l.vals[hov])} r={5} fill={l.color} stroke="var(--card)" strokeWidth={2}/>)}
+        </g>}
+      </svg>
+      {flat&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",color:C.muted,fontSize:13,pointerEvents:"none"}}>No PP earned in this period</div>}
+      {hov!==null&&axis[hov]&&<div role="status" data-testid="trend-tip" style={{position:"absolute",top:6,
+        ...(x(hov)/W>0.6?{right:`${(1-x(hov)/W)*100+2}%`}:{left:`${(x(hov)/W)*100+2}%`}),
+        background:"var(--hero)",color:"#fff",borderRadius:10,padding:"8px 12px",fontSize:12,lineHeight:1.55,pointerEvents:"none",boxShadow:"0 6px 20px rgba(0,0,0,.3)",whiteSpace:"nowrap",zIndex:5}}>
+        <div style={{fontWeight:700,opacity:0.8,marginBottom:2}}>{fmtD(axis[hov])}</div>
+        {lines.map(l=><div key={l.id} style={{display:"flex",alignItems:"center",gap:6}}>
+          <span style={{width:8,height:8,borderRadius:"50%",background:l.color,display:"inline-block"}}/>
+          <span>{l.name}</span><b style={{marginLeft:"auto",paddingLeft:10}}>{range==="all"?l.vals[hov].toLocaleString():`+${l.vals[hov].toLocaleString()}`}</b>
+          {range!=="all"&&<span style={{opacity:0.65}}>({l.totals[hov].toLocaleString()})</span>}
+        </div>)}
+      </div>}
+    </div>
+    <div style={{display:"flex",flexWrap:"wrap",gap:"4px 14px",marginTop:8,fontSize:12,color:C.muted}}>
+      {lines.map(l=><span key={l.id} style={{display:"inline-flex",alignItems:"center",gap:6}}>
+        <span style={{width:10,height:10,borderRadius:3,background:l.color}}/>{l.name}
+        <b style={{color:C.text}}>{range==="all"?"":"+"}{(l.vals[l.vals.length-1]||0).toLocaleString()}</b>
+      </span>)}
+      {range!=="all"&&<span style={{marginLeft:"auto"}}>Hover or touch the chart · (totals in brackets)</span>}
+    </div>
+  </div>;
 }
 function _dailyArr(res, fromStr, toStr){ // net PP for every calendar day in the range (0 where nothing happened)
   const E=res.dailyEarned||{}, out=[]; let d=fromStr;
@@ -4532,7 +4636,7 @@ function computeGoldenGoalProgress(goal, member, logs){
   return {a, bestAllTime, bestSinceSet, pct, daysLeft, daysTotal, timeProgress, achieved, expired};
 }
 
-function GoldenGoalDrawer({member, logs, onSave, onDelete, onClose}){
+function GoldenGoalDrawerImpl({member, logs, onSave, onDelete, onClose}){
   const today = todayStr();
   const acts = member.activities||[];
   const goal = getGoldenGoal(logs, member.id);
@@ -4555,8 +4659,8 @@ function GoldenGoalDrawer({member, logs, onSave, onDelete, onClose}){
   }
 
   return <>
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:400}}/>
-    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(420px,94vw)",
+    <div className="ff-scrim" onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:400}}/>
+    <div className="ff-drawer" style={{position:"fixed",top:0,right:0,height:"100%",width:"min(420px,94vw)",
       background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.2)",
       display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
       <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
@@ -4565,7 +4669,7 @@ function GoldenGoalDrawer({member, logs, onSave, onDelete, onClose}){
       <div style={{background:"linear-gradient(135deg,#7B4F00,#C8860A)",padding:"20px 20px 18px",flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:28}}>{member.emoji}</span>
+            <span style={{fontSize:28}}><Face m={member}/></span>
             <div>
               <div style={{fontWeight:800,fontSize:16,color:"#fff"}}>🥇 Golden Goal</div>
               <div style={{fontSize:11,color:"rgba(255,255,255,0.6)"}}>{member.name} · One audacious target</div>
@@ -4703,7 +4807,8 @@ function GoldenGoalDrawer({member, logs, onSave, onDelete, onClose}){
   </>;
 }
 
-function GemVaultDrawer({member, logs, onClose}){
+const GoldenGoalDrawer=withSlide(GoldenGoalDrawerImpl);
+function GemVaultDrawerImpl({member, logs, onClose}){
   const counts = computeGemVault(member, logs);
   const total = Object.values(counts).reduce((s,v)=>s+v, 0);
   const rarityOrder = ["Legendary","Epic","Rare","Uncommon","Common"];
@@ -4715,8 +4820,8 @@ function GemVaultDrawer({member, logs, onClose}){
   }
 
   return <>
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:400}}/>
-    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(420px,94vw)",
+    <div className="ff-scrim" onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:400}}/>
+    <div className="ff-drawer" style={{position:"fixed",top:0,right:0,height:"100%",width:"min(420px,94vw)",
       background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.2)",
       display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
       <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
@@ -4725,7 +4830,7 @@ function GemVaultDrawer({member, logs, onClose}){
       <div style={{background:"linear-gradient(135deg,#1a1a2e,#16213e)",padding:"20px 20px 16px",flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:26}}>{member.emoji}</span>
+            <span style={{fontSize:26}}><Face m={member}/></span>
             <div>
               <div style={{fontSize:16,fontWeight:800,color:"#fff"}}>💎 Gem Vault</div>
               <div style={{fontSize:11,color:"rgba(255,255,255,0.5)"}}>{member.name}</div>
@@ -4796,6 +4901,7 @@ function GemVaultDrawer({member, logs, onClose}){
   </>;
 }
 
+const GemVaultDrawer=withSlide(GemVaultDrawerImpl);
 function GemVaultCard({member, logs}){
   const counts = computeGemVault(member, logs);
   const total = Object.values(counts).reduce((s,v)=>s+v, 0);
@@ -4951,6 +5057,21 @@ function GapTrackerCard({member, target, logs}){
 }
 
 // Replays a short animation on an element each time `v` changes (never on first paint).
+// Lets a side drawer slide out before it unmounts (the CSS reacts to the .ff-closing wrapper).
+function withSlide(Impl){
+  return function SlideDrawer(props){
+    const[closing,setClosing]=useState(false);
+    const t=useRef(null);
+    useEffect(()=>()=>clearTimeout(t.current),[]);
+    const close=()=>{ if(closing) return; setClosing(true); t.current=setTimeout(()=>{ props.onClose&&props.onClose(); },200); };
+    return <div className={closing?"ff-closing":undefined} style={{display:"contents"}}><Impl {...props} onClose={close}/></div>;
+  };
+}
+// Member picture: a small uploaded photo when set, otherwise the emoji.
+function Face({m,fill,fallback}){
+  if(m&&m.photo) return <img src={m.photo} alt="" draggable={false} style={fill?{width:"100%",height:"100%",borderRadius:"50%",objectFit:"cover",display:"block"}:{width:"1.15em",height:"1.15em",borderRadius:"50%",objectFit:"cover",verticalAlign:"middle"}}/>;
+  return <>{(m&&m.emoji)||fallback||""}</>;
+}
 function Pop({v,cls="ff-pop",style,children}){
   const ref=useRef(null); const first=useRef(true);
   useEffect(()=>{
@@ -5008,6 +5129,13 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
   const[showHeatmap,setShowHeatmap]=useState(false);
   const[mysteryReveal,setMysteryReveal]=useState(null); // {normalPP, bonusPP}
   const[modal,setModal]=useState(null);
+  const todayRef=useRef(null);
+  const[todayVisible,setTodayVisible]=useState(true);
+  useEffect(()=>{
+    const el=todayRef.current; if(!el||typeof IntersectionObserver==="undefined") return;
+    const io=new IntersectionObserver(([e])=>setTodayVisible(e.isIntersecting),{threshold:0.2,rootMargin:"-72px 0px 0px 0px"}); // 72px = sticky top bar
+    io.observe(el); return ()=>io.disconnect();
+  },[]);
   const ppData = computePowerPoints(member, logs);
   const ppLevel = getLevel(ppData.total);
   const ppNext = getNextLevel(ppData.total);
@@ -5045,7 +5173,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
           width:44,height:44,borderRadius:"50%",background:member.color+"22",
           border:`1.5px solid ${member.color}55`,display:"flex",alignItems:"center",justifyContent:"center",
           fontSize:22,flexShrink:0,
-        }}>{member.emoji}</div>
+        }}><Face m={member}/></div>
         <div>
           <div style={{fontWeight:700,fontSize:16}}>{member.name}</div>
           <div style={{fontSize:11,color:C.muted}}>{acts.map(a=>`${a.name} (${a.target}${a.unit})`).join(" · ")}</div>
@@ -5076,6 +5204,30 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
         <button onClick={()=>setShowBadges(true)} style={{background:member.color,color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12}}>🏆 Badges</button>
       </div>
     </div>
+    </div>
+    <div ref={todayRef} className="mc-today ff-card ff-in" style={{padding:"14px 18px",borderLeft:`4px solid ${member.color}`}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,flexWrap:"wrap"}}>
+        <div style={{flex:"1 1 280px",minWidth:0}}>
+          <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap",marginBottom:6}}>
+            <span style={{fontSize:11,fontWeight:700,letterSpacing:0.9,color:C.muted}}>TODAY</span>
+            <span style={{fontSize:12,color:C.muted}}>{new Date(today+"T00:00:00").toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"})}</span>
+            {bestStreak>0&&<span title="Current streak" style={{fontSize:12,fontWeight:700,color:"var(--ink-orange)"}}>🔥 {bestStreak}-day streak</span>}
+          </div>
+          {loggedCount===0
+            ?<span style={{fontSize:14,color:C.muted}}>Nothing logged yet today</span>
+            :<div style={{display:"flex",flexWrap:"wrap",gap:"6px 8px"}}>
+              {doneToday.map(({act,log})=><Pop key={act.id} v={log.value} style={{fontSize:13,fontWeight:700,padding:"3px 10px",borderRadius:99,
+                background:(log.value>=act.target?C.done:C.partial)+"22",color:log.value>=act.target?C.done:C.partial}}>
+                {log.value>=act.target?"✓":"◐"} {act.name}: {log.value}{act.unit}
+              </Pop>)}
+              {!member.alternating&&todayStats.filter(x=>!(x.log&&x.log.status!=="skipped")).map(({act})=>
+                <span key={act.id} style={{fontSize:13,padding:"3px 10px",borderRadius:99,border:`1px dashed ${C.border}`,color:C.muted}}>○ {act.name}</span>)}
+            </div>}
+        </div>
+        <button onClick={()=>setModal(today)} style={{background:member.color,color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",cursor:"pointer",fontWeight:700,fontSize:14,whiteSpace:"nowrap",flexShrink:0}}>
+          {loggedCount>0?"Edit":"Log today"}
+        </button>
+      </div>
     </div>
     <div className="mc-hero mc-w ff-in" style={{display:"flex",flexDirection:"column"}}>
     {/* Power Points Banner */}
@@ -5155,25 +5307,6 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
     })()}
 
     </div>
-    <div className="mc-small mc-w ff-in">
-    {/* Today */}
-    <div key={"today"} style={{background:member.color+"0E",border:`1px solid ${member.color}28`,borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
-      <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:11,color:C.muted,marginBottom:3}}>Today</div>
-        {loggedCount===0
-          ?<span style={{fontSize:13,color:C.muted}}>Not logged yet</span>
-          :<div style={{display:"flex",flexWrap:"wrap",gap:"4px 10px"}}>
-            {doneToday.map(({act,log})=><Pop key={act.id} v={log.value} style={{fontSize:13,fontWeight:700,color:log.value>=act.target?C.done:C.partial}}>
-              {act.name}: {log.value}{act.unit}
-            </Pop>)}
-          </div>}
-      </div>
-      <button onClick={()=>setModal(today)} style={{background:member.color,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13,whiteSpace:"nowrap",flexShrink:0}}>
-        {loggedCount>0?"Edit":"Log today"}
-      </button>
-    </div>
-
-    </div>
     <div className="mc-pb mc-w ff-in">
     {/* PB Tile */}
     {(()=>{
@@ -5226,6 +5359,12 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
         {calDays.map((ds,i)=>ds===null?<div key={`e${i}`}/>:
           <CalCell key={ds} idx={i} dateStr={ds} member={member} logs={logs} isToday={ds===today} onClick={d=>setModal(d)} ppByDate={ppData.dailyEarned}/>)}
       </div>
+      <div aria-label="Calendar legend" style={{display:"flex",flexWrap:"wrap",gap:"6px 14px",marginTop:12,fontSize:11,color:C.muted}}>
+        {[[C.done,"Done"],["#2E8B57","Above target ⭐"],[C.empty,"Not logged"],[C.missed,"Skipped"],["var(--tb-blue)","Shielded 🛡️"],["var(--t-purple)","Sick 🤒"]].map(([c,l])=>
+          <span key={l} style={{display:"inline-flex",alignItems:"center",gap:5}}><span style={{width:12,height:12,borderRadius:4,background:c,border:`1px solid ${C.border}`}}/>{l}</span>)}
+        <span>👑 Personal best</span>
+        <span style={{marginLeft:"auto"}}>Hover a day for details · click to log or edit</span>
+      </div>
     </div>}
 
     </div>
@@ -5240,6 +5379,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
     {showOlympiad&&<OlympiadDrawer member={member} logs={logs} onOlympiadSave={onOlympiadSave} onOlympiadDelete={onOlympiadDelete} onOlympiadUpdate={onOlympiadUpdate} onClose={()=>setShowOlympiad(false)}/>}
     {mysteryReveal&&<MysteryBonusReveal normalPP={mysteryReveal.normalPP} bonusPP={mysteryReveal.bonusPP} onClose={()=>setMysteryReveal(null)}/>}
 
+    {!modal&&!todayVisible&&<button className="ff-fab ff-slideup" aria-label="Quick log (today)" onClick={()=>setModal(today)}>＋ Log</button>}
     {modal&&(member.alternating&&acts.length>1
       ?<AlternatingLogModal dateStr={modal} member={member} logs={logs} shieldsLeft={4-shieldsUsed(logs,member.id,acts)}
       onDeleteEntry={onDeleteEntry}
@@ -5336,6 +5476,30 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
 function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
   const[name,setName]=useState(member?.name??"");
   const[emoji,setEmoji]=useState(member?.emoji??"🏃");
+  const[photo,setPhoto]=useState(member?.photo||"");
+  const[photoMsg,setPhotoMsg]=useState("");
+  function pickPhoto(e){
+    const f=e.target.files&&e.target.files[0]; e.target.value=""; if(!f) return; setPhotoMsg("");
+    const bad=()=>setPhotoMsg("Could not read that image. Try a different photo.");
+    const rd=new FileReader();
+    rd.onerror=bad;
+    rd.onload=()=>{
+      const img=new Image(); img.onerror=bad;
+      img.onload=()=>{
+        try{
+          const S=72, c=document.createElement("canvas"); c.width=c.height=S;
+          const g=c.getContext("2d"); const m=Math.min(img.width,img.height);
+          g.drawImage(img,(img.width-m)/2,(img.height-m)/2,m,m,0,0,S,S);
+          let q=0.72, url=c.toDataURL("image/jpeg",q);
+          while(url.length>7000&&q>0.35){ q-=0.1; url=c.toDataURL("image/jpeg",q); }
+          if(url.length>7000){ setPhotoMsg("That photo is too detailed. Try a simpler one."); return; }
+          setPhoto(url);
+        }catch{ bad(); }
+      };
+      img.src=rd.result;
+    };
+    rd.readAsDataURL(f);
+  }
   const cOpts=["#5B8FD4","#D47B9E","#3D9E6E","#E8A838","#9B6FD4","#E05C5C","#5BC4C4","#E8873A"];
   const defaultColor=()=>{
     const usedColors=new Set((allMembers||[]).map(m=>m.color));
@@ -5386,6 +5550,20 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
         <label style={lStyle}>Tracking start date</label>
         <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} style={iStyle} max={todayStr()}/>
         <div style={{fontSize:10,color:C.muted,marginTop:3}}>Days before this date are ignored in all calculations</div>
+      </div>
+      <div style={{marginBottom:14}}>
+        <label style={lStyle}>Photo (optional)</label>
+        <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+          <span style={{width:56,height:56,borderRadius:"50%",overflow:"hidden",background:color+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,flexShrink:0}}>
+            <Face m={{photo,emoji}} fill/>
+          </span>
+          <label style={{padding:"8px 14px",borderRadius:8,border:`1.5px solid ${C.border}`,cursor:"pointer",fontSize:13,fontWeight:600,color:C.text}}>
+            {photo?"Change photo":"Choose photo"}
+            <input type="file" accept="image/*" data-testid="photo-input" onChange={pickPhoto} style={{display:"none"}}/>
+          </label>
+          {photo&&<button type="button" onClick={()=>{setPhoto("");setPhotoMsg("");}} style={{padding:"8px 12px",borderRadius:8,border:"none",background:"none",cursor:"pointer",fontSize:12,color:"var(--ink-red)",fontWeight:600}}>Remove photo</button>}
+        </div>
+        <div style={{fontSize:10,color:C.muted,marginTop:4}}>Shrunk to a tiny square and stored with your tracker data like everything else.{photoMsg&&<span style={{color:"var(--ink-red)",fontWeight:700}}> {photoMsg}</span>}</div>
       </div>
       <div style={{marginBottom:14}}>
         <label style={lStyle}>Icon</label>
@@ -5583,7 +5761,7 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
       <div style={{display:"flex",gap:8}}>
         {!isNew&&<button onClick={()=>{if(window.confirm("Remove?"))onDelete(member.id);}} style={{padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",cursor:"pointer",color:C.missed,fontWeight:600}}>Delete</button>}
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>{setGapVisibleOnDevice(gapOnThisDevice);onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,illnessEnabled,stackPoints,chaseTarget,...(pin?{pin}:{})});}} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
+        <button onClick={()=>{setGapVisibleOnDevice(gapOnThisDevice);onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,illnessEnabled,stackPoints,chaseTarget,...(pin?{pin}:{}),...(photo?{photo}:{})});}} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
       </div>
     </div>
   </div>;
@@ -5632,7 +5810,7 @@ function FamilyFeed({members,logs}){
           background:isSkip?C.bg:en.isPB?"var(--t-yellow)":en.isAbove?C.done+"0F":C.bg,
           border:`1px solid ${isSkip?C.border:en.isPB?"#F9A825":en.isAbove?C.done+"33":C.border}`,
         }}>
-          <span style={{fontSize:20,flexShrink:0}}>{en.member.emoji}</span>
+          <span style={{fontSize:20,flexShrink:0}}><Face m={en.member}/></span>
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontSize:13,fontWeight:600,color:C.text}}>
               <span style={{fontWeight:700}}>{en.member.name}</span>
@@ -5672,7 +5850,7 @@ function GrowthLogModal({member, existing, onSave, onClose}){
     <div style={{background:C.surface,borderRadius:18,padding:24,width:"100%",maxWidth:320,
       boxShadow:"0 8px 40px rgba(0,0,0,0.2)"}} onClick={e=>e.stopPropagation()}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
-        <span style={{fontSize:24}}>{member.emoji}</span>
+        <span style={{fontSize:24}}><Face m={member}/></span>
         <div>
           <div style={{fontWeight:700,fontSize:15}}>Log Measurement</div>
           <div style={{fontSize:11,color:C.muted}}>{monthLabel}</div>
@@ -5711,7 +5889,7 @@ function GrowthLogModal({member, existing, onSave, onClose}){
   </div>;
 }
 
-function GrowthDrawer({member, logs, onSave, onClose}){
+function GrowthDrawerImpl({member, logs, onSave, onClose}){
   const growthLogs = getGrowthLogs(logs, member.id)
     .slice().sort((a,b)=>a.month.localeCompare(b.month));
   const [showLogModal, setShowLogModal] = useState(false);
@@ -5760,8 +5938,8 @@ function GrowthDrawer({member, logs, onSave, onClose}){
   }
 
   return <>
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
-    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
+    <div className="ff-scrim" onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:400}}/>
+    <div className="ff-drawer" style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
       background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
       display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
       <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
@@ -5770,7 +5948,7 @@ function GrowthDrawer({member, logs, onSave, onClose}){
       <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:26}}>{member.emoji}</span>
+            <span style={{fontSize:26}}><Face m={member}/></span>
             <div>
               <div style={{fontWeight:800,fontSize:16}}>📏 Growth</div>
               <div style={{fontSize:11,color:C.muted}}>{member.name}</div>
@@ -5890,17 +6068,18 @@ function GrowthDrawer({member, logs, onSave, onClose}){
 // ── General Knowledge (GK) View ────────────────────────────────────────────────
 // ── General Knowledge (GK) View — simple verbal-quiz tracker ────────────────────
 // ── GK Drawer (wraps GKView in a slide-in panel) ─────────────────────────────
-function GKDrawer({member, logs, onGkSave, onGkUpdate, onGkDelete, onClose}){
+const GrowthDrawer=withSlide(GrowthDrawerImpl);
+function GKDrawerImpl({member, logs, onGkSave, onGkUpdate, onGkDelete, onClose}){
   return <>
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
-    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
+    <div className="ff-scrim" onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:400}}/>
+    <div className="ff-drawer" style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
       background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
       display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
       <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
       <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:26}}>{member.emoji}</span>
+            <span style={{fontSize:26}}><Face m={member}/></span>
             <div>
               <div style={{fontWeight:800,fontSize:16}}>🧠 GK</div>
               <div style={{fontSize:11,color:C.muted}}>{member.name}</div>
@@ -5938,6 +6117,7 @@ function GKDrawer({member, logs, onGkSave, onGkUpdate, onGkDelete, onClose}){
 
 // ── GK Add entry — record an award for any past date (or today), daily quiz or weekly review ──
 // Top-level so inputs never remount while typing. Any number of awards can share a day or week.
+const GKDrawer=withSlide(GKDrawerImpl);
 function GkAddEntry({member, logs, onGkSave}){
   const today = todayStr();
   const [open, setOpen] = useState(false);
@@ -6202,17 +6382,17 @@ function GKView({member, logs, onGkSave}){
 }
 
 // ── Bravery Drawer (wraps BraveryView in a slide-in panel) ───────────────────
-function BraveryDrawer({member, logs, onBraverySave, onBraveryDelete, onBraveryUpdate, onClose}){
+function BraveryDrawerImpl({member, logs, onBraverySave, onBraveryDelete, onBraveryUpdate, onClose}){
   return <>
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
-    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
+    <div className="ff-scrim" onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:400}}/>
+    <div className="ff-drawer" style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
       background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
       display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
       <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
       <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:26}}>{member.emoji}</span>
+            <span style={{fontSize:26}}><Face m={member}/></span>
             <div>
               <div style={{fontWeight:800,fontSize:16}}>🦁 Bravery</div>
               <div style={{fontSize:11,color:C.muted}}>{member.name}</div>
@@ -6230,17 +6410,18 @@ function BraveryDrawer({member, logs, onBraverySave, onBraveryDelete, onBraveryU
   </>;
 }
 
-function OlympiadDrawer({member, logs, onOlympiadSave, onOlympiadDelete, onOlympiadUpdate, onClose}){
+const BraveryDrawer=withSlide(BraveryDrawerImpl);
+function OlympiadDrawerImpl({member, logs, onOlympiadSave, onOlympiadDelete, onOlympiadUpdate, onClose}){
   return <>
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
-    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
+    <div className="ff-scrim" onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:400}}/>
+    <div className="ff-drawer" style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
       background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
       display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
       <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
       <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:26}}>{member.emoji}</span>
+            <span style={{fontSize:26}}><Face m={member}/></span>
             <div>
               <div style={{fontWeight:800,fontSize:16}}>🏅 Olympiad</div>
               <div style={{fontSize:11,color:C.muted}}>{member.name}</div>
@@ -6258,6 +6439,7 @@ function OlympiadDrawer({member, logs, onOlympiadSave, onOlympiadDelete, onOlymp
   </>;
 }
 
+const OlympiadDrawer=withSlide(OlympiadDrawerImpl);
 function OlympiadView({member, logs, onOlympiadSave, onOlympiadDelete, onOlympiadUpdate}){
   const today = todayStr();
   const entries = getOlympiadLog(logs, member.id);
@@ -6382,17 +6564,17 @@ function OlympiadView({member, logs, onOlympiadSave, onOlympiadDelete, onOlympia
   </div>;
 }
 
-function IllnessDrawer({member, logs, onIllnessSave, onIllnessDelete, onClose}){
+function IllnessDrawerImpl({member, logs, onIllnessSave, onIllnessDelete, onClose}){
   return <>
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
-    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
+    <div className="ff-scrim" onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:400}}/>
+    <div className="ff-drawer" style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,92vw)",
       background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
       display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
       <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
       <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:26}}>{member.emoji}</span>
+            <span style={{fontSize:26}}><Face m={member}/></span>
             <div>
               <div style={{fontWeight:800,fontSize:16}}>🤒 Illness</div>
               <div style={{fontSize:11,color:C.muted}}>{member.name}</div>
@@ -6410,6 +6592,7 @@ function IllnessDrawer({member, logs, onIllnessSave, onIllnessDelete, onClose}){
 }
 
 // ── Bravery Points View — parent picks reason + points, feeds same PP pool ──────
+const IllnessDrawer=withSlide(IllnessDrawerImpl);
 function BraveryView({member, logs, onBraverySave, onBraveryDelete, onBraveryUpdate}){
   const today = todayStr();
   const entries = getBraveryLog(logs, member.id);
@@ -6595,7 +6778,7 @@ function IllnessView({member, logs, onIllnessSave, onIllnessDelete}){
   </div>;
 }
 
-function AllTimeStats({member,logs,onClose}){
+function AllTimeStatsImpl({member,logs,onClose}){
   const today=todayStr();
   const acts=member.activities||[];
 
@@ -6642,15 +6825,15 @@ function AllTimeStats({member,logs,onClose}){
   const trackDays=trackStart?Math.round((new Date(today)-new Date(trackStart))/86400000)+1:0;
 
   return <>
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
-    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(480px,92vw)",
+    <div className="ff-scrim" onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:400}}/>
+    <div className="ff-drawer" style={{position:"fixed",top:0,right:0,height:"100%",width:"min(480px,92vw)",
       background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
       display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
       <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
 
       <div style={{padding:"20px 24px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <span style={{fontSize:28}}>{member.emoji}</span>
+          <span style={{fontSize:28}}><Face m={member}/></span>
           <div>
             <div style={{fontWeight:800,fontSize:18}}>{member.name}</div>
             <div style={{fontSize:12,color:C.muted}}>All-time stats · {trackDays} days tracking</div>
@@ -6660,6 +6843,7 @@ function AllTimeStats({member,logs,onClose}){
       </div>
 
       <div style={{flex:1,overflowY:"auto",padding:"20px 24px"}}>
+        <div style={{marginBottom:24}}><PPTrendChart members={[member]} logs={logs} title="Power points"/></div>
         {stats.map(s=><div key={s.a.id} style={{marginBottom:24}}>
           <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:12,paddingBottom:8,borderBottom:`1px solid ${C.border}`}}>{s.a.name}</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
@@ -6716,6 +6900,7 @@ function AllTimeStats({member,logs,onClose}){
 }
 
 // ── Heatmap View ─────────────────────────────────────────────────────────────
+const AllTimeStats=withSlide(AllTimeStatsImpl);
 function HeatmapView({member,logs}){
   const today=todayStr();
   const todayDate=new Date(today);
@@ -7240,6 +7425,9 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
     {/* ── Family Level Ladder ── */}
     <FamilyLevelLadder members={members} logs={logs}/>
 
+    {/* ── PP trend (week / month / year / all) ── */}
+    <div className="ff-card" style={{padding:"18px 20px"}}><PPTrendChart members={members} logs={logs} title="Family power points"/></div>
+
     {/* ── Per-member stat cards + volume side by side ── */}
     <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"start"}}>
 
@@ -7257,7 +7445,7 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
                   width:38,height:38,borderRadius:"50%",background:s.m.color+"22",
                   border:`1.5px solid ${s.m.color}55`,display:"flex",alignItems:"center",justifyContent:"center",
                   fontSize:18,flexShrink:0,
-                }}>{s.m.emoji}</div>
+                }}><Face m={s.m}/></div>
                 <div>
                   <div style={{fontWeight:700,fontSize:14,color:C.text}}>{s.m.name}</div>
                   <div style={{fontSize:11,color:C.muted}}>{(s.m.activities||[]).map(a=>a.name).join(" · ")}</div>
@@ -7418,7 +7606,7 @@ function PatternPicker({pattern, setPattern, accent}){
 }
 
 // ── Theme Picker ──────────────────────────────────────────────────────────────
-function BackupDrawer({logs, members, theme, pattern, onRestore, onClose}){
+function BackupDrawerImpl({logs, members, theme, pattern, onRestore, onClose}){
   const backups = getLocalBackups();
   const [confirmRestore, setConfirmRestore] = useState(null);
   const [cmp, setCmp] = useState(null); // {busy} | {err} | {res}
@@ -7462,8 +7650,8 @@ function BackupDrawer({logs, members, theme, pattern, onRestore, onClose}){
   const currentData = {members, logs, theme, pattern};
 
   return <>
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400}}/>
-    <div style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,94vw)",
+    <div className="ff-scrim" onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:400}}/>
+    <div className="ff-drawer" style={{position:"fixed",top:0,right:0,height:"100%",width:"min(400px,94vw)",
       background:C.surface,zIndex:401,boxShadow:"-8px 0 40px rgba(0,0,0,0.15)",
       display:"flex",flexDirection:"column",animation:"slideInRight 0.28s cubic-bezier(0.4,0,0.2,1)"}}>
       <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
@@ -7607,6 +7795,7 @@ function BackupDrawer({logs, members, theme, pattern, onRestore, onClose}){
   </>;
 }
 
+const BackupDrawer=withSlide(BackupDrawerImpl);
 function ThemePicker({theme, setTheme}){
   const[open,setOpen]=useState(false);
   const[customColor,setCustomColor]=useState("#5B8FD4");
@@ -7774,7 +7963,7 @@ function FamilyDoor({members,theme,onEnter,onClearPin}){
         <div style={{textAlign:"center",color:C.muted,fontSize:14,margin:"6px 0 18px"}}>Who's using this?</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:10}}>
           {members.map(m=><button key={m.id} onClick={()=>pick(m)} style={{...tile,borderColor:m.color}}>
-            <span style={{fontSize:30}}>{m.emoji||"🏃"}</span>
+            <span style={{fontSize:30}}><Face m={m} fallback="🏃"/></span>
             <span style={{fontWeight:700,fontSize:14,color:m.color,wordBreak:"break-word"}}>{m.name}</span>
             <span style={{fontSize:11,color:C.muted}}>{hasPin(m)?"🔒 PIN":"tap to enter"}</span>
           </button>)}
@@ -8124,6 +8313,10 @@ export default function App(){
     let s=document.getElementById("ff-global-css");
     if(!s){ s=document.createElement("style"); s.id="ff-global-css"; document.head.appendChild(s); }
     s.textContent=GLOBAL_CSS;
+    if(!document.querySelector('meta[name="viewport"]')){
+      const m=document.createElement("meta"); m.name="viewport"; m.content="width=device-width, initial-scale=1";
+      document.head.appendChild(m);
+    }
     if(!document.getElementById("ff-inter")){
       const l=document.createElement("link"); l.id="ff-inter"; l.rel="stylesheet";
       l.href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap";
@@ -8169,7 +8362,7 @@ export default function App(){
       {members.map(m=>(
         <button key={m.id} className="ff-nav" aria-label={m.name} aria-current={activeTab===m.id?"page":undefined}
           onClick={()=>{setActiveTab(m.id);setPpPanelFor(null);}}>
-          <span className="ff-avatar" style={{background:m.color+"33",color:m.color}}>{m.emoji||m.name.slice(0,1)}</span>
+          <span className="ff-avatar" style={{background:m.color+"33",color:m.color}}><Face m={m} fill fallback={m.name.slice(0,1)}/></span>
           <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{m.name}</span>
         </button>
       ))}
