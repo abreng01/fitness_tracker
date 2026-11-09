@@ -27,6 +27,56 @@ function accentVars(accent,mode){
   };
 }
 
+// ── Looks: full-page themes (surfaces, accent, shape, font). "studio" = the default look. ──
+// LOOKS-BEGIN
+const LOOKS = [
+  {id:"studio", name:"Studio", tag:"The clean default", font:null, rCard:16, rChip:10, bw:"1px"},
+  {id:"neon", name:"Midnight Neon", tag:"Glow in the dark", font:null, rCard:14, rChip:10, bw:"1px",
+   accent:{light:"#7C3AED",dark:"#22D3EE"},
+   light:{bg:"#F4F0FF",card:"#FFFFFF",line:"#DDD3F5",text:"#1B1033",muted:"#5E5483",bg2:"#ECE6FB",empty:"#E3DBF6",hero:"#2A1659",
+     shadow:"0 6px 24px rgba(124,58,237,.10)",img:"radial-gradient(900px 500px at 90% -10%,rgba(168,85,247,.16),transparent 60%),radial-gradient(700px 400px at -10% 110%,rgba(34,211,238,.12),transparent 60%)"},
+   dark:{bg:"#0A0814",card:"#141026",line:"#2E2550",text:"#F1EEFF",muted:"#A59CC8",bg2:"#1C1636",empty:"#2A2347",hero:"#1E1240",
+     shadow:"0 0 0 1px rgba(168,85,247,.16),0 8px 30px rgba(124,58,237,.18)",img:"radial-gradient(900px 500px at 90% -10%,rgba(168,85,247,.24),transparent 60%),radial-gradient(700px 400px at -10% 110%,rgba(34,211,238,.14),transparent 60%)"}},
+  {id:"paper", name:"Paper", tag:"Warm, quiet, bookish", font:"'Fraunces','Iowan Old Style',Georgia,serif", rCard:6, rChip:6, bw:"1px",
+   accent:{light:"#B5532F",dark:"#D9784F"},
+   light:{bg:"#F6EFE3",card:"#FFFBF3",line:"#E1D4BD",text:"#2B2118",muted:"#6B5B4A",bg2:"#EFE5D3",empty:"#E6DAC4",hero:"#3A2A1E",shadow:"none",img:"none"},
+   dark:{bg:"#17120D",card:"#211A13",line:"#3A2F23",text:"#F2E9DA",muted:"#B5A58E",bg2:"#2A2118",empty:"#3A2F23",hero:"#2E2218",shadow:"none",img:"none"}},
+  {id:"forest", name:"Forest", tag:"Moss, bark and calm", font:"'Nunito',Inter,system-ui,sans-serif", rCard:18, rChip:12, bw:"1px",
+   accent:{light:"#2F8F57",dark:"#4CC27F"},
+   light:{bg:"#E9F0E6",card:"#F8FBF6",line:"#CBDAC5",text:"#14261A",muted:"#4C6652",bg2:"#DEE9DA",empty:"#D2E0CC",hero:"#173A25",shadow:"0 2px 8px rgba(23,58,37,.08)",img:"none"},
+   dark:{bg:"#0C1710",card:"#132318",line:"#22402B",text:"#E6F2E8",muted:"#9DB8A4",bg2:"#19301F",empty:"#25422E",hero:"#173A25",shadow:"0 2px 8px rgba(0,0,0,.35)",img:"none"}},
+  {id:"sunset", name:"Sunset", tag:"Golden hour", font:null, rCard:20, rChip:14, bw:"1px",
+   accent:{light:"#D9532B",dark:"#FF8A5C"},
+   light:{bg:"#FFEDE0",card:"#FFFAF5",line:"#F0D0B8",text:"#2E1A12",muted:"#7A5646",bg2:"#FBE6D5",empty:"#F3D9C6",hero:"#5A1F2E",shadow:"0 4px 16px rgba(217,83,43,.12)",img:"linear-gradient(160deg,#FFE3D0 0%,#FFD1D9 55%,#F1D8FF 100%)"},
+   dark:{bg:"#1A0E12",card:"#26151B",line:"#432431",text:"#FBE9E4",muted:"#C9A3A0",bg2:"#2F1A22",empty:"#432431",hero:"#4A1830",shadow:"0 4px 16px rgba(0,0,0,.4)",img:"linear-gradient(160deg,#2A1218 0%,#1D0F1E 100%)"}},
+  {id:"ocean", name:"Ocean", tag:"Cool and airy", font:null, rCard:16, rChip:10, bw:"1px",
+   accent:{light:"#0A78B8",dark:"#38BDF8"},
+   light:{bg:"#E6F3FA",card:"#FBFEFF",line:"#C5DFEC",text:"#0F2433",muted:"#4A6B80",bg2:"#DAEBF5",empty:"#CCE2EE",hero:"#0E3A5A",shadow:"0 2px 10px rgba(14,90,140,.10)",img:"linear-gradient(180deg,#DDF0FA 0%,#EEF8FC 100%)"},
+   dark:{bg:"#06141F",card:"#0C2030",line:"#1B3A52",text:"#E3F2FB",muted:"#8FB3C9",bg2:"#112A3D",empty:"#1B3A52",hero:"#0E3350",shadow:"0 2px 10px rgba(0,0,0,.4)",img:"linear-gradient(180deg,#06141F 0%,#0A1E2E 100%)"}},
+  {id:"arcade", name:"Arcade", tag:"Loud, chunky, fun", font:"'Nunito',Inter,system-ui,sans-serif", rCard:22, rChip:14, bw:"2.5px",
+   accent:{light:"#D81B60",dark:"#FFD23F"},
+   light:{bg:"#FFF3A8",card:"#FFFFFF",line:"#161616",text:"#161616",muted:"#4A4A4A",bg2:"#FFE680",empty:"#EFE3A0",hero:"#2B2BC8",shadow:"4px 4px 0 #161616",img:"none"},
+   dark:{bg:"#14122B",card:"#1F1B3F",line:"#6F63FF",text:"#FFFFFF",muted:"#BDB7F2",bg2:"#2A2555",empty:"#342E69",hero:"#2B1F8A",shadow:"4px 4px 0 #6F63FF",img:"none"}},
+  {id:"mono", name:"Mono", tag:"Pure and minimal", font:"'JetBrains Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace", rCard:4, rChip:4, bw:"1px",
+   accent:{light:"#111111",dark:"#F2F2F2"},
+   light:{bg:"#F7F7F7",card:"#FFFFFF",line:"#DADADA",text:"#0A0A0A",muted:"#5A5A5A",bg2:"#F0F0F0",empty:"#E4E4E4",hero:"#0A0A0A",shadow:"none",img:"none"},
+   dark:{bg:"#0A0A0A",card:"#121212",line:"#2C2C2C",text:"#F2F2F2",muted:"#9A9A9A",bg2:"#1A1A1A",empty:"#2A2A2A",hero:"#1A1A1A",shadow:"none",img:"none"}},
+];
+// LOOKS-END
+const LOOK_FONTS_HREF="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;800&family=JetBrains+Mono:wght@400;600;700&family=Nunito:wght@400;600;700;800&display=swap";
+function findLook(id){ return LOOKS.find(l=>l.id===id)||LOOKS[0]; }
+// CSS variables a look sets for a mode. Studio returns {} so the stylesheet defaults (and per-person accent) apply untouched.
+function lookVars(id,mode){
+  const L=findLook(id); if(L.id==="studio") return {};
+  const m=mode==="dark"?"dark":"light"; const t=L[m];
+  return {
+    "--bg":t.bg,"--card":t.card,"--line":t.line,"--text":t.text,"--muted":t.muted,"--bg2":t.bg2,"--empty":t.empty,"--hero":t.hero,
+    "--shadow":t.shadow,"--bg-img":t.img,"--r-card":L.rCard+"px","--r-chip":L.rChip+"px","--bw":L.bw,
+    "--font":L.font||'Inter,"Helvetica Neue",system-ui,sans-serif',
+    ...accentVars(L.accent[m],mode),
+  };
+}
+
 // ── Sound effects: tiny synthesized sounds (no audio files). Off by default; per-device toggle. ──
 const SFX={on:false,ctx:null,master:null,lastEgg:0};
 function readSoundPref(){ try{ return localStorage.getItem("ff_sound")==="on"; }catch{ return false; } }
@@ -88,14 +138,14 @@ const GLOBAL_CSS = `
   --ink-orange:#FFB074; --ink-brown:#E8C27A; --ink-blue:#8EC0FF; --ink-green:#6FD39A; --ink-red:#FF8A80; --ink-purple:#C3A8FF;
   color-scheme:dark;
 }
-html,body{margin:0;background:var(--bg);color:var(--text);}
-body{font-family:Inter,"Helvetica Neue",system-ui,sans-serif;-webkit-font-smoothing:antialiased;}
+html,body{margin:0;background:var(--bg);background-image:var(--bg-img,none);background-attachment:fixed;color:var(--text);}
+body{font-family:var(--font,Inter,"Helvetica Neue",system-ui,sans-serif);-webkit-font-smoothing:antialiased;}
 button,input,select,textarea{font-family:inherit;}
 button{transition:transform .12s ease, background-color .15s ease, border-color .15s ease, opacity .15s ease;}
 button:active:not(:disabled){transform:scale(.97);}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
 
-.ff-app{display:flex;min-height:100vh;background:var(--bg);color:var(--text);}
+.ff-app{display:flex;min-height:100vh;background:transparent;color:var(--text);}
 .ff-side{width:232px;flex-shrink:0;box-sizing:border-box;background:var(--card);border-right:1px solid var(--line);
   padding:24px 14px;display:flex;flex-direction:column;gap:4px;position:sticky;top:0;height:100vh;overflow-y:auto;}
 .ff-logo{display:flex;align-items:center;gap:10px;padding:0 10px 20px;font-weight:800;font-size:16px;letter-spacing:-.2px;}
@@ -108,13 +158,13 @@ button:active:not(:disabled){transform:scale(.97);}
 .ff-avatar{overflow:hidden;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
 .ff-main{flex:1;min-width:0;display:flex;flex-direction:column;}
 .ff-top{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
-  padding:14px 32px;background:var(--bg);border-bottom:1px solid var(--line);}
+  padding:14px 32px;background:var(--bg);background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-bottom:1px solid var(--line);}
 .ff-wrap{position:relative;width:100%;box-sizing:border-box;padding:24px 32px 56px;margin:0 auto;display:flex;flex-direction:column;gap:20px;transition:max-width .2s;}
-.ff-chip{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 12px;border-radius:10px;border:1px solid var(--line);
+.ff-chip{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 12px;border-radius:var(--r-chip,10px);border:var(--bw,1px) solid var(--line);
   background:var(--card);color:var(--muted);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
 .ff-chip:hover{border-color:var(--accent);color:var(--text);}
 
-.ff-card{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);box-sizing:border-box;min-width:0;}
+.ff-card{background:var(--card);border:var(--bw,1px) solid var(--line);border-radius:var(--r-card,16px);box-shadow:var(--shadow);box-sizing:border-box;min-width:0;}
 .mc{display:flex;flex-wrap:wrap;gap:16px;align-items:stretch;}
 .mc>*{flex:1 1 100%;min-width:0;}
 .mc>.mc-today{flex:1 1 100%;}
@@ -5761,7 +5811,7 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
       <div style={{display:"flex",gap:8}}>
         {!isNew&&<button onClick={()=>{if(window.confirm("Remove?"))onDelete(member.id);}} style={{padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",cursor:"pointer",color:C.missed,fontWeight:600}}>Delete</button>}
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>{setGapVisibleOnDevice(gapOnThisDevice);onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,illnessEnabled,stackPoints,chaseTarget,...(pin?{pin}:{}),...(photo?{photo}:{})});}} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
+        <button onClick={()=>{setGapVisibleOnDevice(gapOnThisDevice);onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,illnessEnabled,stackPoints,chaseTarget,...(pin?{pin}:{}),...(photo?{photo}:{}),...(member?.memberLook?{memberLook:member.memberLook}:{})});}} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
       </div>
     </div>
   </div>;
@@ -7796,6 +7846,109 @@ function BackupDrawerImpl({logs, members, theme, pattern, onRestore, onClose}){
 }
 
 const BackupDrawer=withSlide(BackupDrawerImpl);
+// ── Look gallery: bottom tray with a swipeable carousel. Browsing previews live; Apply keeps it. ──
+const LOOK_TRAY_CSS=`
+.ff-tray{position:fixed;left:0;right:0;bottom:0;z-index:300;background:var(--card);color:var(--text);border-top:1px solid var(--line);
+  box-shadow:0 -12px 40px rgba(0,0,0,.22);border-radius:18px 18px 0 0;padding:14px 0 16px;animation:ffSlideUp .3s cubic-bezier(.2,.8,.2,1) both;}
+.ff-tray-closing{animation:ffSlideDown .2s ease both;}
+.ff-lk-track{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;padding:6px max(24px,calc(50% - 110px)) 10px;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
+.ff-lk-track::-webkit-scrollbar{display:none;}
+.ff-lk{flex:0 0 220px;scroll-snap-align:center;border:2px solid transparent;border-radius:16px;padding:0;background:none;cursor:pointer;text-align:left;color:inherit;transition:transform .2s ease,border-color .2s ease,opacity .2s ease;opacity:.72;transform:scale(.94);}
+.ff-lk[aria-pressed="true"]{border-color:var(--accent);opacity:1;transform:scale(1);}
+.ff-lk-arrow{position:absolute;top:92px;width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:18px;cursor:pointer;z-index:2;box-shadow:0 2px 8px rgba(0,0,0,.2);}
+@media (max-width:700px){.ff-lk-arrow{display:none;}}
+@media (prefers-reduced-motion:reduce){.ff-tray,.ff-lk{animation:none !important;transition:none !important;}}
+`;
+function LookMock({id,mode}){
+  const L=findLook(id);
+  const isStudio=L.id==="studio";
+  const t=isStudio?{bg:mode==="dark"?"#0D0F14":"#F5F6F8",card:mode==="dark"?"#151922":"#FFFFFF",line:mode==="dark"?"#262C38":"#E4E7EC",text:mode==="dark"?"#EDEFF4":"#12141A",muted:mode==="dark"?"#98A1B2":"#5B6370",hero:mode==="dark"?"#1B2132":"#12141A",shadow:mode==="dark"?"0 1px 2px rgba(0,0,0,.4)":"0 1px 2px rgba(16,24,40,.05)",img:"none"}:L[mode==="dark"?"dark":"light"];
+  const acc=accentVars(isStudio?"#3D9E6E":L.accent[mode==="dark"?"dark":"light"],mode);
+  const bw=L.bw||"1px";
+  return <div aria-hidden="true" style={{background:t.bg,backgroundImage:t.img==="none"?"none":t.img,borderRadius:14,padding:12,height:150,boxSizing:"border-box",fontFamily:L.font||"Inter,system-ui,sans-serif",color:t.text,overflow:"hidden"}}>
+    <div style={{background:t.card,border:`${bw} solid ${t.line}`,borderRadius:L.rCard*0.6,boxShadow:t.shadow,padding:"8px 10px",marginBottom:8}}>
+      <div style={{fontSize:9,color:t.muted,fontWeight:700,letterSpacing:.6}}>POWER POINTS</div>
+      <div style={{fontSize:20,fontWeight:800,lineHeight:1.15}}>724,900</div>
+      <div style={{height:5,borderRadius:9,background:t.line,marginTop:5,overflow:"hidden"}}><div style={{width:"62%",height:"100%",background:acc["--accent"]}}/></div>
+    </div>
+    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+      <div style={{flex:1,background:t.hero,borderRadius:L.rChip*0.7,height:26,boxShadow:t.shadow}}/>
+      <div style={{background:acc["--accent"],color:acc["--on-accent"],borderRadius:L.rChip,padding:"6px 12px",fontSize:11,fontWeight:800,border:L.id==="arcade"?`${bw} solid ${t.line}`:"none"}}>＋ Log</div>
+    </div>
+  </div>;
+}
+function LookTray({initial,mode,personName,deviceLook,onPreview,onApplyPerson,onApplyDevice,onClearDevice,onClose}){
+  const startIdx=Math.max(0,LOOKS.findIndex(l=>l.id===initial));
+  const[idx,setIdx]=useState(startIdx);
+  const[closing,setClosing]=useState(false);
+  const trackRef=useRef(null);
+  const settle=useRef(null);
+  const cur=LOOKS[idx];
+  const choose=(i,scroll)=>{
+    const n=Math.max(0,Math.min(LOOKS.length-1,i));
+    setIdx(n); onPreview(LOOKS[n].id);
+    if(scroll&&trackRef.current){ const el=trackRef.current.children[n]; el&&el.scrollIntoView({inline:"center",block:"nearest",behavior:"smooth"}); }
+  };
+  useEffect(()=>{ // open centred on the current look
+    const el=trackRef.current&&trackRef.current.children[startIdx]; if(el) el.scrollIntoView({inline:"center",block:"nearest"});
+  // eslint-disable-next-line
+  },[]);
+  const close=()=>{ setClosing(true); setTimeout(onClose,200); };
+  useEffect(()=>{
+    const k=e=>{ if(e.key==="Escape") close(); else if(e.key==="ArrowRight") choose(idx+1,true); else if(e.key==="ArrowLeft") choose(idx-1,true); };
+    window.addEventListener("keydown",k); return ()=>window.removeEventListener("keydown",k);
+  // eslint-disable-next-line
+  },[idx]);
+  const onScroll=()=>{
+    clearTimeout(settle.current);
+    settle.current=setTimeout(()=>{ // after a swipe settles, preview the card nearest the middle
+      const tr=trackRef.current; if(!tr) return;
+      const mid=tr.getBoundingClientRect().left+tr.clientWidth/2; let best=0,bd=1e9;
+      [...tr.children].forEach((c,i)=>{ const r=c.getBoundingClientRect(); const d=Math.abs(r.left+r.width/2-mid); if(d<bd){bd=d;best=i;} });
+      setIdx(best); onPreview(LOOKS[best].id);
+    },120);
+  };
+  useEffect(()=>()=>clearTimeout(settle.current),[]);
+  const isDevice=deviceLook===cur.id;
+  return <div className={"ff-tray"+(closing?" ff-tray-closing":"")} role="dialog" aria-label="Choose a look" data-testid="look-tray">
+    <style>{LOOK_TRAY_CSS}</style>
+    <div style={{display:"flex",alignItems:"center",gap:10,padding:"0 20px 4px"}}>
+      <div style={{fontWeight:800,fontSize:15}}>🎨 Looks</div>
+      <div style={{fontSize:12,color:"var(--muted)"}}>Swipe or use ← → to preview · nothing is saved until you apply</div>
+      <div style={{flex:1}}/>
+      <button className="ff-chip" onClick={close} aria-label="Close looks" data-testid="look-cancel">✕ Cancel</button>
+    </div>
+    <div style={{position:"relative"}}>
+      <button className="ff-lk-arrow" style={{left:10}} onClick={()=>choose(idx-1,true)} aria-label="Previous look" disabled={idx===0}>‹</button>
+      <button className="ff-lk-arrow" style={{right:10}} onClick={()=>choose(idx+1,true)} aria-label="Next look" disabled={idx===LOOKS.length-1}>›</button>
+      <div className="ff-lk-track" ref={trackRef} onScroll={onScroll}>
+        {LOOKS.map((l,i)=>(
+          <button key={l.id} className="ff-lk" aria-pressed={i===idx} aria-label={l.name} data-look={l.id} onClick={()=>choose(i,true)}>
+            <LookMock id={l.id} mode={mode}/>
+            <div style={{padding:"8px 4px 2px",textAlign:"center"}}>
+              <div style={{fontWeight:800,fontSize:14}}>{l.name}{deviceLook===l.id&&<span title="Device override"> 📱</span>}</div>
+              <div style={{fontSize:11,color:"var(--muted)"}}>{l.tag}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+    <div style={{display:"flex",gap:8,justifyContent:"center",marginBottom:10}}>
+      {LOOKS.map((l,i)=><span key={l.id} style={{width:i===idx?18:7,height:7,borderRadius:9,background:i===idx?"var(--accent)":"var(--line)",transition:"all .2s"}}/>)}
+    </div>
+    <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap",padding:"0 20px"}}>
+      {personName&&<button onClick={()=>{onApplyPerson(cur.id);close();}} data-testid="look-apply-person"
+        style={{height:42,padding:"0 20px",borderRadius:"var(--r-chip,10px)",border:"none",background:"var(--accent)",color:"var(--on-accent)",fontWeight:800,fontSize:14,cursor:"pointer"}}>
+        Use {cur.name} for {personName}</button>}
+      <button onClick={()=>{onApplyDevice(cur.id);close();}} data-testid="look-apply-device" className="ff-chip" style={{height:42,padding:"0 16px",fontSize:13,color:"var(--text)"}}>
+        📱 {personName?"Override on this device only":`Use ${cur.name} on this device`}</button>
+      {deviceLook&&<button onClick={()=>{onClearDevice();close();}} data-testid="look-clear-device" className="ff-chip" style={{height:42,padding:"0 16px",fontSize:13}}>Clear device override</button>}
+    </div>
+    {personName&&<div style={{textAlign:"center",fontSize:11,color:"var(--muted)",marginTop:8}}>
+      "Use for {personName}" follows {personName} on every device. "Override" is just this phone or browser{isDevice?" (currently on)":""}.</div>}
+  </div>;
+}
+
 function ThemePicker({theme, setTheme}){
   const[open,setOpen]=useState(false);
   const[customColor,setCustomColor]=useState("#5B8FD4");
@@ -8287,6 +8440,12 @@ export default function App(){
     mq.addEventListener?.("change",f); return ()=>mq.removeEventListener?.("change",f);
   },[modePref]);
   const mode=resolveMode(modePref); void sysTick;
+  const[deviceLook,setDeviceLook]=useState(()=>{ try{ const v=localStorage.getItem("ff_look"); return LOOKS.some(l=>l.id===v)?v:""; }catch{ return ""; } });
+  const[lookPreview,setLookPreview]=useState(null);
+  const[showLooks,setShowLooks]=useState(false);
+  const lookKeys=useRef([]);
+  const setDeviceLookPersist=(v)=>{ setDeviceLook(v); try{ if(v) localStorage.setItem("ff_look",v); else localStorage.removeItem("ff_look"); }catch{} };
+  const setPersonLook=(memberId,lookId)=>setMembers(p=>p.map(m=>m.id===memberId?{...m,memberLook:lookId==="studio"?"":lookId}:m));
   const[soundOn,setSoundOn]=useState(()=>SFX.on);
   const toggleSound=()=>{
     const nx=!soundOn; SFX.on=nx; setSoundOn(nx);
@@ -8303,12 +8462,20 @@ export default function App(){
   const _tabMember=activeTab?members.find(m=>m.id===activeTab):null;
   const _accentId=(_tabMember?.memberTheme)||theme;
   const _accentBase=(THEMES.find(t=>t.id===_accentId)||{}).accent||(String(_accentId).startsWith("#")?_accentId:THEMES[0].accent);
+  // Which look is showing: live preview > this device's override > this person's look > Studio
+  const lookId=lookPreview||deviceLook||(_tabMember&&_tabMember.memberLook&&LOOKS.some(l=>l.id===_tabMember.memberLook)?_tabMember.memberLook:"studio");
   useEffect(()=>{
     const el=document.documentElement;
     el.setAttribute("data-mode",mode);
-    const v=accentVars(_accentBase,mode);
+    el.setAttribute("data-look",lookId);
+    const v={...accentVars(_accentBase,mode),...lookVars(lookId,mode)};
+    lookKeys.current.forEach(k=>{ if(!(k in v)) el.style.removeProperty(k); });
     Object.keys(v).forEach(k=>el.style.setProperty(k,v[k]));
-  },[mode,_accentBase]);
+    lookKeys.current=Object.keys(v);
+    if(lookId!=="studio"&&!document.getElementById("ff-look-fonts")){
+      const l=document.createElement("link"); l.id="ff-look-fonts"; l.rel="stylesheet"; l.href=LOOK_FONTS_HREF; document.head.appendChild(l);
+    }
+  },[mode,_accentBase,lookId]);
   useEffect(()=>{
     let s=document.getElementById("ff-global-css");
     if(!s){ s=document.createElement("style"); s.id="ff-global-css"; document.head.appendChild(s); }
@@ -8376,7 +8543,7 @@ export default function App(){
       </button>
     </aside>
     <div className="ff-main" style={{position:"relative"}}>
-    {mode==="light"&&<div aria-hidden="true" style={{position:"absolute",inset:0,backgroundImage:bgPattern,backgroundRepeat:"repeat",opacity:0.28,pointerEvents:"none"}}/>}
+    {mode==="light"&&lookId==="studio"&&<div aria-hidden="true" style={{position:"absolute",inset:0,backgroundImage:bgPattern,backgroundRepeat:"repeat",opacity:0.28,pointerEvents:"none"}}/>}
     <div className="ff-top">
       <div style={{fontWeight:800,fontSize:18,letterSpacing:-0.4}}>{activeMember?activeMember.name:"Family"}</div>
       <div style={{flex:1}}/>
@@ -8396,6 +8563,7 @@ export default function App(){
         {doorOn&&<button onClick={switchWho} className="ff-chip" title="Switch person">⇄ Switch</button>}
         <button onClick={toggleSound} className="ff-chip" data-testid="sound-toggle" aria-pressed={soundOn} title={soundOn?"Sound effects on (click to mute)":"Sound effects off (click to turn on)"}>{soundOn?"🔊":"🔇"}</button>
         <button onClick={cycleMode} className="ff-chip" data-testid="mode-toggle" title={`Appearance: ${modePref} (click to change)`}>{modePref==="dark"?"🌙 Dark":modePref==="auto"?"🖥 Auto":"☀️ Light"}</button>
+        <button onClick={()=>setShowLooks(true)} className="ff-chip" data-testid="looks-btn" title="Change the look of the app">🎨 Looks</button>
         <ThemePicker theme={theme} setTheme={setTheme}/>
         <PatternPicker pattern={pattern} setPattern={setPattern} accent={currentTheme.accent}/>
         {showBackup&&<BackupDrawer logs={logs} members={members} theme={theme} pattern={pattern}
@@ -8439,6 +8607,12 @@ export default function App(){
       {activeTab===null&&members.length>0&&<div key="family" className="ff-in-x"><FamilyDashboard members={members} logs={logs} yr={yr} mo={mo} MONTHS={MONTHS}/></div>}
     </div>
 
+    {showLooks&&<LookTray initial={lookId} mode={mode} personName={activeMember?activeMember.name:null} deviceLook={deviceLook}
+      onPreview={setLookPreview}
+      onApplyPerson={(id)=>{ if(activeMember){ setPersonLook(activeMember.id,id); } setLookPreview(null); }}
+      onApplyDevice={(id)=>{ setDeviceLookPersist(id==="studio"&&!activeMember?"":id); setLookPreview(null); }}
+      onClearDevice={()=>{ setDeviceLookPersist(""); setLookPreview(null); }}
+      onClose={()=>{ setShowLooks(false); setLookPreview(null); }}/>}
     {celebration&&<CelebrationScreen badge={celebration} memberName={celebration.memberName} onClose={()=>setCelebration(null)}/>}
     {toasts.length>0&&<Toast badge={toasts[0]} onDismiss={()=>setToasts(q=>q.slice(1))}/>}
     {editM&&<EditModal member={editM==="new"?null:editM} isNew={editM==="new"} allMembers={members} onSave={handleSave} onDelete={handleDel} onClose={()=>setEditM(null)}/>}
