@@ -8201,7 +8201,6 @@ function LookTray({initial,mode,personName,deviceActive,lopts,onOpt,onPreview,on
     {tab==="options"&&<div style={{padding:"0 24px",maxWidth:560,margin:"0 auto"}} data-testid="options-panel">
       <Sw k="side" label="Coloured sidebar" checked={lopts.side}/>
       <Sw k="auto" label="Auto looks: Diwali, Christmas, and Sunset in the evening" checked={lopts.auto}/>
-      <Seg k="wall" label="Space picture (Cosmos look)" val={lopts.wall} opts={[["banner","Banner"],["full","Banner + page"],["off","Off"]]}/>
       <Sw k="lsound" label="Sounds match the look" checked={lopts.lsound}/>
       <Sw k="tint" label="Match member colours to the look" checked={lopts.tint}/>
       <Seg k="ts" label="Text size" val={lopts.ts} opts={[[100,"Normal"],[112,"Large"],[125,"Extra large"]]}/>
@@ -8744,7 +8743,7 @@ export default function App(){
   void autoTick; const _autoId=lopts.auto?autoLookFor(new Date()):"";
   const sel=lookPreview||(deviceLook?{id:deviceLook,acc:deviceAcc,custom:deviceCustom}:_autoId?{id:_autoId,acc:0,custom:null}:_pSel)||{id:"studio",acc:0,custom:null};
   const lookId=sel.id, customKey=sel.custom?JSON.stringify(sel.custom):"";
-  const wallActive=lookId==="cosmos"&&lopts.wall!=="off";
+  const wallActive=false; // NASA daily picture switched off: Cosmos uses its built-in starfield
   const space=useSpacePicture(wallActive);
   const wallUrl=space.item?space.item.url:null;
   const accHexNow=lookAccentHex(sel.id,mode,{acc:sel.acc,custom:sel.custom})||_accentBase;
@@ -8754,8 +8753,8 @@ export default function App(){
     const el=document.documentElement;
     el.setAttribute("data-mode",mode);
     el.setAttribute("data-look",lookId);
-    const v={...accentVars(_accentBase,mode),...lookVars(lookId,mode,{acc:sel.acc,custom:sel.custom,side:lopts.side,wall:wallUrl,wallMode:lopts.wall})};
-    if(lookId==="cosmos"&&lopts.wall==="full"&&wallUrl) el.setAttribute("data-wallimg","1"); else el.removeAttribute("data-wallimg");
+    const v={...accentVars(_accentBase,mode),...lookVars(lookId,mode,{acc:sel.acc,custom:sel.custom,side:lopts.side,wall:null,wallMode:"banner"})};
+    el.removeAttribute("data-wallimg");
     lookKeys.current.forEach(k=>{ if(!(k in v)) el.style.removeProperty(k); });
     Object.keys(v).forEach(k=>el.style.setProperty(k,v[k]));
     lookKeys.current=Object.keys(v);
@@ -8878,7 +8877,6 @@ export default function App(){
         <div style={{fontSize:16,fontWeight:600}}>No members yet. Add one to get started.</div>
       </div>}
 
-      {wallActive&&members.length>0&&<SpaceBanner item={space.item} status={space.status} reason={space.reason} onAnother={space.another} onNever={space.never}/>}
 
       {/* Individual member tab */}
       {activeTab&&shown.filter(m=>m.id===activeTab).map(m=>(
