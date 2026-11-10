@@ -7956,60 +7956,85 @@ function BackupDrawerImpl({logs, members, theme, pattern, onRestore, onClose}){
 
 const BackupDrawer=withSlide(BackupDrawerImpl);
 // ── Daily NASA space picture (Astronomy Picture of the Day) for the Cosmos look ──
-const SPACE_KEY="ff_space";
+const SPACE_KEY="ff_space2";
 function validNasaUrl(u){ return typeof u==="string"&&/^https:\/\/[a-z0-9.-]+\.nasa\.gov\/[^"'()\s\\]+$/i.test(u); }
 const APOD_BAD_TITLE=/nasa science|logo|banner|announce|notice|survey|coming soon|test image|placeholder|infographic|poster/i;
-// Candidates, newest first: image only, no copyright holder, on a nasa.gov host, and not an obvious non-photo entry
+// Candidates, newest first: image only, no copyright holder, on a nasa.gov host, and not an obvious non-photo entry.
+// `url` is NASA's normal-size image (often ~1000px wide); `hd` is the optional full-size one.
 function apodCandidates(arr){
   if(!Array.isArray(arr)) arr=arr?[arr]:[];
   return arr.filter(x=>x&&x.media_type==="image"&&!x.copyright&&validNasaUrl(x.url)&&/^\d{4}-\d{2}-\d{2}$/.test(String(x.date||""))&&!APOD_BAD_TITLE.test(String(x.title||"")))
     .sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,14)
-    .map(x=>({url:x.url,title:String(x.title||"Astronomy Picture of the Day").slice(0,120),date:x.date}));
+    .map(x=>({url:x.url,hd:validNasaUrl(x.hdurl)?x.hdurl:null,title:String(x.title||"Astronomy Picture of the Day").slice(0,120),date:x.date}));
 }
 function probeImage(url){ return new Promise(res=>{ const im=new Image(); im.onload=()=>res({ok:true,w:im.naturalWidth,h:im.naturalHeight}); im.onerror=()=>res({ok:false}); im.src=url; }); }
-// wallpaper-grade: big enough to look sharp and not an extreme strip or tall poster
-const dimsOk=d=>d.ok&&d.w>=1400&&d.h>=800&&d.w/d.h>=0.6&&d.w/d.h<=3.2;
+// banner-grade: not tiny, not an extreme strip or tall poster
+const dimsOk=d=>d.ok&&d.w>=900&&d.h>=450&&d.w/d.h>=0.6&&d.w/d.h<=3.2;
+const SPACE_RETRY_MS=60*60*1000; // after a failed NASA request, wait an hour before asking again
 function useSpacePicture(enabled){
-  const readCache=()=>{ try{ const c=JSON.parse(localStorage.getItem(SPACE_KEY)||"null"); return c&&Array.isArray(c.list)?{...c,list:c.list.filter(x=>validNasaUrl(x.url)),skip:Array.isArray(c.skip)?c.skip:[]}:null; }catch{ return null; } };
+  const readCache=()=>{ try{ localStorage.removeItem("ff_space"); const c=JSON.parse(localStorage.getItem(SPACE_KEY)||"null");
+    return c&&Array.isArray(c.list)?{...c,list:c.list.filter(x=>x&&validNasaUrl(x.url)).map(x=>({...x,hd:validNasaUrl(x.hd)?x.hd:null})),skip:Array.isArray(c.skip)?c.skip:[]}:null; }catch{ return null; } };
   const writeCache=(c)=>{ try{ localStorage.setItem(SPACE_KEY,JSON.stringify(c)); }catch{} };
   const[item,setItem]=useState(null);
   const[status,setStatus]=useState("idle");
+  const[reason,setReason]=useState("");
   const dead=useRef(false); const listRef=useRef({list:[],i:0,skip:[],on:""});
-  // try candidates from `start`, skipping hidden ones, until one passes the quality check
+  const fallback=(r)=>{ if(!dead.current){ setItem(null); setReason(r); setStatus("fallback"); } };
+  // try candidates from `start`, skipping hidden ones, until one passes the quality check.
+  // Uses the normal image when it is already sharp (>=1200px wide), else the full-size one, else the normal one if it passes.
   const choose=async(start)=>{
     const L=listRef.current;
+    if(!L.list.length) return false;
     for(let k=0;k<L.list.length;k++){
       const i=(start+k)%L.list.length, it=L.list[i];
       if(L.skip.includes(it.date)) continue;
-      const d=await probeImage(it.url);
-      if(dead.current) return;
-      if(dimsOk(d)){ L.i=i; writeCache(L); setItem(it); setStatus("ok"); return; }
+      const d=await probeImage(it.url); if(dead.current) return true;
+      let use=null;
+      if(dimsOk(d)&&d.w>=1200) use=it.url;
+      else if(it.hd&&it.hd!==it.url){ const h=await probeImage(it.hd); if(dead.current) return true; if(dimsOk(h)) use=it.hd; }
+      if(!use&&dimsOk(d)) use=it.url;
+      if(use){ L.i=i; writeCache(L); setItem({...it,url:use}); setReason(""); setStatus("ok"); return true; }
     }
-    if(!dead.current){ setItem(null); setStatus("fallback"); }
+    fallback(L.list.every(x=>L.skip.includes(x.date))?"hidden":"quality"); return true;
   };
   useEffect(()=>{
     if(!enabled) return;
     dead.current=false; const ctl=new AbortController(); let to=null;
     const today=new Date().toLocaleDateString("en-CA");
     const cache=readCache();
-    if(cache){ listRef.current=cache; choose(cache.i||0); } else setStatus("loading");
-    if(!(cache&&cache.on===today)){
+    const hasList=!!(cache&&cache.list.length);
+    if(hasList){ listRef.current=cache; choose(cache.i||0); }
+    else if(cache&&cache.reason) fallback(cache.reason);
+    else setStatus("loading");
+    const recentFail=cache&&cache.failAt&&Date.now()-cache.failAt<SPACE_RETRY_MS;
+    if(!(cache&&cache.on===today)&&!recentFail){
       const d0=new Date(); d0.setDate(d0.getDate()-30);
       to=setTimeout(()=>ctl.abort(),9000);
+      const fail=(r)=>{ if(dead.current) return; const c={...(cache||{list:[],i:0,skip:[],on:""}),failAt:Date.now(),reason:r}; writeCache(c); if(!hasList) fallback(r); };
       fetch("https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY&start_date="+d0.toISOString().slice(0,10),{signal:ctl.signal})
-        .then(r=>{ if(!r.ok) throw new Error("http "+r.status); return r.json(); })
-        .then(arr=>{ const list=apodCandidates(arr); if(!list.length) throw new Error("none"); if(dead.current) return;
-          listRef.current={on:today,list,i:0,skip:cache?cache.skip:[]}; writeCache(listRef.current); choose(0); })
-        .catch(()=>{ if(!dead.current&&!cache) setStatus("fallback"); })
+        .then(r=>{ if(r.status===429) return fail("limit"); if(!r.ok) return fail("nasa"); return r.json().then(arr=>{
+          if(dead.current) return;
+          const list=apodCandidates(arr);
+          if(!list.length){ const c={on:today,list:[],i:0,skip:cache?cache.skip:[],reason:"none"}; writeCache(c); if(!hasList) fallback("none"); return; }
+          listRef.current={on:today,list,i:0,skip:cache?cache.skip:[]}; writeCache(listRef.current); choose(0); }); })
+        .catch(()=>fail("offline"))
         .finally(()=>clearTimeout(to));
     }
     return ()=>{ dead.current=true; ctl.abort(); clearTimeout(to); };
   },[enabled]); // eslint-disable-line
   const another=()=>{ if(listRef.current.list.length>1){ setStatus("loading"); choose(listRef.current.i+1); } };
   const never=()=>{ const L=listRef.current; const it=L.list[L.i]; if(it&&!L.skip.includes(it.date)) L.skip=[...L.skip,it.date]; setStatus("loading"); choose(L.i+1); };
-  return {item:enabled?item:null,status,another,never};
+  return {item:enabled?item:null,status,reason,another,never};
 }
-function SpaceBanner({item,status,onAnother,onNever}){
+const SPACE_FALLBACK_TEXT={
+  limit:"NASA's free daily limit is used up · stars for now",
+  offline:"Couldn't reach NASA · showing the stars",
+  nasa:"NASA's picture service didn't answer · showing the stars",
+  none:"No free-to-use NASA picture this month · showing the stars",
+  quality:"No recent picture passed the quality check · showing the stars",
+  hidden:"You've hidden all recent pictures · showing the stars",
+};
+function SpaceBanner({item,status,reason,onAnother,onNever}){
   const link=item?`https://apod.nasa.gov/apod/ap${item.date.slice(2,4)}${item.date.slice(5,7)}${item.date.slice(8,10)}.html`:null;
   const pretty=item?new Date(item.date+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}):"";
   const chip={background:"rgba(0,0,0,.6)",border:"1px solid rgba(255,255,255,.45)",color:"#FFFFFF",borderRadius:8,padding:"5px 10px",fontSize:12,fontWeight:700,cursor:"pointer"};
@@ -8024,7 +8049,7 @@ function SpaceBanner({item,status,onAnother,onNever}){
     <div style={{position:"absolute",left:16,right:16,bottom:10,color:"#FFFFFF",display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
       <div style={{minWidth:0}}>
         <div data-testid="space-title" style={{fontWeight:800,fontSize:15,lineHeight:1.25,textShadow:"0 1px 3px rgba(0,0,0,.9)"}}>🌌 {item?item.title:(status==="loading"?"Finding a good picture…":"Deep space")}</div>
-        <div style={{fontSize:12,textShadow:"0 1px 2px rgba(0,0,0,.9)"}}>{item?`NASA Astronomy Picture of the Day · ${pretty}`:"No suitable picture right now · showing the stars"}</div>
+        <div data-testid="space-sub" style={{fontSize:12,textShadow:"0 1px 2px rgba(0,0,0,.9)"}}>{item?`NASA Astronomy Picture of the Day · ${pretty}`:status==="loading"?"Checking NASA…":(SPACE_FALLBACK_TEXT[reason]||"Showing the stars")}</div>
       </div>
       {link&&<a href={link} target="_blank" rel="noopener noreferrer" style={{color:"#FFFFFF",fontSize:12,fontWeight:700,textDecoration:"underline",textShadow:"0 1px 2px rgba(0,0,0,.9)",whiteSpace:"nowrap"}}>View on NASA ↗</a>}
     </div>
@@ -8853,7 +8878,7 @@ export default function App(){
         <div style={{fontSize:16,fontWeight:600}}>No members yet. Add one to get started.</div>
       </div>}
 
-      {wallActive&&members.length>0&&<SpaceBanner item={space.item} status={space.status} onAnother={space.another} onNever={space.never}/>}
+      {wallActive&&members.length>0&&<SpaceBanner item={space.item} status={space.status} reason={space.reason} onAnother={space.another} onNever={space.never}/>}
 
       {/* Individual member tab */}
       {activeTab&&shown.filter(m=>m.id===activeTab).map(m=>(
