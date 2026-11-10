@@ -157,8 +157,8 @@ function lookVars(id,mode,o){
   // Cosmos: the daily photo sits under a heavy page-colour scrim, so text on the bare page stays readable on any image.
   let bgImg=t.img;
   if(L.wallpaper){
-    if(o.wallOn===false) bgImg=t.imgOff;
-    else if(o.wall&&/^https:\/\/[^"'()\s\\]+$/.test(o.wall)){ const [r,g,b]=_hexRgb(t.bg), a=WALL_SCRIM[m]; bgImg=`linear-gradient(rgba(${r},${g},${b},${a}),rgba(${r},${g},${b},${a})),url("${o.wall}")`; }
+    if(o.wallMode==="off") bgImg=t.imgOff;
+    else if(o.wallMode==="full"&&o.wall&&/^https:\/\/[^"'()\s\\]+$/.test(o.wall)){ const [r,g,b]=_hexRgb(t.bg), a=WALL_SCRIM[m]; bgImg=`linear-gradient(rgba(${r},${g},${b},${a}),rgba(${r},${g},${b},${a})),url("${o.wall}")`; }
   }
   const v={
     "--bg":t.bg,"--card":t.card,"--line":t.line,"--text":t.text,"--muted":t.muted,"--bg2":t.bg2,"--empty":t.empty,"--hero":t.hero,
@@ -7958,49 +7958,73 @@ const BackupDrawer=withSlide(BackupDrawerImpl);
 // ── Daily NASA space picture (Astronomy Picture of the Day) for the Cosmos look ──
 const SPACE_KEY="ff_space";
 function validNasaUrl(u){ return typeof u==="string"&&/^https:\/\/[a-z0-9.-]+\.nasa\.gov\/[^"'()\s\\]+$/i.test(u); }
-// newest entry that is an image, has no copyright holder, and lives on a nasa.gov host
-function pickApod(arr){
+const APOD_BAD_TITLE=/nasa science|logo|banner|announce|notice|survey|coming soon|test image|placeholder|infographic|poster/i;
+// Candidates, newest first: image only, no copyright holder, on a nasa.gov host, and not an obvious non-photo entry
+function apodCandidates(arr){
   if(!Array.isArray(arr)) arr=arr?[arr]:[];
-  const ok=arr.filter(x=>x&&x.media_type==="image"&&!x.copyright&&validNasaUrl(x.url)&&/^\d{4}-\d{2}-\d{2}$/.test(String(x.date||"")));
-  ok.sort((a,b)=>String(a.date).localeCompare(String(b.date)));
-  const x=ok[ok.length-1];
-  return x?{url:x.url,title:String(x.title||"Astronomy Picture of the Day").slice(0,120),date:x.date}:null;
+  return arr.filter(x=>x&&x.media_type==="image"&&!x.copyright&&validNasaUrl(x.url)&&/^\d{4}-\d{2}-\d{2}$/.test(String(x.date||""))&&!APOD_BAD_TITLE.test(String(x.title||"")))
+    .sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,14)
+    .map(x=>({url:x.url,title:String(x.title||"Astronomy Picture of the Day").slice(0,120),date:x.date}));
 }
+function probeImage(url){ return new Promise(res=>{ const im=new Image(); im.onload=()=>res({ok:true,w:im.naturalWidth,h:im.naturalHeight}); im.onerror=()=>res({ok:false}); im.src=url; }); }
+// wallpaper-grade: big enough to look sharp and not an extreme strip or tall poster
+const dimsOk=d=>d.ok&&d.w>=1400&&d.h>=800&&d.w/d.h>=0.6&&d.w/d.h<=3.2;
 function useSpacePicture(enabled){
-  const readCache=()=>{ try{ const c=JSON.parse(localStorage.getItem(SPACE_KEY)||"null"); return c&&c.item&&validNasaUrl(c.item.url)?c:null; }catch{ return null; } };
-  const[item,setItem]=useState(()=>{ const c=readCache(); return c?c.item:null; });
-  const[ready,setReady]=useState(false);
+  const readCache=()=>{ try{ const c=JSON.parse(localStorage.getItem(SPACE_KEY)||"null"); return c&&Array.isArray(c.list)?{...c,list:c.list.filter(x=>validNasaUrl(x.url)),skip:Array.isArray(c.skip)?c.skip:[]}:null; }catch{ return null; } };
+  const writeCache=(c)=>{ try{ localStorage.setItem(SPACE_KEY,JSON.stringify(c)); }catch{} };
+  const[item,setItem]=useState(null);
   const[status,setStatus]=useState("idle");
+  const dead=useRef(false); const listRef=useRef({list:[],i:0,skip:[],on:""});
+  // try candidates from `start`, skipping hidden ones, until one passes the quality check
+  const choose=async(start)=>{
+    const L=listRef.current;
+    for(let k=0;k<L.list.length;k++){
+      const i=(start+k)%L.list.length, it=L.list[i];
+      if(L.skip.includes(it.date)) continue;
+      const d=await probeImage(it.url);
+      if(dead.current) return;
+      if(dimsOk(d)){ L.i=i; writeCache(L); setItem(it); setStatus("ok"); return; }
+    }
+    if(!dead.current){ setItem(null); setStatus("fallback"); }
+  };
   useEffect(()=>{
     if(!enabled) return;
-    let dead=false; const ctl=new AbortController(); let to=null;
+    dead.current=false; const ctl=new AbortController(); let to=null;
     const today=new Date().toLocaleDateString("en-CA");
     const cache=readCache();
-    const show=(it)=>{ if(dead) return; setItem(it); const im=new Image(); im.onload=()=>{ if(!dead){ setReady(true); setStatus("ok"); } }; im.onerror=()=>{ if(!dead){ setReady(false); setStatus("fallback"); } }; im.src=it.url; };
-    if(cache) show(cache.item); else setStatus("loading");
-    if(cache&&cache.on===today) return ()=>{ dead=true; };
-    const d0=new Date(); d0.setDate(d0.getDate()-7);
-    to=setTimeout(()=>ctl.abort(),9000);
-    fetch("https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY&start_date="+d0.toISOString().slice(0,10),{signal:ctl.signal})
-      .then(r=>{ if(!r.ok) throw new Error("http "+r.status); return r.json(); })
-      .then(arr=>{ const it=pickApod(arr); if(!it) throw new Error("none"); try{ localStorage.setItem(SPACE_KEY,JSON.stringify({on:today,item:it})); }catch{} show(it); })
-      .catch(()=>{ if(!dead&&!cache) setStatus("fallback"); })
-      .finally(()=>clearTimeout(to));
-    return ()=>{ dead=true; ctl.abort(); clearTimeout(to); };
-  },[enabled]);
-  return {item:enabled&&ready?item:null,status};
+    if(cache){ listRef.current=cache; choose(cache.i||0); } else setStatus("loading");
+    if(!(cache&&cache.on===today)){
+      const d0=new Date(); d0.setDate(d0.getDate()-30);
+      to=setTimeout(()=>ctl.abort(),9000);
+      fetch("https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY&start_date="+d0.toISOString().slice(0,10),{signal:ctl.signal})
+        .then(r=>{ if(!r.ok) throw new Error("http "+r.status); return r.json(); })
+        .then(arr=>{ const list=apodCandidates(arr); if(!list.length) throw new Error("none"); if(dead.current) return;
+          listRef.current={on:today,list,i:0,skip:cache?cache.skip:[]}; writeCache(listRef.current); choose(0); })
+        .catch(()=>{ if(!dead.current&&!cache) setStatus("fallback"); })
+        .finally(()=>clearTimeout(to));
+    }
+    return ()=>{ dead.current=true; ctl.abort(); clearTimeout(to); };
+  },[enabled]); // eslint-disable-line
+  const another=()=>{ if(listRef.current.list.length>1){ setStatus("loading"); choose(listRef.current.i+1); } };
+  const never=()=>{ const L=listRef.current; const it=L.list[L.i]; if(it&&!L.skip.includes(it.date)) L.skip=[...L.skip,it.date]; setStatus("loading"); choose(L.i+1); };
+  return {item:enabled?item:null,status,another,never};
 }
-function SpaceBanner({item,status}){
+function SpaceBanner({item,status,onAnother,onNever}){
   const link=item?`https://apod.nasa.gov/apod/ap${item.date.slice(2,4)}${item.date.slice(5,7)}${item.date.slice(8,10)}.html`:null;
   const pretty=item?new Date(item.date+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}):"";
+  const chip={background:"rgba(0,0,0,.6)",border:"1px solid rgba(255,255,255,.45)",color:"#FFFFFF",borderRadius:8,padding:"5px 10px",fontSize:12,fontWeight:700,cursor:"pointer"};
   return <section className="ff-card ff-in" data-testid="space-banner" aria-label={item?`Space picture of the day: ${item.title}`:"Space banner"}
-    style={{position:"relative",height:"clamp(108px,16vw,160px)",padding:0,overflow:"hidden",backgroundColor:"#050814",backgroundImage:item?`url("${item.url}")`:STAR_URL,backgroundSize:item?"cover":"auto",backgroundPosition:"center"}}>
+    style={{position:"relative",height:"clamp(140px,16vw,164px)",padding:0,overflow:"hidden",backgroundColor:"#050814",backgroundImage:item?`url("${item.url}")`:STAR_URL,backgroundSize:item?"cover":"auto",backgroundPosition:"center 40%"}}>
     {/* dark gradient under the caption: white text stays readable on any photo */}
     <div aria-hidden="true" style={{position:"absolute",inset:0,background:"linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(0,0,0,.55) 30%,rgba(0,0,0,.8) 55%,rgba(0,0,0,.9) 100%)"}}/>
+    {item&&<div style={{position:"absolute",top:10,right:10,display:"flex",gap:6}}>
+      <button style={chip} data-testid="space-another" onClick={onAnother} aria-label="Show another space picture">↻ Another</button>
+      <button style={chip} data-testid="space-never" onClick={onNever} aria-label="Never show this picture again">🚫 Hide this</button>
+    </div>}
     <div style={{position:"absolute",left:16,right:16,bottom:10,color:"#FFFFFF",display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
       <div style={{minWidth:0}}>
-        <div data-testid="space-title" style={{fontWeight:800,fontSize:15,lineHeight:1.25,textShadow:"0 1px 3px rgba(0,0,0,.9)"}}>🌌 {item?item.title:(status==="loading"?"Fetching today's picture…":"Deep space")}</div>
-        <div style={{fontSize:12,textShadow:"0 1px 2px rgba(0,0,0,.9)"}}>{item?`NASA Astronomy Picture of the Day · ${pretty}`:"Today's picture isn't available right now · showing the stars"}</div>
+        <div data-testid="space-title" style={{fontWeight:800,fontSize:15,lineHeight:1.25,textShadow:"0 1px 3px rgba(0,0,0,.9)"}}>🌌 {item?item.title:(status==="loading"?"Finding a good picture…":"Deep space")}</div>
+        <div style={{fontSize:12,textShadow:"0 1px 2px rgba(0,0,0,.9)"}}>{item?`NASA Astronomy Picture of the Day · ${pretty}`:"No suitable picture right now · showing the stars"}</div>
       </div>
       {link&&<a href={link} target="_blank" rel="noopener noreferrer" style={{color:"#FFFFFF",fontSize:12,fontWeight:700,textDecoration:"underline",textShadow:"0 1px 2px rgba(0,0,0,.9)",whiteSpace:"nowrap"}}>View on NASA ↗</a>}
     </div>
@@ -8152,7 +8176,7 @@ function LookTray({initial,mode,personName,deviceActive,lopts,onOpt,onPreview,on
     {tab==="options"&&<div style={{padding:"0 24px",maxWidth:560,margin:"0 auto"}} data-testid="options-panel">
       <Sw k="side" label="Coloured sidebar" checked={lopts.side}/>
       <Sw k="auto" label="Auto looks: Diwali, Christmas, and Sunset in the evening" checked={lopts.auto}/>
-      <Sw k="wall" label="Space wallpaper (Cosmos look)" checked={lopts.wall}/>
+      <Seg k="wall" label="Space picture (Cosmos look)" val={lopts.wall} opts={[["banner","Banner"],["full","Banner + page"],["off","Off"]]}/>
       <Sw k="lsound" label="Sounds match the look" checked={lopts.lsound}/>
       <Sw k="tint" label="Match member colours to the look" checked={lopts.tint}/>
       <Seg k="ts" label="Text size" val={lopts.ts} opts={[[100,"Normal"],[112,"Large"],[125,"Extra large"]]}/>
@@ -8657,8 +8681,8 @@ export default function App(){
   const[deviceLook,setDeviceLook]=useState(()=>{ const v=lsGet("ff_look",""); return LOOK_IDS.includes(v)?v:""; });
   const[deviceAcc,setDeviceAcc]=useState(()=>parseInt(lsGet("ff_look_acc","0"),10)||0);
   const[deviceCustom,setDeviceCustom]=useState(()=>{ try{ return JSON.parse(lsGet("ff_look_custom","null")); }catch{ return null; } });
-  const[lopts,setLopts]=useState(()=>({side:lsGet("ff_side","on")!=="off",auto:lsGet("ff_look_auto","off")==="on",lsound:lsGet("ff_look_sound","on")!=="off",wall:lsGet("ff_wall","on")!=="off",tint:lsGet("ff_tint","off")==="on",ts:[100,112,125].includes(parseInt(lsGet("ff_ts","100"),10))?parseInt(lsGet("ff_ts","100"),10):100,gap:lsGet("ff_gap","comfy")==="compact"?"compact":"comfy"}));
-  const LOPT_KEYS={side:["ff_side",v=>v?"on":"off"],auto:["ff_look_auto",v=>v?"on":"off"],lsound:["ff_look_sound",v=>v?"on":"off"],wall:["ff_wall",v=>v?"on":"off"],tint:["ff_tint",v=>v?"on":"off"],ts:["ff_ts",v=>v],gap:["ff_gap",v=>v]};
+  const[lopts,setLopts]=useState(()=>({side:lsGet("ff_side","on")!=="off",auto:lsGet("ff_look_auto","off")==="on",lsound:lsGet("ff_look_sound","on")!=="off",wall:(v=>["banner","full","off"].includes(v)?v:"banner")(lsGet("ff_wall","banner")),tint:lsGet("ff_tint","off")==="on",ts:[100,112,125].includes(parseInt(lsGet("ff_ts","100"),10))?parseInt(lsGet("ff_ts","100"),10):100,gap:lsGet("ff_gap","comfy")==="compact"?"compact":"comfy"}));
+  const LOPT_KEYS={side:["ff_side",v=>v?"on":"off"],auto:["ff_look_auto",v=>v?"on":"off"],lsound:["ff_look_sound",v=>v?"on":"off"],wall:["ff_wall",v=>v],tint:["ff_tint",v=>v?"on":"off"],ts:["ff_ts",v=>v],gap:["ff_gap",v=>v]};
   const setLopt=(k,v)=>{ setLopts(o=>({...o,[k]:v})); const [key,f]=LOPT_KEYS[k]; lsSet(key,f(v)); };
   const[autoTick,setAutoTick]=useState(0);
   useEffect(()=>{ if(!lopts.auto) return; const t=setInterval(()=>setAutoTick(x=>x+1),60000); return ()=>clearInterval(t); },[lopts.auto]);
@@ -8695,7 +8719,7 @@ export default function App(){
   void autoTick; const _autoId=lopts.auto?autoLookFor(new Date()):"";
   const sel=lookPreview||(deviceLook?{id:deviceLook,acc:deviceAcc,custom:deviceCustom}:_autoId?{id:_autoId,acc:0,custom:null}:_pSel)||{id:"studio",acc:0,custom:null};
   const lookId=sel.id, customKey=sel.custom?JSON.stringify(sel.custom):"";
-  const wallActive=lookId==="cosmos"&&lopts.wall;
+  const wallActive=lookId==="cosmos"&&lopts.wall!=="off";
   const space=useSpacePicture(wallActive);
   const wallUrl=space.item?space.item.url:null;
   const accHexNow=lookAccentHex(sel.id,mode,{acc:sel.acc,custom:sel.custom})||_accentBase;
@@ -8705,8 +8729,8 @@ export default function App(){
     const el=document.documentElement;
     el.setAttribute("data-mode",mode);
     el.setAttribute("data-look",lookId);
-    const v={...accentVars(_accentBase,mode),...lookVars(lookId,mode,{acc:sel.acc,custom:sel.custom,side:lopts.side,wall:wallUrl,wallOn:lopts.wall})};
-    if(lookId==="cosmos"&&lopts.wall&&wallUrl) el.setAttribute("data-wallimg","1"); else el.removeAttribute("data-wallimg");
+    const v={...accentVars(_accentBase,mode),...lookVars(lookId,mode,{acc:sel.acc,custom:sel.custom,side:lopts.side,wall:wallUrl,wallMode:lopts.wall})};
+    if(lookId==="cosmos"&&lopts.wall==="full"&&wallUrl) el.setAttribute("data-wallimg","1"); else el.removeAttribute("data-wallimg");
     lookKeys.current.forEach(k=>{ if(!(k in v)) el.style.removeProperty(k); });
     Object.keys(v).forEach(k=>el.style.setProperty(k,v[k]));
     lookKeys.current=Object.keys(v);
@@ -8829,7 +8853,7 @@ export default function App(){
         <div style={{fontSize:16,fontWeight:600}}>No members yet. Add one to get started.</div>
       </div>}
 
-      {wallActive&&members.length>0&&<SpaceBanner item={space.item} status={space.status}/>}
+      {wallActive&&members.length>0&&<SpaceBanner item={space.item} status={space.status} onAnother={space.another} onNever={space.never}/>}
 
       {/* Individual member tab */}
       {activeTab&&shown.filter(m=>m.id===activeTab).map(m=>(
