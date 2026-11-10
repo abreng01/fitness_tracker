@@ -28,6 +28,13 @@ function accentVars(accent,mode){
 }
 
 // ── Looks: full-page themes (surfaces, accent, sidebar, shape, font, sound). "studio" = the default look. ──
+// Deterministic starfield used as the Cosmos fallback background (no network needed).
+function starSvg(){
+  let x=12345; const r=()=>{ x=(x*1103515245+12345)&0x7fffffff; return x/0x7fffffff; };
+  let c=""; for(let i=0;i<46;i++){ const big=r()>.88; c+=`<circle cx='${Math.round(r()*320)}' cy='${Math.round(r()*320)}' r='${(big?1.5:0.7+r()*0.5).toFixed(2)}' fill='white' opacity='${(0.35+r()*0.6).toFixed(2)}'/>`; }
+  return `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='320' height='320'>${c}</svg>`)}")`;
+}
+const STAR_URL=starSvg();
 // LOOKS-BEGIN
 const LOOKS = [
   {id:"studio", name:"Studio", tag:"The clean default", font:null, rCard:16, rChip:10, bw:"1px"},
@@ -75,6 +82,15 @@ const LOOKS = [
    dark:{bg:"#0A0A0A",card:"#121212",line:"#2C2C2C",text:"#F2F2F2",muted:"#9A9A9A",bg2:"#1A1A1A",empty:"#2A2A2A",hero:"#1A1A1A",shadow:"none",img:"none"},
    side:{light:{bg:"#0A0A0A",text:"#F2F2F2",muted:"#A6A6A6",soft:"rgba(255,255,255,.12)",line:"rgba(255,255,255,.12)"},dark:{bg:"#000000",text:"#F2F2F2",muted:"#9A9A9A",soft:"rgba(255,255,255,.10)",line:"rgba(255,255,255,.10)"}},
    voice:{wave:"triangle",pitch:.7,vol:.8}, cf:["#F2F2F2","#9A9A9A","#60A5FA","#FACC15"]},
+  {id:"cosmos", name:"Cosmos", tag:"Daily NASA space picture", wallpaper:true, font:"'Space Grotesk',Inter,system-ui,sans-serif", rCard:18, rChip:12, bw:"1px",
+   accents:[{n:"Aurora",light:"#0A78B8",dark:"#38BDF8"},{n:"Nebula",light:"#6D28D9",dark:"#A78BFA"},{n:"Mars",light:"#C2410C",dark:"#FB923C"},{n:"Comet",light:"#15803D",dark:"#4ADE80"},{n:"Supernova",light:"#BE185D",dark:"#F472B6"}],
+   light:{bg:"#E8ECFA",card:"#FFFFFF",line:"#CBD3EE",text:"#0E1430",muted:"#3E4778",bg2:"#DDE3F6",empty:"#D0D8F0",hero:"#141C45",shadow:"0 4px 18px rgba(20,28,69,.12)",
+     img:"radial-gradient(900px 500px at 85% -10%,rgba(99,102,241,.16),transparent 60%),linear-gradient(180deg,#E8ECFA,#DDE3F6)",imgOff:"linear-gradient(180deg,#E8ECFA,#DDE3F6)"},
+   dark:{bg:"#070B1A",card:"#0F1630",line:"#25305A",text:"#EEF2FF",muted:"#A9B4D6",bg2:"#151E40",empty:"#222C55",hero:"#141C45",shadow:"0 8px 30px rgba(0,0,0,.45)",
+     img:"radial-gradient(900px 500px at 85% -10%,rgba(99,102,241,.28),transparent 60%),radial-gradient(700px 420px at -10% 110%,rgba(56,189,248,.14),transparent 60%),"+STAR_URL,
+     imgOff:"radial-gradient(900px 500px at 85% -10%,rgba(99,102,241,.22),transparent 60%),radial-gradient(700px 420px at -10% 110%,rgba(56,189,248,.12),transparent 60%)"},
+   side:{light:{bg:"#141C45",text:"#EEF2FF",muted:"#B4BEE6",soft:"rgba(255,255,255,.14)",line:"rgba(255,255,255,.12)"},dark:{bg:"#050814",text:"#EEF2FF",muted:"#A9B4D6",soft:"rgba(255,255,255,.10)",line:"rgba(255,255,255,.10)"}},
+   voice:{wave:"sine",pitch:1.2,vol:.8}, cf:["#38BDF8","#A78BFA","#FBBF24","#F472B6"]},
   {id:"diwali", name:"Diwali", tag:"Festival of lights", seasonal:true, font:null, rCard:18, rChip:12, bw:"1px",
    accents:[{n:"Gold",light:"#B45309",dark:"#FBBF24"},{n:"Saffron",light:"#C2410C",dark:"#FB923C"},{n:"Rani pink",light:"#BE185D",dark:"#F472B6"},{n:"Peacock",light:"#0F766E",dark:"#2DD4BF"},{n:"Maroon",light:"#9F1239",dark:"#FB7185"}],
    light:{bg:"#FFF4DC",card:"#FFFBF0",line:"#EBD3A0",text:"#3A1408",muted:"#7A4A2E",bg2:"#FBEBC8",empty:"#F1DDB0",hero:"#5A1010",shadow:"0 4px 16px rgba(194,65,12,.12)",img:"radial-gradient(800px 420px at 85% -10%,rgba(251,191,36,.38),transparent 60%),radial-gradient(600px 360px at -5% 105%,rgba(194,65,12,.18),transparent 60%)"},
@@ -89,8 +105,9 @@ const LOOKS = [
    voice:{wave:"triangle",pitch:1.5,vol:.8}, cf:["#F87171","#4ADE80","#FACC15","#FFFFFF"]},
 ];
 // LOOKS-END
+const WALL_SCRIM={light:0.82,dark:0.8};
 const DEFAULT_CUSTOM={base:"#4F46E5",accent:"#0EA5E9",side:"#1E1B4B"};
-const LOOK_FONTS_HREF="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;800&family=JetBrains+Mono:wght@400;600;700&family=Nunito:wght@400;600;700;800&display=swap";
+const LOOK_FONTS_HREF="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;800&family=JetBrains+Mono:wght@400;600;700&family=Nunito:wght@400;600;700;800&family=Space+Grotesk:wght@400;500;700&display=swap";
 const LOOK_IDS=[...LOOKS.map(l=>l.id),"custom"];
 // ── contrast helpers (used by the custom builder so any colours you pick stay readable) ──
 function okHex(h,d){ return /^#[0-9a-fA-F]{6}$/.test(h||"")?h:d; }
@@ -137,9 +154,15 @@ function lookVars(id,mode,o){
   const m=mode==="dark"?"dark":"light"; const t=L[m];
   const pick=(L.accents[o.acc|0]||L.accents[0])[m];
   const av=accentVarsLook(pick,mode,t.card);
+  // Cosmos: the daily photo sits under a heavy page-colour scrim, so text on the bare page stays readable on any image.
+  let bgImg=t.img;
+  if(L.wallpaper){
+    if(o.wallOn===false) bgImg=t.imgOff;
+    else if(o.wall&&/^https:\/\/[^"'()\s\\]+$/.test(o.wall)){ const [r,g,b]=_hexRgb(t.bg), a=WALL_SCRIM[m]; bgImg=`linear-gradient(rgba(${r},${g},${b},${a}),rgba(${r},${g},${b},${a})),url("${o.wall}")`; }
+  }
   const v={
     "--bg":t.bg,"--card":t.card,"--line":t.line,"--text":t.text,"--muted":t.muted,"--bg2":t.bg2,"--empty":t.empty,"--hero":t.hero,
-    "--shadow":t.shadow,"--bg-img":t.img,"--r-card":L.rCard+"px","--r-chip":L.rChip+"px","--bw":L.bw,
+    "--shadow":t.shadow,"--bg-img":bgImg,"--r-card":L.rCard+"px","--r-chip":L.rChip+"px","--bw":L.bw,
     "--font":L.font||'Inter,"Helvetica Neue",system-ui,sans-serif',
     ...av,
     "--fx-grad":`linear-gradient(135deg,${t.hero},${(()=>{ let e=mixHex(t.hero,av["--accent"],.22); for(let i=0;i<20&&contrastOf("#FFFFFF",e)<4.6;i++) e=mixHex(e,"#000000",.12); return e; })()})`,
@@ -221,6 +244,7 @@ const GLOBAL_CSS = `
   --ink-orange:#FFB074; --ink-brown:#E8C27A; --ink-blue:#8EC0FF; --ink-green:#6FD39A; --ink-red:#FF8A80; --ink-purple:#C3A8FF;
   color-scheme:dark;
 }
+html[data-wallimg],html[data-wallimg] body{background-size:cover;background-position:center;}
 html,body{margin:0;background:var(--bg);background-image:var(--bg-img,none);background-attachment:fixed;color:var(--text);}
 body{font-family:var(--font,Inter,"Helvetica Neue",system-ui,sans-serif);-webkit-font-smoothing:antialiased;}
 button,input,select,textarea{font-family:inherit;}
@@ -7931,6 +7955,57 @@ function BackupDrawerImpl({logs, members, theme, pattern, onRestore, onClose}){
 }
 
 const BackupDrawer=withSlide(BackupDrawerImpl);
+// ── Daily NASA space picture (Astronomy Picture of the Day) for the Cosmos look ──
+const SPACE_KEY="ff_space";
+function validNasaUrl(u){ return typeof u==="string"&&/^https:\/\/[a-z0-9.-]+\.nasa\.gov\/[^"'()\s\\]+$/i.test(u); }
+// newest entry that is an image, has no copyright holder, and lives on a nasa.gov host
+function pickApod(arr){
+  if(!Array.isArray(arr)) arr=arr?[arr]:[];
+  const ok=arr.filter(x=>x&&x.media_type==="image"&&!x.copyright&&validNasaUrl(x.url)&&/^\d{4}-\d{2}-\d{2}$/.test(String(x.date||"")));
+  ok.sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  const x=ok[ok.length-1];
+  return x?{url:x.url,title:String(x.title||"Astronomy Picture of the Day").slice(0,120),date:x.date}:null;
+}
+function useSpacePicture(enabled){
+  const readCache=()=>{ try{ const c=JSON.parse(localStorage.getItem(SPACE_KEY)||"null"); return c&&c.item&&validNasaUrl(c.item.url)?c:null; }catch{ return null; } };
+  const[item,setItem]=useState(()=>{ const c=readCache(); return c?c.item:null; });
+  const[ready,setReady]=useState(false);
+  const[status,setStatus]=useState("idle");
+  useEffect(()=>{
+    if(!enabled) return;
+    let dead=false; const ctl=new AbortController(); let to=null;
+    const today=new Date().toLocaleDateString("en-CA");
+    const cache=readCache();
+    const show=(it)=>{ if(dead) return; setItem(it); const im=new Image(); im.onload=()=>{ if(!dead){ setReady(true); setStatus("ok"); } }; im.onerror=()=>{ if(!dead){ setReady(false); setStatus("fallback"); } }; im.src=it.url; };
+    if(cache) show(cache.item); else setStatus("loading");
+    if(cache&&cache.on===today) return ()=>{ dead=true; };
+    const d0=new Date(); d0.setDate(d0.getDate()-7);
+    to=setTimeout(()=>ctl.abort(),9000);
+    fetch("https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY&start_date="+d0.toISOString().slice(0,10),{signal:ctl.signal})
+      .then(r=>{ if(!r.ok) throw new Error("http "+r.status); return r.json(); })
+      .then(arr=>{ const it=pickApod(arr); if(!it) throw new Error("none"); try{ localStorage.setItem(SPACE_KEY,JSON.stringify({on:today,item:it})); }catch{} show(it); })
+      .catch(()=>{ if(!dead&&!cache) setStatus("fallback"); })
+      .finally(()=>clearTimeout(to));
+    return ()=>{ dead=true; ctl.abort(); clearTimeout(to); };
+  },[enabled]);
+  return {item:enabled&&ready?item:null,status};
+}
+function SpaceBanner({item,status}){
+  const link=item?`https://apod.nasa.gov/apod/ap${item.date.slice(2,4)}${item.date.slice(5,7)}${item.date.slice(8,10)}.html`:null;
+  const pretty=item?new Date(item.date+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}):"";
+  return <section className="ff-card ff-in" data-testid="space-banner" aria-label={item?`Space picture of the day: ${item.title}`:"Space banner"}
+    style={{position:"relative",height:"clamp(108px,16vw,160px)",padding:0,overflow:"hidden",backgroundColor:"#050814",backgroundImage:item?`url("${item.url}")`:STAR_URL,backgroundSize:item?"cover":"auto",backgroundPosition:"center"}}>
+    {/* dark gradient under the caption: white text stays readable on any photo */}
+    <div aria-hidden="true" style={{position:"absolute",inset:0,background:"linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(0,0,0,.55) 30%,rgba(0,0,0,.8) 55%,rgba(0,0,0,.9) 100%)"}}/>
+    <div style={{position:"absolute",left:16,right:16,bottom:10,color:"#FFFFFF",display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+      <div style={{minWidth:0}}>
+        <div data-testid="space-title" style={{fontWeight:800,fontSize:15,lineHeight:1.25,textShadow:"0 1px 3px rgba(0,0,0,.9)"}}>🌌 {item?item.title:(status==="loading"?"Fetching today's picture…":"Deep space")}</div>
+        <div style={{fontSize:12,textShadow:"0 1px 2px rgba(0,0,0,.9)"}}>{item?`NASA Astronomy Picture of the Day · ${pretty}`:"Today's picture isn't available right now · showing the stars"}</div>
+      </div>
+      {link&&<a href={link} target="_blank" rel="noopener noreferrer" style={{color:"#FFFFFF",fontSize:12,fontWeight:700,textDecoration:"underline",textShadow:"0 1px 2px rgba(0,0,0,.9)",whiteSpace:"nowrap"}}>View on NASA ↗</a>}
+    </div>
+  </section>;
+}
 // ── Look gallery: bottom tray with a swipeable carousel. Browsing previews live; Apply keeps it. ──
 const LOOK_TRAY_CSS=`
 .ff-tray{position:fixed;left:0;right:0;bottom:0;z-index:300;background:var(--card);color:var(--text);border-top:1px solid var(--line);
@@ -8077,6 +8152,7 @@ function LookTray({initial,mode,personName,deviceActive,lopts,onOpt,onPreview,on
     {tab==="options"&&<div style={{padding:"0 24px",maxWidth:560,margin:"0 auto"}} data-testid="options-panel">
       <Sw k="side" label="Coloured sidebar" checked={lopts.side}/>
       <Sw k="auto" label="Auto looks: Diwali, Christmas, and Sunset in the evening" checked={lopts.auto}/>
+      <Sw k="wall" label="Space wallpaper (Cosmos look)" checked={lopts.wall}/>
       <Sw k="lsound" label="Sounds match the look" checked={lopts.lsound}/>
       <Sw k="tint" label="Match member colours to the look" checked={lopts.tint}/>
       <Seg k="ts" label="Text size" val={lopts.ts} opts={[[100,"Normal"],[112,"Large"],[125,"Extra large"]]}/>
@@ -8581,8 +8657,8 @@ export default function App(){
   const[deviceLook,setDeviceLook]=useState(()=>{ const v=lsGet("ff_look",""); return LOOK_IDS.includes(v)?v:""; });
   const[deviceAcc,setDeviceAcc]=useState(()=>parseInt(lsGet("ff_look_acc","0"),10)||0);
   const[deviceCustom,setDeviceCustom]=useState(()=>{ try{ return JSON.parse(lsGet("ff_look_custom","null")); }catch{ return null; } });
-  const[lopts,setLopts]=useState(()=>({side:lsGet("ff_side","on")!=="off",auto:lsGet("ff_look_auto","off")==="on",lsound:lsGet("ff_look_sound","on")!=="off",tint:lsGet("ff_tint","off")==="on",ts:[100,112,125].includes(parseInt(lsGet("ff_ts","100"),10))?parseInt(lsGet("ff_ts","100"),10):100,gap:lsGet("ff_gap","comfy")==="compact"?"compact":"comfy"}));
-  const LOPT_KEYS={side:["ff_side",v=>v?"on":"off"],auto:["ff_look_auto",v=>v?"on":"off"],lsound:["ff_look_sound",v=>v?"on":"off"],tint:["ff_tint",v=>v?"on":"off"],ts:["ff_ts",v=>v],gap:["ff_gap",v=>v]};
+  const[lopts,setLopts]=useState(()=>({side:lsGet("ff_side","on")!=="off",auto:lsGet("ff_look_auto","off")==="on",lsound:lsGet("ff_look_sound","on")!=="off",wall:lsGet("ff_wall","on")!=="off",tint:lsGet("ff_tint","off")==="on",ts:[100,112,125].includes(parseInt(lsGet("ff_ts","100"),10))?parseInt(lsGet("ff_ts","100"),10):100,gap:lsGet("ff_gap","comfy")==="compact"?"compact":"comfy"}));
+  const LOPT_KEYS={side:["ff_side",v=>v?"on":"off"],auto:["ff_look_auto",v=>v?"on":"off"],lsound:["ff_look_sound",v=>v?"on":"off"],wall:["ff_wall",v=>v?"on":"off"],tint:["ff_tint",v=>v?"on":"off"],ts:["ff_ts",v=>v],gap:["ff_gap",v=>v]};
   const setLopt=(k,v)=>{ setLopts(o=>({...o,[k]:v})); const [key,f]=LOPT_KEYS[k]; lsSet(key,f(v)); };
   const[autoTick,setAutoTick]=useState(0);
   useEffect(()=>{ if(!lopts.auto) return; const t=setInterval(()=>setAutoTick(x=>x+1),60000); return ()=>clearInterval(t); },[lopts.auto]);
@@ -8619,6 +8695,9 @@ export default function App(){
   void autoTick; const _autoId=lopts.auto?autoLookFor(new Date()):"";
   const sel=lookPreview||(deviceLook?{id:deviceLook,acc:deviceAcc,custom:deviceCustom}:_autoId?{id:_autoId,acc:0,custom:null}:_pSel)||{id:"studio",acc:0,custom:null};
   const lookId=sel.id, customKey=sel.custom?JSON.stringify(sel.custom):"";
+  const wallActive=lookId==="cosmos"&&lopts.wall;
+  const space=useSpacePicture(wallActive);
+  const wallUrl=space.item?space.item.url:null;
   const accHexNow=lookAccentHex(sel.id,mode,{acc:sel.acc,custom:sel.custom})||_accentBase;
   // "Match member colours": a tinted copy used only for display; the saved colours are never changed.
   const shown=useMemo(()=>lopts.tint?members.map(m=>(/^#[0-9a-fA-F]{6}$/.test(m.color||"")?{...m,color:mixHex(m.color,accHexNow,.55)}:m)):members,[members,lopts.tint,accHexNow]);
@@ -8626,7 +8705,8 @@ export default function App(){
     const el=document.documentElement;
     el.setAttribute("data-mode",mode);
     el.setAttribute("data-look",lookId);
-    const v={...accentVars(_accentBase,mode),...lookVars(lookId,mode,{acc:sel.acc,custom:sel.custom,side:lopts.side})};
+    const v={...accentVars(_accentBase,mode),...lookVars(lookId,mode,{acc:sel.acc,custom:sel.custom,side:lopts.side,wall:wallUrl,wallOn:lopts.wall})};
+    if(lookId==="cosmos"&&lopts.wall&&wallUrl) el.setAttribute("data-wallimg","1"); else el.removeAttribute("data-wallimg");
     lookKeys.current.forEach(k=>{ if(!(k in v)) el.style.removeProperty(k); });
     Object.keys(v).forEach(k=>el.style.setProperty(k,v[k]));
     lookKeys.current=Object.keys(v);
@@ -8636,7 +8716,7 @@ export default function App(){
     if(lookId!=="studio"&&!document.getElementById("ff-look-fonts")){
       const l=document.createElement("link"); l.id="ff-look-fonts"; l.rel="stylesheet"; l.href=LOOK_FONTS_HREF; document.head.appendChild(l);
     }
-  },[mode,_accentBase,lookId,sel.acc,customKey,lopts.side,lopts.ts,lopts.gap,lopts.lsound]); // eslint-disable-line
+  },[mode,_accentBase,lookId,sel.acc,customKey,lopts.side,lopts.ts,lopts.gap,lopts.lsound,lopts.wall,wallUrl]); // eslint-disable-line
   useEffect(()=>{
     let s=document.getElementById("ff-global-css");
     if(!s){ s=document.createElement("style"); s.id="ff-global-css"; document.head.appendChild(s); }
@@ -8748,6 +8828,8 @@ export default function App(){
         <div style={{fontSize:40,marginBottom:12}}>🌱</div>
         <div style={{fontSize:16,fontWeight:600}}>No members yet. Add one to get started.</div>
       </div>}
+
+      {wallActive&&members.length>0&&<SpaceBanner item={space.item} status={space.status}/>}
 
       {/* Individual member tab */}
       {activeTab&&shown.filter(m=>m.id===activeTab).map(m=>(
