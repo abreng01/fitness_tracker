@@ -27,58 +27,140 @@ function accentVars(accent,mode){
   };
 }
 
-// ── Looks: full-page themes (surfaces, accent, shape, font). "studio" = the default look. ──
+// ── Looks: full-page themes (surfaces, accent, sidebar, shape, font, sound). "studio" = the default look. ──
 // LOOKS-BEGIN
 const LOOKS = [
   {id:"studio", name:"Studio", tag:"The clean default", font:null, rCard:16, rChip:10, bw:"1px"},
   {id:"neon", name:"Midnight Neon", tag:"Glow in the dark", font:null, rCard:14, rChip:10, bw:"1px",
-   accent:{light:"#7C3AED",dark:"#22D3EE"},
+   accents:[{n:"Violet",light:"#7C3AED",dark:"#22D3EE"},{n:"Pink",light:"#DB2777",dark:"#F472B6"},{n:"Lime",light:"#4D7C0F",dark:"#A3E635"},{n:"Orange",light:"#C2410C",dark:"#FB923C"},{n:"Blue",light:"#2563EB",dark:"#60A5FA"}],
    light:{bg:"#F4F0FF",card:"#FFFFFF",line:"#DDD3F5",text:"#1B1033",muted:"#5E5483",bg2:"#ECE6FB",empty:"#E3DBF6",hero:"#2A1659",
      shadow:"0 6px 24px rgba(124,58,237,.10)",img:"radial-gradient(900px 500px at 90% -10%,rgba(168,85,247,.16),transparent 60%),radial-gradient(700px 400px at -10% 110%,rgba(34,211,238,.12),transparent 60%)"},
    dark:{bg:"#0A0814",card:"#141026",line:"#2E2550",text:"#F1EEFF",muted:"#A59CC8",bg2:"#1C1636",empty:"#2A2347",hero:"#1E1240",
-     shadow:"0 0 0 1px rgba(168,85,247,.16),0 8px 30px rgba(124,58,237,.18)",img:"radial-gradient(900px 500px at 90% -10%,rgba(168,85,247,.24),transparent 60%),radial-gradient(700px 400px at -10% 110%,rgba(34,211,238,.14),transparent 60%)"}},
+     shadow:"0 0 0 1px rgba(168,85,247,.16),0 8px 30px rgba(124,58,237,.18)",img:"radial-gradient(900px 500px at 90% -10%,rgba(168,85,247,.24),transparent 60%),radial-gradient(700px 400px at -10% 110%,rgba(34,211,238,.14),transparent 60%)"},
+   side:{light:{bg:"#2A1659",text:"#F1EEFF",muted:"#BDB3E6",soft:"rgba(255,255,255,.14)",line:"rgba(255,255,255,.12)"},dark:{bg:"#0F0B20",text:"#F1EEFF",muted:"#A59CC8",soft:"rgba(255,255,255,.10)",line:"rgba(255,255,255,.10)"}},
+   voice:{wave:"sawtooth",pitch:1.25,vol:.45}, cf:["#22D3EE","#A855F7","#F472B6","#FACC15"]},
   {id:"paper", name:"Paper", tag:"Warm, quiet, bookish", font:"'Fraunces','Iowan Old Style',Georgia,serif", rCard:6, rChip:6, bw:"1px",
-   accent:{light:"#B5532F",dark:"#D9784F"},
+   accents:[{n:"Terracotta",light:"#B5532F",dark:"#D9784F"},{n:"Olive",light:"#5F6B1E",dark:"#B5C15A"},{n:"Navy",light:"#2F4B7C",dark:"#8FB0E8"},{n:"Plum",light:"#7E3A6B",dark:"#D79BC8"},{n:"Teal",light:"#1F6F6B",dark:"#6FCBC4"}],
    light:{bg:"#F6EFE3",card:"#FFFBF3",line:"#E1D4BD",text:"#2B2118",muted:"#6B5B4A",bg2:"#EFE5D3",empty:"#E6DAC4",hero:"#3A2A1E",shadow:"none",img:"none"},
-   dark:{bg:"#17120D",card:"#211A13",line:"#3A2F23",text:"#F2E9DA",muted:"#B5A58E",bg2:"#2A2118",empty:"#3A2F23",hero:"#2E2218",shadow:"none",img:"none"}},
+   dark:{bg:"#17120D",card:"#211A13",line:"#3A2F23",text:"#F2E9DA",muted:"#B5A58E",bg2:"#2A2118",empty:"#3A2F23",hero:"#2E2218",shadow:"none",img:"none"},
+   side:{light:{bg:"#3A2A1E",text:"#F6EFE3",muted:"#D2BFA6",soft:"rgba(255,255,255,.12)",line:"rgba(255,255,255,.12)"},dark:{bg:"#120E0A",text:"#F2E9DA",muted:"#B5A58E",soft:"rgba(255,255,255,.09)",line:"rgba(255,255,255,.09)"}},
+   voice:{wave:"sine",pitch:.85,vol:.9}, cf:["#B5532F","#E0B04F","#8A9A3A","#4F74B8"]},
   {id:"forest", name:"Forest", tag:"Moss, bark and calm", font:"'Nunito',Inter,system-ui,sans-serif", rCard:18, rChip:12, bw:"1px",
-   accent:{light:"#2F8F57",dark:"#4CC27F"},
+   accents:[{n:"Leaf",light:"#2F8F57",dark:"#4CC27F"},{n:"Teal",light:"#0F766E",dark:"#2DD4BF"},{n:"Gold",light:"#A16207",dark:"#FACC15"},{n:"Berry",light:"#9D174D",dark:"#F472B6"},{n:"Sky",light:"#1D6FB8",dark:"#60A5FA"}],
    light:{bg:"#E9F0E6",card:"#F8FBF6",line:"#CBDAC5",text:"#14261A",muted:"#4C6652",bg2:"#DEE9DA",empty:"#D2E0CC",hero:"#173A25",shadow:"0 2px 8px rgba(23,58,37,.08)",img:"none"},
-   dark:{bg:"#0C1710",card:"#132318",line:"#22402B",text:"#E6F2E8",muted:"#9DB8A4",bg2:"#19301F",empty:"#25422E",hero:"#173A25",shadow:"0 2px 8px rgba(0,0,0,.35)",img:"none"}},
+   dark:{bg:"#0C1710",card:"#132318",line:"#22402B",text:"#E6F2E8",muted:"#9DB8A4",bg2:"#19301F",empty:"#25422E",hero:"#173A25",shadow:"0 2px 8px rgba(0,0,0,.35)",img:"none"},
+   side:{light:{bg:"#173A25",text:"#E6F2E8",muted:"#A9C7B1",soft:"rgba(255,255,255,.13)",line:"rgba(255,255,255,.12)"},dark:{bg:"#08110B",text:"#E6F2E8",muted:"#9DB8A4",soft:"rgba(255,255,255,.09)",line:"rgba(255,255,255,.09)"}},
+   voice:{wave:"sine",pitch:.9,vol:.9}, cf:["#4CC27F","#FACC15","#2DD4BF","#F472B6"]},
   {id:"sunset", name:"Sunset", tag:"Golden hour", font:null, rCard:20, rChip:14, bw:"1px",
-   accent:{light:"#D9532B",dark:"#FF8A5C"},
+   accents:[{n:"Coral",light:"#D9532B",dark:"#FF8A5C"},{n:"Rose",light:"#BE185D",dark:"#FB7185"},{n:"Violet",light:"#6D28D9",dark:"#A78BFA"},{n:"Amber",light:"#B45309",dark:"#FBBF24"},{n:"Teal",light:"#0F766E",dark:"#5EEAD4"}],
    light:{bg:"#FFEDE0",card:"#FFFAF5",line:"#F0D0B8",text:"#2E1A12",muted:"#7A5646",bg2:"#FBE6D5",empty:"#F3D9C6",hero:"#5A1F2E",shadow:"0 4px 16px rgba(217,83,43,.12)",img:"linear-gradient(160deg,#FFE3D0 0%,#FFD1D9 55%,#F1D8FF 100%)"},
-   dark:{bg:"#1A0E12",card:"#26151B",line:"#432431",text:"#FBE9E4",muted:"#C9A3A0",bg2:"#2F1A22",empty:"#432431",hero:"#4A1830",shadow:"0 4px 16px rgba(0,0,0,.4)",img:"linear-gradient(160deg,#2A1218 0%,#1D0F1E 100%)"}},
+   dark:{bg:"#1A0E12",card:"#26151B",line:"#432431",text:"#FBE9E4",muted:"#C9A3A0",bg2:"#2F1A22",empty:"#432431",hero:"#4A1830",shadow:"0 4px 16px rgba(0,0,0,.4)",img:"linear-gradient(160deg,#2A1218 0%,#1D0F1E 100%)"},
+   side:{light:{bg:"#5A1F2E",text:"#FFEDE6",muted:"#EBC3BE",soft:"rgba(255,255,255,.14)",line:"rgba(255,255,255,.13)"},dark:{bg:"#14090D",text:"#FBE9E4",muted:"#C9A3A0",soft:"rgba(255,255,255,.09)",line:"rgba(255,255,255,.09)"}},
+   voice:{wave:"triangle",pitch:.95,vol:.9}, cf:["#FF8A5C","#FB7185","#FBBF24","#A78BFA"]},
   {id:"ocean", name:"Ocean", tag:"Cool and airy", font:null, rCard:16, rChip:10, bw:"1px",
-   accent:{light:"#0A78B8",dark:"#38BDF8"},
+   accents:[{n:"Blue",light:"#0A78B8",dark:"#38BDF8"},{n:"Teal",light:"#0F766E",dark:"#2DD4BF"},{n:"Indigo",light:"#4338CA",dark:"#818CF8"},{n:"Coral",light:"#C2410C",dark:"#FB923C"},{n:"Green",light:"#15803D",dark:"#4ADE80"}],
    light:{bg:"#E6F3FA",card:"#FBFEFF",line:"#C5DFEC",text:"#0F2433",muted:"#4A6B80",bg2:"#DAEBF5",empty:"#CCE2EE",hero:"#0E3A5A",shadow:"0 2px 10px rgba(14,90,140,.10)",img:"linear-gradient(180deg,#DDF0FA 0%,#EEF8FC 100%)"},
-   dark:{bg:"#06141F",card:"#0C2030",line:"#1B3A52",text:"#E3F2FB",muted:"#8FB3C9",bg2:"#112A3D",empty:"#1B3A52",hero:"#0E3350",shadow:"0 2px 10px rgba(0,0,0,.4)",img:"linear-gradient(180deg,#06141F 0%,#0A1E2E 100%)"}},
+   dark:{bg:"#06141F",card:"#0C2030",line:"#1B3A52",text:"#E3F2FB",muted:"#8FB3C9",bg2:"#112A3D",empty:"#1B3A52",hero:"#0E3350",shadow:"0 2px 10px rgba(0,0,0,.4)",img:"linear-gradient(180deg,#06141F 0%,#0A1E2E 100%)"},
+   side:{light:{bg:"#0E3A5A",text:"#E3F2FB",muted:"#A3C8DE",soft:"rgba(255,255,255,.13)",line:"rgba(255,255,255,.12)"},dark:{bg:"#040E16",text:"#E3F2FB",muted:"#8FB3C9",soft:"rgba(255,255,255,.09)",line:"rgba(255,255,255,.09)"}},
+   voice:{wave:"sine",pitch:1,vol:.9}, cf:["#38BDF8","#2DD4BF","#818CF8","#FDE047"]},
   {id:"arcade", name:"Arcade", tag:"Loud, chunky, fun", font:"'Nunito',Inter,system-ui,sans-serif", rCard:22, rChip:14, bw:"2.5px",
-   accent:{light:"#D81B60",dark:"#FFD23F"},
+   accents:[{n:"Pink",light:"#D81B60",dark:"#FFD23F"},{n:"Blue",light:"#1D4ED8",dark:"#60A5FA"},{n:"Green",light:"#15803D",dark:"#4ADE80"},{n:"Orange",light:"#C2410C",dark:"#FB923C"},{n:"Purple",light:"#7E22CE",dark:"#C084FC"}],
    light:{bg:"#FFF3A8",card:"#FFFFFF",line:"#161616",text:"#161616",muted:"#4A4A4A",bg2:"#FFE680",empty:"#EFE3A0",hero:"#2B2BC8",shadow:"4px 4px 0 #161616",img:"none"},
-   dark:{bg:"#14122B",card:"#1F1B3F",line:"#6F63FF",text:"#FFFFFF",muted:"#BDB7F2",bg2:"#2A2555",empty:"#342E69",hero:"#2B1F8A",shadow:"4px 4px 0 #6F63FF",img:"none"}},
+   dark:{bg:"#14122B",card:"#1F1B3F",line:"#6F63FF",text:"#FFFFFF",muted:"#BDB7F2",bg2:"#2A2555",empty:"#342E69",hero:"#2B1F8A",shadow:"4px 4px 0 #6F63FF",img:"none"},
+   side:{light:{bg:"#2B2BC8",text:"#FFFFFF",muted:"#D6D6FF",soft:"rgba(255,255,255,.18)",line:"#161616"},dark:{bg:"#0E0C20",text:"#FFFFFF",muted:"#BDB7F2",soft:"rgba(255,255,255,.12)",line:"#6F63FF"}},
+   voice:{wave:"square",pitch:1,vol:.45}, cf:["#FFD23F","#D81B60","#60A5FA","#4ADE80"]},
   {id:"mono", name:"Mono", tag:"Pure and minimal", font:"'JetBrains Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace", rCard:4, rChip:4, bw:"1px",
-   accent:{light:"#111111",dark:"#F2F2F2"},
+   accents:[{n:"Ink",light:"#111111",dark:"#F2F2F2"},{n:"Blue",light:"#1D4ED8",dark:"#93C5FD"},{n:"Red",light:"#B91C1C",dark:"#FCA5A5"},{n:"Green",light:"#15803D",dark:"#86EFAC"},{n:"Amber",light:"#A16207",dark:"#FCD34D"}],
    light:{bg:"#F7F7F7",card:"#FFFFFF",line:"#DADADA",text:"#0A0A0A",muted:"#5A5A5A",bg2:"#F0F0F0",empty:"#E4E4E4",hero:"#0A0A0A",shadow:"none",img:"none"},
-   dark:{bg:"#0A0A0A",card:"#121212",line:"#2C2C2C",text:"#F2F2F2",muted:"#9A9A9A",bg2:"#1A1A1A",empty:"#2A2A2A",hero:"#1A1A1A",shadow:"none",img:"none"}},
+   dark:{bg:"#0A0A0A",card:"#121212",line:"#2C2C2C",text:"#F2F2F2",muted:"#9A9A9A",bg2:"#1A1A1A",empty:"#2A2A2A",hero:"#1A1A1A",shadow:"none",img:"none"},
+   side:{light:{bg:"#0A0A0A",text:"#F2F2F2",muted:"#A6A6A6",soft:"rgba(255,255,255,.12)",line:"rgba(255,255,255,.12)"},dark:{bg:"#000000",text:"#F2F2F2",muted:"#9A9A9A",soft:"rgba(255,255,255,.10)",line:"rgba(255,255,255,.10)"}},
+   voice:{wave:"triangle",pitch:.7,vol:.8}, cf:["#F2F2F2","#9A9A9A","#60A5FA","#FACC15"]},
+  {id:"diwali", name:"Diwali", tag:"Festival of lights", seasonal:true, font:null, rCard:18, rChip:12, bw:"1px",
+   accents:[{n:"Gold",light:"#B45309",dark:"#FBBF24"},{n:"Saffron",light:"#C2410C",dark:"#FB923C"},{n:"Rani pink",light:"#BE185D",dark:"#F472B6"},{n:"Peacock",light:"#0F766E",dark:"#2DD4BF"},{n:"Maroon",light:"#9F1239",dark:"#FB7185"}],
+   light:{bg:"#FFF4DC",card:"#FFFBF0",line:"#EBD3A0",text:"#3A1408",muted:"#7A4A2E",bg2:"#FBEBC8",empty:"#F1DDB0",hero:"#5A1010",shadow:"0 4px 16px rgba(194,65,12,.12)",img:"radial-gradient(800px 420px at 85% -10%,rgba(251,191,36,.38),transparent 60%),radial-gradient(600px 360px at -5% 105%,rgba(194,65,12,.18),transparent 60%)"},
+   dark:{bg:"#190806",card:"#27100B",line:"#4A2214",text:"#FFF1D6",muted:"#D9B38C",bg2:"#321710",empty:"#4A2214",hero:"#4A0F12",shadow:"0 4px 18px rgba(0,0,0,.45)",img:"radial-gradient(800px 420px at 85% -10%,rgba(251,191,36,.20),transparent 60%),radial-gradient(600px 360px at -5% 105%,rgba(194,65,12,.20),transparent 60%)"},
+   side:{light:{bg:"#5A1010",text:"#FFF1D6",muted:"#EBC9A0",soft:"rgba(255,255,255,.14)",line:"rgba(255,255,255,.13)"},dark:{bg:"#120504",text:"#FFF1D6",muted:"#D9B38C",soft:"rgba(255,255,255,.09)",line:"rgba(255,255,255,.09)"}},
+   voice:{wave:"sine",pitch:1.5,vol:.8}, cf:["#FBBF24","#F97316","#F472B6","#FDE68A"]},
+  {id:"christmas", name:"Festive", tag:"Snow, pine and berries", seasonal:true, font:null, rCard:16, rChip:10, bw:"1px",
+   accents:[{n:"Berry red",light:"#B91C1C",dark:"#F87171"},{n:"Pine",light:"#166534",dark:"#4ADE80"},{n:"Gold",light:"#A16207",dark:"#FACC15"},{n:"Blue",light:"#1D4ED8",dark:"#60A5FA"},{n:"Candy",light:"#BE185D",dark:"#F9A8D4"}],
+   light:{bg:"#F1F6F0",card:"#FFFFFF",line:"#CFE0CC",text:"#14281A",muted:"#4C6652",bg2:"#E6EFE4",empty:"#D8E6D4",hero:"#14532D",shadow:"0 2px 10px rgba(20,83,45,.10)",img:"radial-gradient(700px 380px at 90% -10%,rgba(185,28,28,.10),transparent 60%)"},
+   dark:{bg:"#0B140E",card:"#12201A",line:"#24402F",text:"#EAF5EC",muted:"#A3BEA9",bg2:"#182B21",empty:"#24402F",hero:"#14401F",shadow:"0 2px 10px rgba(0,0,0,.4)",img:"radial-gradient(700px 380px at 90% -10%,rgba(248,113,113,.12),transparent 60%)"},
+   side:{light:{bg:"#14532D",text:"#EAF5EC",muted:"#B5D3BC",soft:"rgba(255,255,255,.14)",line:"rgba(255,255,255,.13)"},dark:{bg:"#06120A",text:"#EAF5EC",muted:"#A3BEA9",soft:"rgba(255,255,255,.09)",line:"rgba(255,255,255,.09)"}},
+   voice:{wave:"triangle",pitch:1.5,vol:.8}, cf:["#F87171","#4ADE80","#FACC15","#FFFFFF"]},
 ];
 // LOOKS-END
+const DEFAULT_CUSTOM={base:"#4F46E5",accent:"#0EA5E9",side:"#1E1B4B"};
 const LOOK_FONTS_HREF="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;800&family=JetBrains+Mono:wght@400;600;700&family=Nunito:wght@400;600;700;800&display=swap";
-function findLook(id){ return LOOKS.find(l=>l.id===id)||LOOKS[0]; }
-// CSS variables a look sets for a mode. Studio returns {} so the stylesheet defaults (and per-person accent) apply untouched.
-function lookVars(id,mode){
-  const L=findLook(id); if(L.id==="studio") return {};
+const LOOK_IDS=[...LOOKS.map(l=>l.id),"custom"];
+// ── contrast helpers (used by the custom builder so any colours you pick stay readable) ──
+function okHex(h,d){ return /^#[0-9a-fA-F]{6}$/.test(h||"")?h:d; }
+function contrastOf(a,b){ const x=hexLum(a),y=hexLum(b); return (Math.max(x,y)+.05)/(Math.min(x,y)+.05); }
+function fixContrast(fg,bg,min,target){ let c=fg; for(let i=0;i<24&&contrastOf(c,bg)<min;i++) c=mixHex(c,target,.12); return c; }
+function buildCustomLook(d){
+  const base=okHex(d&&d.base,DEFAULT_CUSTOM.base), acc=okHex(d&&d.accent,DEFAULT_CUSTOM.accent), sd=okHex(d&&d.side,DEFAULT_CUSTOM.side);
+  const lc=mixHex(base,"#FFFFFF",.97), lbg=mixHex(base,"#FFFFFF",.9), lbg2=mixHex(base,"#FFFFFF",.84);
+  let lhero=mixHex(base,"#000000",.7); for(let i=0;i<24&&contrastOf("#FFFFFF",lhero)<7;i++) lhero=mixHex(lhero,"#000000",.15);
+  const light={bg:lbg,card:lc,line:fixContrast(mixHex(base,"#FFFFFF",.78),lc,1.18,"#000000"),text:fixContrast(mixHex(base,"#000000",.85),lbg2,10,"#000000"),
+    muted:fixContrast(mixHex(base,"#000000",.5),lbg2,4.6,"#000000"),bg2:lbg2,empty:mixHex(base,"#FFFFFF",.78),hero:lhero,shadow:"0 2px 10px rgba(0,0,0,.08)",img:"none"};
+  const dc=mixHex(base,"#000000",.82), dbg=mixHex(base,"#000000",.9), dbg2=mixHex(base,"#000000",.74), dem=mixHex(base,"#000000",.66);
+  let dhero=mixHex(base,"#000000",.62); for(let i=0;i<24&&contrastOf("#FFFFFF",dhero)<7;i++) dhero=mixHex(dhero,"#000000",.15);
+  const dark={bg:dbg,card:dc,line:fixContrast(mixHex(base,"#FFFFFF",.22),dc,1.18,"#FFFFFF"),text:fixContrast(mixHex(base,"#FFFFFF",.92),dem,10,"#FFFFFF"),
+    muted:fixContrast(mixHex(base,"#FFFFFF",.6),dem,4.6,"#FFFFFF"),bg2:dbg2,empty:dem,hero:dhero,shadow:"0 2px 10px rgba(0,0,0,.4)",img:"none"};
+  const mkSide=(s0)=>{ let s=s0; for(let i=0;i<24&&Math.max(contrastOf("#FFFFFF",s),contrastOf("#12141A",s))<7;i++) s=mixHex(s,"#000000",.15);
+    const white=contrastOf("#FFFFFF",s)>=contrastOf("#12141A",s); const text=white?"#FFFFFF":"#12141A";
+    return {bg:s,text,muted:fixContrast(mixHex(text,s,.3),s,4.6,text),soft:white?"rgba(255,255,255,.14)":"rgba(0,0,0,.09)",line:white?"rgba(255,255,255,.14)":"rgba(0,0,0,.12)"}; };
+  return {id:"custom",name:"Custom",tag:"Your own colours",font:null,rCard:16,rChip:10,bw:"1px",
+    accents:[{n:"Custom",light:acc,dark:acc}],light,dark,side:{light:mkSide(sd),dark:mkSide(mixHex(sd,"#000000",.35))},
+    voice:null,cf:[acc,mixHex(acc,"#FFFFFF",.4),mixHex(base,"#FFFFFF",.35),"#FACC15"]};
+}
+function findLook(id,custom){ if(id==="custom") return buildCustomLook(custom); return LOOKS.find(l=>l.id===id)||LOOKS[0]; }
+// Accent variables for a look: like accentVars but guarantees readable text on the accent and accent text on the card.
+function accentVarsLook(accent,mode,card){
+  const v=accentVars(accent,mode); const dark=mode==="dark"; const toward=dark?"#FFFFFF":"#000000";
+  let acc=v["--accent"];
+  // keep the accent visible on the card and make text on top of it readable
+  for(let i=0;i<30;i++){
+    const on=Math.max(contrastOf("#FFFFFF",acc),contrastOf("#12141A",acc));
+    if(on>=4.6&&contrastOf(acc,card)>=2) break;
+    acc=mixHex(acc,toward,.08);
+  }
+  v["--accent"]=acc;
+  v["--accent-soft"]=dark?mixHex(acc,"#0D0F14",0.80):mixHex(acc,"#FFFFFF",0.86);
+  v["--on-accent"]=contrastOf("#FFFFFF",acc)>=contrastOf("#12141A",acc)?"#FFFFFF":"#12141A";
+  let ink=dark?acc:mixHex(acc,"#000000",0.28);
+  ink=fixContrast(ink,card,4.6,toward); ink=fixContrast(ink,v["--accent-soft"],4.6,toward);
+  v["--accent-ink"]=ink; return v;
+}
+// Which CSS variables a look sets. Studio returns {} so the stylesheet defaults (and per-person accent) apply untouched.
+function lookVars(id,mode,o){
+  o=o||{}; const L=findLook(id,o.custom); if(L.id==="studio") return {};
   const m=mode==="dark"?"dark":"light"; const t=L[m];
-  return {
+  const pick=(L.accents[o.acc|0]||L.accents[0])[m];
+  const av=accentVarsLook(pick,mode,t.card);
+  const v={
     "--bg":t.bg,"--card":t.card,"--line":t.line,"--text":t.text,"--muted":t.muted,"--bg2":t.bg2,"--empty":t.empty,"--hero":t.hero,
     "--shadow":t.shadow,"--bg-img":t.img,"--r-card":L.rCard+"px","--r-chip":L.rChip+"px","--bw":L.bw,
     "--font":L.font||'Inter,"Helvetica Neue",system-ui,sans-serif',
-    ...accentVars(L.accent[m],mode),
+    ...av,
+    "--fx-grad":`linear-gradient(135deg,${t.hero},${(()=>{ let e=mixHex(t.hero,av["--accent"],.22); for(let i=0;i<20&&contrastOf("#FFFFFF",e)<4.6;i++) e=mixHex(e,"#000000",.12); return e; })()})`,
   };
+  (L.cf||[]).forEach((c,i)=>{ v["--cf"+(i+1)]=c; });
+  if(o.side!==false&&L.side){ const s=L.side[m]; v["--side-bg"]=s.bg; v["--side-text"]=s.text; v["--side-muted"]=s.muted; v["--side-soft"]=s.soft; v["--side-line"]=s.line; }
+  return v;
+}
+function lookAccentHex(id,mode,o){ o=o||{}; const L=findLook(id,o.custom); if(L.id==="studio") return null; return (L.accents[o.acc|0]||L.accents[0])[mode==="dark"?"dark":"light"]; }
+// Diwali falls on a different date each year (approx. window: 4 days before to 3 days after).
+const DIWALI_DATES={2026:"11-08",2027:"10-29",2028:"10-17",2029:"11-05",2030:"10-26",2031:"11-14",2032:"11-02"};
+function autoLookFor(d){
+  const y=d.getFullYear(), dv=DIWALI_DATES[y];
+  if(dv){ const c=new Date(y,+dv.slice(0,2)-1,+dv.slice(3,5)); const t0=new Date(y,d.getMonth(),d.getDate()); const diff=Math.round((t0-c)/864e5); if(diff>=-4&&diff<=3) return "diwali"; }
+  const md=(d.getMonth()+1)*100+d.getDate(); if(md>=1218&&md<=1226) return "christmas";
+  const h=d.getHours(); if(h>=18&&h<22) return "sunset";
+  return "";
 }
 
 // ── Sound effects: tiny synthesized sounds (no audio files). Off by default; per-device toggle. ──
-const SFX={on:false,ctx:null,master:null,lastEgg:0};
+const SFX={on:false,ctx:null,master:null,lastEgg:0,voice:null};
 function readSoundPref(){ try{ return localStorage.getItem("ff_sound")==="on"; }catch{ return false; } }
 SFX.on=readSoundPref();
 function sfxCtx(){
@@ -92,7 +174,8 @@ function sfxCtx(){
   }catch{ return null; }
 }
 function sfxTone(freq,t0,dur,o){
-  const {type="sine",vol=1,glideTo}=o||{}; const c=SFX.ctx;
+  const {type:type0="sine",vol:vol0=1,glideTo:g0}=o||{}; const c=SFX.ctx; const vc=SFX.voice;
+  const type=(vc&&vc.wave)||type0, vol=vol0*(vc?vc.vol:1), pm=vc?vc.pitch:1, glideTo=g0?g0*pm:g0; freq=freq*pm;
   const osc=c.createOscillator(), g=c.createGain();
   osc.type=type; osc.frequency.setValueAtTime(freq,t0);
   if(glideTo) osc.frequency.exponentialRampToValueAtTime(glideTo,t0+dur);
@@ -146,26 +229,26 @@ button:active:not(:disabled){transform:scale(.97);}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
 
 .ff-app{display:flex;min-height:100vh;background:transparent;color:var(--text);}
-.ff-side{width:232px;flex-shrink:0;box-sizing:border-box;background:var(--card);border-right:1px solid var(--line);
+.ff-side{width:232px;flex-shrink:0;box-sizing:border-box;background:var(--side-bg,var(--card));color:var(--side-text,var(--text));border-right:1px solid var(--side-line,var(--line));
   padding:24px 14px;display:flex;flex-direction:column;gap:4px;position:sticky;top:0;height:100vh;overflow-y:auto;}
 .ff-logo{display:flex;align-items:center;gap:10px;padding:0 10px 20px;font-weight:800;font-size:16px;letter-spacing:-.2px;}
 .ff-logo-mark{width:30px;height:30px;border-radius:9px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:16px;}
-.ff-side-label{font-size:11px;font-weight:700;letter-spacing:.8px;color:var(--muted);padding:0 10px 6px;}
+.ff-side-label{font-size:11px;font-weight:700;letter-spacing:.8px;color:var(--side-muted,var(--muted));padding:0 10px 6px;}
 .ff-nav{display:flex;align-items:center;gap:12px;padding:9px 10px;border-radius:10px;border:none;background:transparent;
-  color:var(--text);font-size:14px;font-weight:500;cursor:pointer;text-align:left;width:100%;white-space:nowrap;}
-.ff-nav:hover{background:var(--accent-soft);}
-.ff-nav[aria-current="page"]{background:var(--accent-soft);font-weight:700;}
+  color:var(--side-text,var(--text));font-size:14px;font-weight:500;cursor:pointer;text-align:left;width:100%;white-space:nowrap;}
+.ff-nav:hover{background:var(--side-soft,var(--accent-soft));}
+.ff-nav[aria-current="page"]{background:var(--side-soft,var(--accent-soft));font-weight:700;}
 .ff-avatar{overflow:hidden;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
 .ff-main{flex:1;min-width:0;display:flex;flex-direction:column;}
 .ff-top{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
-  padding:14px 32px;background:var(--bg);background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-bottom:1px solid var(--line);}
-.ff-wrap{position:relative;width:100%;box-sizing:border-box;padding:24px 32px 56px;margin:0 auto;display:flex;flex-direction:column;gap:20px;transition:max-width .2s;}
+  zoom:var(--ts,1);padding:14px 32px;background:var(--bg);background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-bottom:1px solid var(--line);}
+.ff-wrap{position:relative;width:100%;box-sizing:border-box;padding:24px 32px 56px;margin:0 auto;display:flex;flex-direction:column;gap:var(--gap2,20px);transition:max-width .2s;zoom:var(--ts,1);}
 .ff-chip{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 12px;border-radius:var(--r-chip,10px);border:var(--bw,1px) solid var(--line);
   background:var(--card);color:var(--muted);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
 .ff-chip:hover{border-color:var(--accent);color:var(--text);}
 
 .ff-card{background:var(--card);border:var(--bw,1px) solid var(--line);border-radius:var(--r-card,16px);box-shadow:var(--shadow);box-sizing:border-box;min-width:0;}
-.mc{display:flex;flex-wrap:wrap;gap:16px;align-items:stretch;}
+.mc{display:flex;flex-wrap:wrap;gap:var(--gap,16px);align-items:stretch;}
 .mc>*{flex:1 1 100%;min-width:0;}
 .mc>.mc-today{flex:1 1 100%;}
 .mc>.mc-hero{flex:2 1 420px;}
@@ -230,7 +313,7 @@ button:active:not(:disabled){transform:scale(.97);}
 @media (max-width:900px){
   .ff-app{flex-direction:column;}
   .ff-side{width:auto;height:auto;position:static;flex-direction:row;align-items:center;gap:4px;padding:8px 10px;border-right:none;
-    border-bottom:1px solid var(--line);overflow-x:auto;overflow-y:hidden;}
+    border-bottom:1px solid var(--side-line,var(--line));overflow-x:auto;overflow-y:hidden;}
   .ff-logo,.ff-side-label,.ff-side-sep,.ff-side-grow{display:none;}
   .ff-nav{width:auto;flex-shrink:0;padding:8px 12px;}
   .ff-top{padding:10px 14px;}
@@ -2535,6 +2618,8 @@ function CelebrationScreen({badge, memberName, onClose}){
     return()=>clearTimeout(t);
   },[]);
 
+  // Confetti follows the active look when one sets a palette
+  const cfPalette=(()=>{ try{ const cs=getComputedStyle(document.documentElement); const a=[1,2,3,4].map(i=>cs.getPropertyValue("--cf"+i).trim()).filter(Boolean); return a.length===4?a:null; }catch{ return null; } })();
   // Generate confetti pieces
   const confetti = Array.from({length:40},(_,i)=>({
     id:i,
@@ -2542,7 +2627,7 @@ function CelebrationScreen({badge, memberName, onClose}){
     delay:Math.random()*0.6,
     duration:2+Math.random()*1.5,
     size:6+Math.random()*8,
-    color:[tc.bd,"#FFD700","#3D9E6E","#5B8FD4","#D47B9E"][Math.floor(Math.random()*5)],
+    color:(cfPalette?[tc.bd,...cfPalette]:[tc.bd,"#FFD700","#3D9E6E","#5B8FD4","#D47B9E"])[Math.floor(Math.random()*5)],
     rotate:Math.random()*360,
   }));
 
@@ -3709,7 +3794,7 @@ function PowerPointsPanel({member, logs, onClose, view="main", viewNonce=0}){
     maxHeight:"calc(100vh - 40px)",position:"sticky",top:20}}>
 
     {/* Header */}
-    <div style={{padding:"16px 18px",background:"linear-gradient(135deg,#1a1a2e,#16213e)",flexShrink:0}}>
+    <div style={{padding:"16px 18px",background:"var(--fx-grad,linear-gradient(135deg,#1a1a2e,#16213e))",flexShrink:0}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <span style={{fontSize:20}}><Face m={member}/></span>
@@ -3978,7 +4063,7 @@ function MysteryBonusReveal({normalPP, bonusPP, onClose}){
       @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
     `}</style>
     <div onClick={e=>e.stopPropagation()} style={{
-      background:"linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)",
+      background:"var(--fx-grad,linear-gradient(135deg,#1a1a2e,#16213e,#0f3460))",
       border:"3px solid #FFD700",borderRadius:24,padding:"36px 32px",
       maxWidth:320,width:"90%",textAlign:"center",
       boxShadow:"0 0 60px rgba(255,215,0,0.4), 0 20px 60px rgba(0,0,0,0.5)",
@@ -4877,7 +4962,7 @@ function GemVaultDrawerImpl({member, logs, onClose}){
       <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
 
       {/* Drawer header */}
-      <div style={{background:"linear-gradient(135deg,#1a1a2e,#16213e)",padding:"20px 20px 16px",flexShrink:0}}>
+      <div style={{background:"var(--fx-grad,linear-gradient(135deg,#1a1a2e,#16213e))",padding:"20px 20px 16px",flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <span style={{fontSize:26}}><Face m={member}/></span>
@@ -4967,7 +5052,7 @@ function GemVaultCard({member, logs}){
   return <>
     {/* Compact card — tap to open drawer */}
     <div onClick={()=>setShowDrawer(true)} style={{
-      background:"linear-gradient(135deg,#1a1a2e,#16213e)",
+      background:"var(--fx-grad,linear-gradient(135deg,#1a1a2e,#16213e))",
       border:"1.5px solid #2a2a4e",borderRadius:16,marginBottom:12,
       padding:"14px 16px",cursor:"pointer",
     }}>
@@ -5035,7 +5120,7 @@ function GapTrackerCard({member, target, logs}){
   </div>;
 
   return <div style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,marginBottom:12,overflow:"hidden"}}>
-    <div onClick={()=>setExpanded(e=>!e)} style={{padding:"12px 16px",cursor:"pointer",background:"linear-gradient(135deg,#1a1a2e,#16213e)",
+    <div onClick={()=>setExpanded(e=>!e)} style={{padding:"12px 16px",cursor:"pointer",background:"var(--fx-grad,linear-gradient(135deg,#1a1a2e,#16213e))",
       display:"flex",alignItems:"center",justifyContent:"space-between"}}>
       <div>
         <div style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.5)",letterSpacing:0.5,marginBottom:2}}>🏃 GAP TRACKER</div>
@@ -5811,7 +5896,7 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
       <div style={{display:"flex",gap:8}}>
         {!isNew&&<button onClick={()=>{if(window.confirm("Remove?"))onDelete(member.id);}} style={{padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",cursor:"pointer",color:C.missed,fontWeight:600}}>Delete</button>}
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>{setGapVisibleOnDevice(gapOnThisDevice);onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,illnessEnabled,stackPoints,chaseTarget,...(pin?{pin}:{}),...(photo?{photo}:{}),...(member?.memberLook?{memberLook:member.memberLook}:{})});}} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
+        <button onClick={()=>{setGapVisibleOnDevice(gapOnThisDevice);onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,illnessEnabled,stackPoints,chaseTarget,...(pin?{pin}:{}),...(photo?{photo}:{}),...(member?.memberLook?{memberLook:member.memberLook}:{}),...(member?.memberLookAcc?{memberLookAcc:member.memberLookAcc}:{}),...(member?.memberCustom?{memberCustom:member.memberCustom}:{})});}} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
       </div>
     </div>
   </div>;
@@ -7445,7 +7530,7 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
               const lv=getLevel(s.pp.total);
               return <div key={s.m.id} style={{
                 flex:1,minWidth:140,padding:"12px 16px",borderRadius:12,
-                background:i===0?"linear-gradient(135deg,#1a1a2e,#16213e)":C.bg,
+                background:i===0?"var(--fx-grad,linear-gradient(135deg,#1a1a2e,#16213e))":C.bg,
                 border:`2px solid ${i===0?"#FFD700":C.border}`,
               }}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
@@ -7849,103 +7934,154 @@ const BackupDrawer=withSlide(BackupDrawerImpl);
 // ── Look gallery: bottom tray with a swipeable carousel. Browsing previews live; Apply keeps it. ──
 const LOOK_TRAY_CSS=`
 .ff-tray{position:fixed;left:0;right:0;bottom:0;z-index:300;background:var(--card);color:var(--text);border-top:1px solid var(--line);
-  box-shadow:0 -12px 40px rgba(0,0,0,.22);border-radius:18px 18px 0 0;padding:14px 0 16px;animation:ffSlideUp .3s cubic-bezier(.2,.8,.2,1) both;}
+  box-shadow:0 -12px 40px rgba(0,0,0,.22);border-radius:18px 18px 0 0;padding:12px 0 14px;max-height:80vh;overflow-y:auto;animation:ffSlideUp .3s cubic-bezier(.2,.8,.2,1) both;}
 .ff-tray-closing{animation:ffSlideDown .2s ease both;}
 .ff-lk-track{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;padding:6px max(24px,calc(50% - 110px)) 10px;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
 .ff-lk-track::-webkit-scrollbar{display:none;}
 .ff-lk{flex:0 0 220px;scroll-snap-align:center;border:2px solid transparent;border-radius:16px;padding:0;background:none;cursor:pointer;text-align:left;color:inherit;transition:transform .2s ease,border-color .2s ease,opacity .2s ease;opacity:.72;transform:scale(.94);}
 .ff-lk[aria-pressed="true"]{border-color:var(--accent);opacity:1;transform:scale(1);}
-.ff-lk-arrow{position:absolute;top:92px;width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:18px;cursor:pointer;z-index:2;box-shadow:0 2px 8px rgba(0,0,0,.2);}
+.ff-lk-arrow{position:absolute;top:84px;width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:18px;cursor:pointer;z-index:2;box-shadow:0 2px 8px rgba(0,0,0,.2);}
+.ff-tab{height:32px;padding:0 14px;border-radius:99px;border:1px solid var(--line);background:transparent;color:var(--text);font-weight:700;font-size:13px;cursor:pointer;}
+.ff-tab[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent);}
+.ff-sw{width:28px;height:28px;border-radius:50%;border:2px solid var(--line);cursor:pointer;padding:0;transition:transform .15s ease;}
+.ff-sw[aria-pressed="true"]{border-color:var(--text);transform:scale(1.18);box-shadow:0 0 0 2px var(--card),0 0 0 4px var(--text);}
+.ff-opt{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 0;border-bottom:1px solid var(--line);}
+.ff-opt:last-child{border-bottom:none;}
+.ff-switch{width:44px;height:26px;border-radius:99px;border:none;background:var(--empty);position:relative;cursor:pointer;flex-shrink:0;transition:background .2s;}
+.ff-switch::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35);transition:transform .2s;}
+.ff-switch[aria-checked="true"]{background:var(--accent);}
+.ff-switch[aria-checked="true"]::after{transform:translateX(18px);}
+.ff-seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r-chip,10px);overflow:hidden;}
+.ff-seg button{height:32px;padding:0 12px;border:none;background:transparent;color:var(--text);font-size:12px;font-weight:700;cursor:pointer;}
+.ff-seg button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);}
 @media (max-width:700px){.ff-lk-arrow{display:none;}}
-@media (prefers-reduced-motion:reduce){.ff-tray,.ff-lk{animation:none !important;transition:none !important;}}
+@media (prefers-reduced-motion:reduce){.ff-tray,.ff-lk,.ff-switch::after{animation:none !important;transition:none !important;}}
 `;
-function LookMock({id,mode}){
-  const L=findLook(id);
-  const isStudio=L.id==="studio";
-  const t=isStudio?{bg:mode==="dark"?"#0D0F14":"#F5F6F8",card:mode==="dark"?"#151922":"#FFFFFF",line:mode==="dark"?"#262C38":"#E4E7EC",text:mode==="dark"?"#EDEFF4":"#12141A",muted:mode==="dark"?"#98A1B2":"#5B6370",hero:mode==="dark"?"#1B2132":"#12141A",shadow:mode==="dark"?"0 1px 2px rgba(0,0,0,.4)":"0 1px 2px rgba(16,24,40,.05)",img:"none"}:L[mode==="dark"?"dark":"light"];
-  const acc=accentVars(isStudio?"#3D9E6E":L.accent[mode==="dark"?"dark":"light"],mode);
-  const bw=L.bw||"1px";
-  return <div aria-hidden="true" style={{background:t.bg,backgroundImage:t.img==="none"?"none":t.img,borderRadius:14,padding:12,height:150,boxSizing:"border-box",fontFamily:L.font||"Inter,system-ui,sans-serif",color:t.text,overflow:"hidden"}}>
-    <div style={{background:t.card,border:`${bw} solid ${t.line}`,borderRadius:L.rCard*0.6,boxShadow:t.shadow,padding:"8px 10px",marginBottom:8}}>
-      <div style={{fontSize:9,color:t.muted,fontWeight:700,letterSpacing:.6}}>POWER POINTS</div>
-      <div style={{fontSize:20,fontWeight:800,lineHeight:1.15}}>724,900</div>
-      <div style={{height:5,borderRadius:9,background:t.line,marginTop:5,overflow:"hidden"}}><div style={{width:"62%",height:"100%",background:acc["--accent"]}}/></div>
+const ALL_LOOKS=[...LOOKS,{id:"custom",name:"Custom",tag:"Your own colours"}];
+function LookMock({id,acc,custom,mode}){
+  const L=findLook(id,custom), isStudio=L.id==="studio", m=mode==="dark"?"dark":"light";
+  const t=isStudio?{bg:m==="dark"?"#0D0F14":"#F5F6F8",card:m==="dark"?"#151922":"#FFFFFF",line:m==="dark"?"#262C38":"#E4E7EC",text:m==="dark"?"#EDEFF4":"#12141A",muted:m==="dark"?"#98A1B2":"#5B6370",hero:m==="dark"?"#1B2132":"#12141A",shadow:m==="dark"?"0 1px 2px rgba(0,0,0,.4)":"0 1px 2px rgba(16,24,40,.05)",img:"none"}:L[m];
+  const accHex=isStudio?"#3D9E6E":(L.accents[acc|0]||L.accents[0])[m];
+  const av=accentVarsLook(accHex,mode,t.card), bw=L.bw||"1px", sd=!isStudio&&L.side?L.side[m]:null;
+  return <div aria-hidden="true" style={{display:"flex",background:t.bg,backgroundImage:t.img==="none"?"none":t.img,borderRadius:14,height:150,boxSizing:"border-box",fontFamily:L.font||"Inter,system-ui,sans-serif",color:t.text,overflow:"hidden"}}>
+    <div style={{width:26,background:sd?sd.bg:t.card,borderRight:`1px solid ${sd?sd.line:t.line}`,padding:"10px 5px",display:"flex",flexDirection:"column",gap:6}}>
+      <div style={{width:16,height:16,borderRadius:5,background:av["--accent"]}}/>
+      <div style={{height:6,borderRadius:3,background:sd?sd.soft:t.line}}/><div style={{height:6,borderRadius:3,background:sd?sd.muted:t.muted,opacity:.6}}/><div style={{height:6,borderRadius:3,background:sd?sd.muted:t.muted,opacity:.6}}/>
     </div>
-    <div style={{display:"flex",gap:6,alignItems:"center"}}>
-      <div style={{flex:1,background:t.hero,borderRadius:L.rChip*0.7,height:26,boxShadow:t.shadow}}/>
-      <div style={{background:acc["--accent"],color:acc["--on-accent"],borderRadius:L.rChip,padding:"6px 12px",fontSize:11,fontWeight:800,border:L.id==="arcade"?`${bw} solid ${t.line}`:"none"}}>＋ Log</div>
+    <div style={{flex:1,padding:12,minWidth:0}}>
+      <div style={{background:t.card,border:`${bw} solid ${t.line}`,borderRadius:L.rCard*0.6,boxShadow:t.shadow,padding:"8px 10px",marginBottom:8}}>
+        <div style={{fontSize:9,color:t.muted,fontWeight:700,letterSpacing:.6}}>POWER POINTS</div>
+        <div style={{fontSize:19,fontWeight:800,lineHeight:1.15}}>724,900</div>
+        <div style={{height:5,borderRadius:9,background:t.line,marginTop:5,overflow:"hidden"}}><div style={{width:"62%",height:"100%",background:av["--accent"]}}/></div>
+      </div>
+      <div style={{display:"flex",gap:6,alignItems:"center"}}>
+        <div style={{flex:1,background:t.hero,borderRadius:L.rChip*0.7,height:26,boxShadow:t.shadow}}/>
+        <div style={{background:av["--accent"],color:av["--on-accent"],borderRadius:L.rChip,padding:"6px 10px",fontSize:11,fontWeight:800,border:L.id==="arcade"?`${bw} solid ${t.line}`:"none"}}>＋ Log</div>
+      </div>
     </div>
   </div>;
 }
-function LookTray({initial,mode,personName,deviceLook,onPreview,onApplyPerson,onApplyDevice,onClearDevice,onClose}){
-  const startIdx=Math.max(0,LOOKS.findIndex(l=>l.id===initial));
+function LookTray({initial,mode,personName,deviceActive,lopts,onOpt,onPreview,onApplyPerson,onApplyDevice,onApplyAll,onClearDevice,onClose}){
+  const startIdx=Math.max(0,ALL_LOOKS.findIndex(l=>l.id===initial.id));
+  const[tab,setTab]=useState("looks");
   const[idx,setIdx]=useState(startIdx);
+  const[acc,setAcc]=useState(initial.acc|0);
+  const[custom,setCustom]=useState(()=>({...DEFAULT_CUSTOM,...(initial.custom||{})}));
+  const[confirmAll,setConfirmAll]=useState(false);
   const[closing,setClosing]=useState(false);
-  const trackRef=useRef(null);
-  const settle=useRef(null);
-  const cur=LOOKS[idx];
+  const trackRef=useRef(null), settle=useRef(null);
+  const cur=ALL_LOOKS[idx], curFull=findLook(cur.id,custom);
+  const selOf=(i,a,c)=>({id:ALL_LOOKS[i].id,acc:a,custom:ALL_LOOKS[i].id==="custom"?c:null});
   const choose=(i,scroll)=>{
-    const n=Math.max(0,Math.min(LOOKS.length-1,i));
-    setIdx(n); onPreview(LOOKS[n].id);
+    const n=Math.max(0,Math.min(ALL_LOOKS.length-1,i));
+    const a=ALL_LOOKS[n].id===initial.id?(initial.acc|0):0;
+    setIdx(n); setAcc(a); setConfirmAll(false); onPreview(selOf(n,a,custom));
     if(scroll&&trackRef.current){ const el=trackRef.current.children[n]; el&&el.scrollIntoView({inline:"center",block:"nearest",behavior:"smooth"}); }
   };
-  useEffect(()=>{ // open centred on the current look
-    const el=trackRef.current&&trackRef.current.children[startIdx]; if(el) el.scrollIntoView({inline:"center",block:"nearest"});
-  // eslint-disable-next-line
-  },[]);
+  const pickAcc=(k)=>{ setAcc(k); onPreview(selOf(idx,k,custom)); };
+  const setCol=(f,v)=>{ const nx={...custom,[f]:v}; setCustom(nx); onPreview(selOf(idx,0,nx)); };
+  useEffect(()=>{ const el=trackRef.current&&trackRef.current.children[startIdx]; if(el) el.scrollIntoView({inline:"center",block:"nearest"}); },[tab]); // eslint-disable-line
   const close=()=>{ setClosing(true); setTimeout(onClose,200); };
   useEffect(()=>{
-    const k=e=>{ if(e.key==="Escape") close(); else if(e.key==="ArrowRight") choose(idx+1,true); else if(e.key==="ArrowLeft") choose(idx-1,true); };
+    const k=e=>{ if(e.key==="Escape") close(); else if(tab==="looks"&&e.target.tagName!=="INPUT"){ if(e.key==="ArrowRight") choose(idx+1,true); else if(e.key==="ArrowLeft") choose(idx-1,true); } };
     window.addEventListener("keydown",k); return ()=>window.removeEventListener("keydown",k);
-  // eslint-disable-next-line
-  },[idx]);
+  },[idx,tab,acc,custom]); // eslint-disable-line
   const onScroll=()=>{
     clearTimeout(settle.current);
-    settle.current=setTimeout(()=>{ // after a swipe settles, preview the card nearest the middle
+    settle.current=setTimeout(()=>{
       const tr=trackRef.current; if(!tr) return;
       const mid=tr.getBoundingClientRect().left+tr.clientWidth/2; let best=0,bd=1e9;
       [...tr.children].forEach((c,i)=>{ const r=c.getBoundingClientRect(); const d=Math.abs(r.left+r.width/2-mid); if(d<bd){bd=d;best=i;} });
-      setIdx(best); onPreview(LOOKS[best].id);
+      if(best!==idx) choose(best,false);
     },120);
   };
   useEffect(()=>()=>clearTimeout(settle.current),[]);
-  const isDevice=deviceLook===cur.id;
+  const sel=selOf(idx,acc,custom);
+  const Sw=({k,label,checked})=><div className="ff-opt"><span style={{fontSize:14,fontWeight:600}}>{label}</span>
+    <button role="switch" aria-checked={checked} aria-label={label} data-testid={"opt-"+k} className="ff-switch" onClick={()=>onOpt(k,!checked)}/></div>;
+  const Seg=({k,label,val,opts})=><div className="ff-opt"><span style={{fontSize:14,fontWeight:600}}>{label}</span>
+    <div className="ff-seg" role="group" aria-label={label}>{opts.map(([v,t])=><button key={String(v)} aria-pressed={val===v} data-testid={"opt-"+k+"-"+v} onClick={()=>onOpt(k,v)}>{t}</button>)}</div></div>;
   return <div className={"ff-tray"+(closing?" ff-tray-closing":"")} role="dialog" aria-label="Choose a look" data-testid="look-tray">
     <style>{LOOK_TRAY_CSS}</style>
-    <div style={{display:"flex",alignItems:"center",gap:10,padding:"0 20px 4px"}}>
-      <div style={{fontWeight:800,fontSize:15}}>🎨 Looks</div>
-      <div style={{fontSize:12,color:"var(--muted)"}}>Swipe or use ← → to preview · nothing is saved until you apply</div>
-      <div style={{flex:1}}/>
-      <button className="ff-chip" onClick={close} aria-label="Close looks" data-testid="look-cancel">✕ Cancel</button>
+    <div style={{display:"flex",alignItems:"center",gap:8,padding:"0 20px 6px",flexWrap:"wrap"}}>
+      <div style={{fontWeight:800,fontSize:15}}>🎨</div>
+      <div role="tablist" style={{display:"flex",gap:6}}>
+        <button role="tab" className="ff-tab" aria-selected={tab==="looks"} data-testid="tab-looks" onClick={()=>setTab("looks")}>Looks</button>
+        <button role="tab" className="ff-tab" aria-selected={tab==="options"} data-testid="tab-options" onClick={()=>setTab("options")}>Options</button>
+      </div>
+      <div style={{fontSize:12,color:"var(--muted)",flex:"1 1 160px"}}>{tab==="looks"?"Swipe or use ← → to preview · nothing is saved until you apply":"These apply to this device straight away"}</div>
+      <button className="ff-chip" onClick={close} aria-label="Close looks" data-testid="look-cancel">{tab==="looks"?"✕ Cancel":"✓ Done"}</button>
     </div>
+    {tab==="looks"&&<>
     <div style={{position:"relative"}}>
       <button className="ff-lk-arrow" style={{left:10}} onClick={()=>choose(idx-1,true)} aria-label="Previous look" disabled={idx===0}>‹</button>
-      <button className="ff-lk-arrow" style={{right:10}} onClick={()=>choose(idx+1,true)} aria-label="Next look" disabled={idx===LOOKS.length-1}>›</button>
+      <button className="ff-lk-arrow" style={{right:10}} onClick={()=>choose(idx+1,true)} aria-label="Next look" disabled={idx===ALL_LOOKS.length-1}>›</button>
       <div className="ff-lk-track" ref={trackRef} onScroll={onScroll}>
-        {LOOKS.map((l,i)=>(
+        {ALL_LOOKS.map((l,i)=>(
           <button key={l.id} className="ff-lk" aria-pressed={i===idx} aria-label={l.name} data-look={l.id} onClick={()=>choose(i,true)}>
-            <LookMock id={l.id} mode={mode}/>
+            <LookMock id={l.id} acc={i===idx?acc:(l.id===initial.id?initial.acc|0:0)} custom={l.id==="custom"?custom:null} mode={mode}/>
             <div style={{padding:"8px 4px 2px",textAlign:"center"}}>
-              <div style={{fontWeight:800,fontSize:14}}>{l.name}{deviceLook===l.id&&<span title="Device override"> 📱</span>}</div>
+              <div style={{fontWeight:800,fontSize:14}}>{l.name}{l.seasonal&&<span title="Seasonal" style={{fontSize:11,marginLeft:4}}>🎉</span>}{deviceActive&&l.id===initial.id&&<span title="Device override"> 📱</span>}</div>
               <div style={{fontSize:11,color:"var(--muted)"}}>{l.tag}</div>
             </div>
           </button>
         ))}
       </div>
     </div>
-    <div style={{display:"flex",gap:8,justifyContent:"center",marginBottom:10}}>
-      {LOOKS.map((l,i)=><span key={l.id} style={{width:i===idx?18:7,height:7,borderRadius:9,background:i===idx?"var(--accent)":"var(--line)",transition:"all .2s"}}/>)}
+    <div style={{display:"flex",gap:8,justifyContent:"center",marginBottom:8}}>
+      {ALL_LOOKS.map((l,i)=><span key={l.id} style={{width:i===idx?18:7,height:7,borderRadius:9,background:i===idx?"var(--accent)":"var(--line)",transition:"all .2s"}}/>)}
+    </div>
+    <div style={{display:"flex",gap:10,justifyContent:"center",alignItems:"center",flexWrap:"wrap",padding:"0 20px",minHeight:34,marginBottom:8}} data-testid="accent-row">
+      {cur.id==="studio"&&<div style={{fontSize:12,color:"var(--muted)"}}>Studio uses the colour from the round colour button at the top.</div>}
+      {cur.id!=="studio"&&cur.id!=="custom"&&<><span style={{fontSize:12,color:"var(--muted)",fontWeight:700}}>Accent</span>
+        {curFull.accents.map((a,k)=><button key={a.n} className="ff-sw" aria-pressed={k===acc} aria-label={"Accent "+a.n} data-testid={"swatch-"+k} title={a.n} onClick={()=>pickAcc(k)} style={{background:a[mode==="dark"?"dark":"light"]}}/>)}</>}
+      {cur.id==="custom"&&<>{[["base","Page"],["accent","Accent"],["side","Sidebar"]].map(([f,lab])=>
+        <label key={f} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:700,color:"var(--muted)"}}>{lab}
+          <input type="color" aria-label={lab+" colour"} data-testid={"custom-"+f} value={okHex(custom[f],DEFAULT_CUSTOM[f])} onChange={e=>setCol(f,e.target.value)} style={{width:36,height:28,padding:0,border:"1px solid var(--line)",borderRadius:6,background:"none",cursor:"pointer"}}/></label>)}
+        <span style={{fontSize:11,color:"var(--muted)"}}>Text colours adjust automatically so it stays readable.</span></>}
     </div>
     <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap",padding:"0 20px"}}>
-      {personName&&<button onClick={()=>{onApplyPerson(cur.id);close();}} data-testid="look-apply-person"
+      {personName&&<button onClick={()=>{onApplyPerson(sel);close();}} data-testid="look-apply-person"
         style={{height:42,padding:"0 20px",borderRadius:"var(--r-chip,10px)",border:"none",background:"var(--accent)",color:"var(--on-accent)",fontWeight:800,fontSize:14,cursor:"pointer"}}>
         Use {cur.name} for {personName}</button>}
-      <button onClick={()=>{onApplyDevice(cur.id);close();}} data-testid="look-apply-device" className="ff-chip" style={{height:42,padding:"0 16px",fontSize:13,color:"var(--text)"}}>
+      <button onClick={()=>{onApplyDevice(sel);close();}} data-testid="look-apply-device" className="ff-chip" style={{height:42,padding:"0 16px",fontSize:13,color:"var(--text)"}}>
         📱 {personName?"Override on this device only":`Use ${cur.name} on this device`}</button>
-      {deviceLook&&<button onClick={()=>{onClearDevice();close();}} data-testid="look-clear-device" className="ff-chip" style={{height:42,padding:"0 16px",fontSize:13}}>Clear device override</button>}
+      <button data-testid="look-apply-all" className="ff-chip" style={{height:42,padding:"0 16px",fontSize:13,color:"var(--text)"}}
+        onClick={()=>{ if(!confirmAll){ setConfirmAll(true); setTimeout(()=>setConfirmAll(false),4000); } else { onApplyAll(sel); close(); } }}>
+        {confirmAll?"Tap again: set for everyone":"👨‍👩‍👧 Use for everyone"}</button>
+      {deviceActive&&<button onClick={()=>{onClearDevice();close();}} data-testid="look-clear-device" className="ff-chip" style={{height:42,padding:"0 16px",fontSize:13}}>Clear device override</button>}
     </div>
-    {personName&&<div style={{textAlign:"center",fontSize:11,color:"var(--muted)",marginTop:8}}>
-      "Use for {personName}" follows {personName} on every device. "Override" is just this phone or browser{isDevice?" (currently on)":""}.</div>}
+    {personName&&<div style={{textAlign:"center",fontSize:11,color:"var(--muted)",marginTop:8,padding:"0 20px"}}>
+      "Use for {personName}" follows {personName} on every device. "Override" is just this phone or browser.</div>}
+    </>}
+    {tab==="options"&&<div style={{padding:"0 24px",maxWidth:560,margin:"0 auto"}} data-testid="options-panel">
+      <Sw k="side" label="Coloured sidebar" checked={lopts.side}/>
+      <Sw k="auto" label="Auto looks: Diwali, Christmas, and Sunset in the evening" checked={lopts.auto}/>
+      <Sw k="lsound" label="Sounds match the look" checked={lopts.lsound}/>
+      <Sw k="tint" label="Match member colours to the look" checked={lopts.tint}/>
+      <Seg k="ts" label="Text size" val={lopts.ts} opts={[[100,"Normal"],[112,"Large"],[125,"Extra large"]]}/>
+      <Seg k="gap" label="Spacing" val={lopts.gap} opts={[["comfy","Comfortable"],["compact","Compact"]]}/>
+    </div>}
   </div>;
 }
 
@@ -8440,12 +8576,28 @@ export default function App(){
     mq.addEventListener?.("change",f); return ()=>mq.removeEventListener?.("change",f);
   },[modePref]);
   const mode=resolveMode(modePref); void sysTick;
-  const[deviceLook,setDeviceLook]=useState(()=>{ try{ const v=localStorage.getItem("ff_look"); return LOOKS.some(l=>l.id===v)?v:""; }catch{ return ""; } });
+  const lsGet=(k,d)=>{ try{ const v=localStorage.getItem(k); return v===null?d:v; }catch{ return d; } };
+  const lsSet=(k,v)=>{ try{ if(v===null||v==="") localStorage.removeItem(k); else localStorage.setItem(k,String(v)); }catch{} };
+  const[deviceLook,setDeviceLook]=useState(()=>{ const v=lsGet("ff_look",""); return LOOK_IDS.includes(v)?v:""; });
+  const[deviceAcc,setDeviceAcc]=useState(()=>parseInt(lsGet("ff_look_acc","0"),10)||0);
+  const[deviceCustom,setDeviceCustom]=useState(()=>{ try{ return JSON.parse(lsGet("ff_look_custom","null")); }catch{ return null; } });
+  const[lopts,setLopts]=useState(()=>({side:lsGet("ff_side","on")!=="off",auto:lsGet("ff_look_auto","off")==="on",lsound:lsGet("ff_look_sound","on")!=="off",tint:lsGet("ff_tint","off")==="on",ts:[100,112,125].includes(parseInt(lsGet("ff_ts","100"),10))?parseInt(lsGet("ff_ts","100"),10):100,gap:lsGet("ff_gap","comfy")==="compact"?"compact":"comfy"}));
+  const LOPT_KEYS={side:["ff_side",v=>v?"on":"off"],auto:["ff_look_auto",v=>v?"on":"off"],lsound:["ff_look_sound",v=>v?"on":"off"],tint:["ff_tint",v=>v?"on":"off"],ts:["ff_ts",v=>v],gap:["ff_gap",v=>v]};
+  const setLopt=(k,v)=>{ setLopts(o=>({...o,[k]:v})); const [key,f]=LOPT_KEYS[k]; lsSet(key,f(v)); };
+  const[autoTick,setAutoTick]=useState(0);
+  useEffect(()=>{ if(!lopts.auto) return; const t=setInterval(()=>setAutoTick(x=>x+1),60000); return ()=>clearInterval(t); },[lopts.auto]);
   const[lookPreview,setLookPreview]=useState(null);
   const[showLooks,setShowLooks]=useState(false);
   const lookKeys=useRef([]);
-  const setDeviceLookPersist=(v)=>{ setDeviceLook(v); try{ if(v) localStorage.setItem("ff_look",v); else localStorage.removeItem("ff_look"); }catch{} };
-  const setPersonLook=(memberId,lookId)=>setMembers(p=>p.map(m=>m.id===memberId?{...m,memberLook:lookId==="studio"?"":lookId}:m));
+  const setDeviceSel=(sel)=>{
+    const id=(sel.id==="studio"&&!activeTab)?"":sel.id;
+    setDeviceLook(id); setDeviceAcc(sel.acc|0); setDeviceCustom(sel.custom||null);
+    lsSet("ff_look",id); lsSet("ff_look_acc",sel.acc?sel.acc:""); lsSet("ff_look_custom",sel.custom?JSON.stringify(sel.custom):"");
+  };
+  const clearDeviceSel=()=>{ setDeviceLook(""); setDeviceAcc(0); setDeviceCustom(null); lsSet("ff_look",""); lsSet("ff_look_acc",""); lsSet("ff_look_custom",""); };
+  const lookFields=(sel)=>({memberLook:sel.id==="studio"?"":sel.id,memberLookAcc:sel.acc?sel.acc:undefined,memberCustom:sel.id==="custom"&&sel.custom?sel.custom:undefined});
+  const setPersonSel=(memberId,sel)=>setMembers(p=>p.map(m=>m.id===memberId?{...m,...lookFields(sel)}:m));
+  const setAllSel=(sel)=>setMembers(p=>p.map(m=>({...m,...lookFields(sel)})));
   const[soundOn,setSoundOn]=useState(()=>SFX.on);
   const toggleSound=()=>{
     const nx=!soundOn; SFX.on=nx; setSoundOn(nx);
@@ -8462,20 +8614,29 @@ export default function App(){
   const _tabMember=activeTab?members.find(m=>m.id===activeTab):null;
   const _accentId=(_tabMember?.memberTheme)||theme;
   const _accentBase=(THEMES.find(t=>t.id===_accentId)||{}).accent||(String(_accentId).startsWith("#")?_accentId:THEMES[0].accent);
-  // Which look is showing: live preview > this device's override > this person's look > Studio
-  const lookId=lookPreview||deviceLook||(_tabMember&&_tabMember.memberLook&&LOOKS.some(l=>l.id===_tabMember.memberLook)?_tabMember.memberLook:"studio");
+  // Which look is showing: live preview > this device's override > auto (opt-in) > this person's look > Studio
+  const _pSel=(_tabMember&&LOOK_IDS.includes(_tabMember.memberLook))?{id:_tabMember.memberLook,acc:_tabMember.memberLookAcc|0,custom:_tabMember.memberCustom||null}:null;
+  void autoTick; const _autoId=lopts.auto?autoLookFor(new Date()):"";
+  const sel=lookPreview||(deviceLook?{id:deviceLook,acc:deviceAcc,custom:deviceCustom}:_autoId?{id:_autoId,acc:0,custom:null}:_pSel)||{id:"studio",acc:0,custom:null};
+  const lookId=sel.id, customKey=sel.custom?JSON.stringify(sel.custom):"";
+  const accHexNow=lookAccentHex(sel.id,mode,{acc:sel.acc,custom:sel.custom})||_accentBase;
+  // "Match member colours": a tinted copy used only for display; the saved colours are never changed.
+  const shown=useMemo(()=>lopts.tint?members.map(m=>(/^#[0-9a-fA-F]{6}$/.test(m.color||"")?{...m,color:mixHex(m.color,accHexNow,.55)}:m)):members,[members,lopts.tint,accHexNow]);
   useEffect(()=>{
     const el=document.documentElement;
     el.setAttribute("data-mode",mode);
     el.setAttribute("data-look",lookId);
-    const v={...accentVars(_accentBase,mode),...lookVars(lookId,mode)};
+    const v={...accentVars(_accentBase,mode),...lookVars(lookId,mode,{acc:sel.acc,custom:sel.custom,side:lopts.side})};
     lookKeys.current.forEach(k=>{ if(!(k in v)) el.style.removeProperty(k); });
     Object.keys(v).forEach(k=>el.style.setProperty(k,v[k]));
     lookKeys.current=Object.keys(v);
+    if(lopts.ts!==100) el.style.setProperty("--ts",String(lopts.ts/100)); else el.style.removeProperty("--ts");
+    if(lopts.gap==="compact"){ el.style.setProperty("--gap","10px"); el.style.setProperty("--gap2","12px"); } else { el.style.removeProperty("--gap"); el.style.removeProperty("--gap2"); }
+    SFX.voice=lopts.lsound?(findLook(lookId,sel.custom).voice||null):null;
     if(lookId!=="studio"&&!document.getElementById("ff-look-fonts")){
       const l=document.createElement("link"); l.id="ff-look-fonts"; l.rel="stylesheet"; l.href=LOOK_FONTS_HREF; document.head.appendChild(l);
     }
-  },[mode,_accentBase,lookId]);
+  },[mode,_accentBase,lookId,sel.acc,customKey,lopts.side,lopts.ts,lopts.gap,lopts.lsound]); // eslint-disable-line
   useEffect(()=>{
     let s=document.getElementById("ff-global-css");
     if(!s){ s=document.createElement("style"); s.id="ff-global-css"; document.head.appendChild(s); }
@@ -8526,20 +8687,20 @@ export default function App(){
     <aside className="ff-side" aria-label="People">
       <div className="ff-logo"><span className="ff-logo-mark">⚡</span><span>Family Fitness</span></div>
       <div className="ff-side-label">PEOPLE</div>
-      {members.map(m=>(
+      {shown.map(m=>(
         <button key={m.id} className="ff-nav" aria-label={m.name} aria-current={activeTab===m.id?"page":undefined}
           onClick={()=>{setActiveTab(m.id);setPpPanelFor(null);}}>
           <span className="ff-avatar" style={{background:m.color+"33",color:m.color}}><Face m={m} fill fallback={m.name.slice(0,1)}/></span>
           <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{m.name}</span>
         </button>
       ))}
-      <div className="ff-side-sep" style={{height:1,background:C.border,margin:"10px 6px"}}/>
+      <div className="ff-side-sep" style={{height:1,background:"var(--side-line,var(--line))",margin:"10px 6px"}}/>
       <button className="ff-nav" aria-label="Family" aria-current={activeTab===null?"page":undefined} onClick={()=>{setActiveTab(null);setPpPanelFor(null);}}>
-        <span className="ff-avatar" style={{background:"var(--accent-soft)"}}>👨‍👩‍👧</span><span>Family</span>
+        <span className="ff-avatar" style={{background:"var(--accent-soft)",color:"var(--accent-ink)"}}>👨‍👩‍👧</span><span>Family</span>
       </button>
       <div className="ff-side-grow" style={{flex:1}}/>
-      <button className="ff-nav ff-side-add" aria-label="Add member" onClick={()=>setEditM("new")} style={{color:"var(--accent-ink)",fontWeight:700}}>
-        <span className="ff-avatar" style={{background:"var(--accent-soft)"}}>＋</span><span>Add member</span>
+      <button className="ff-nav ff-side-add" aria-label="Add member" onClick={()=>setEditM("new")} style={{color:"var(--side-text,var(--accent-ink))",fontWeight:700}}>
+        <span className="ff-avatar" style={{background:"var(--accent-soft)",color:"var(--accent-ink)"}}>＋</span><span>Add member</span>
       </button>
     </aside>
     <div className="ff-main" style={{position:"relative"}}>
@@ -8589,10 +8750,10 @@ export default function App(){
       </div>}
 
       {/* Individual member tab */}
-      {activeTab&&members.filter(m=>m.id===activeTab).map(m=>(
+      {activeTab&&shown.filter(m=>m.id===activeTab).map(m=>(
         <div key={m.id} style={{display:"flex",gap:20,flexWrap:"wrap",alignItems:"flex-start"}}>
           <div key={m.id} className="ff-in-x" style={{flex:"1 1 460px",minWidth:0}}>
-            <MemberCard member={m} logs={logs} allMembers={members}
+            <MemberCard member={m} logs={logs} allMembers={shown}
               onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}
               onOpenPP={(id,view)=>{setPpPanelFor(id);setPpView(v=>({view:view||"main",n:v.n+1}));}} onGrowthSave={handleGrowthSave}
               onGkSave={handleGkSave} onGkUpdate={handleGkUpdate} onGkDelete={handleGkDelete} onBraverySave={handleBraverySave} onBraveryDelete={handleBraveryDelete} onBraveryUpdate={handleBraveryUpdate} onIllnessSave={handleIllnessSave} onIllnessDelete={handleIllnessDelete} onOlympiadSave={handleOlympiadSave} onOlympiadDelete={handleOlympiadDelete} onOlympiadUpdate={handleOlympiadUpdate} onGoldenGoalSave={handleGoldenGoalSave} onGoldenGoalDelete={handleGoldenGoalDelete} onDeleteEntry={handleDeleteEntry}/>
@@ -8604,18 +8765,20 @@ export default function App(){
       ))}
 
       {/* Family tab */}
-      {activeTab===null&&members.length>0&&<div key="family" className="ff-in-x"><FamilyDashboard members={members} logs={logs} yr={yr} mo={mo} MONTHS={MONTHS}/></div>}
+      {activeTab===null&&members.length>0&&<div key="family" className="ff-in-x"><FamilyDashboard members={shown} logs={logs} yr={yr} mo={mo} MONTHS={MONTHS}/></div>}
     </div>
 
-    {showLooks&&<LookTray initial={lookId} mode={mode} personName={activeMember?activeMember.name:null} deviceLook={deviceLook}
+    {showLooks&&<LookTray initial={sel.id==="studio"&&lookPreview?{id:"studio",acc:0,custom:null}:(deviceLook?{id:deviceLook,acc:deviceAcc,custom:deviceCustom}:(_pSel||{id:"studio",acc:0,custom:null}))} mode={mode} personName={activeMember?activeMember.name:null} deviceActive={!!deviceLook}
+      lopts={lopts} onOpt={setLopt}
       onPreview={setLookPreview}
-      onApplyPerson={(id)=>{ if(activeMember){ setPersonLook(activeMember.id,id); } setLookPreview(null); }}
-      onApplyDevice={(id)=>{ setDeviceLookPersist(id==="studio"&&!activeMember?"":id); setLookPreview(null); }}
-      onClearDevice={()=>{ setDeviceLookPersist(""); setLookPreview(null); }}
+      onApplyPerson={(x)=>{ if(activeMember){ setPersonSel(activeMember.id,x); } setLookPreview(null); }}
+      onApplyDevice={(x)=>{ setDeviceSel(x); setLookPreview(null); }}
+      onApplyAll={(x)=>{ setAllSel(x); setLookPreview(null); }}
+      onClearDevice={()=>{ clearDeviceSel(); setLookPreview(null); }}
       onClose={()=>{ setShowLooks(false); setLookPreview(null); }}/>}
     {celebration&&<CelebrationScreen badge={celebration} memberName={celebration.memberName} onClose={()=>setCelebration(null)}/>}
     {toasts.length>0&&<Toast badge={toasts[0]} onDismiss={()=>setToasts(q=>q.slice(1))}/>}
-    {editM&&<EditModal member={editM==="new"?null:editM} isNew={editM==="new"} allMembers={members} onSave={handleSave} onDelete={handleDel} onClose={()=>setEditM(null)}/>}
+    {editM&&<EditModal member={editM==="new"?null:(members.find(x=>x.id===editM.id)||editM)} isNew={editM==="new"} allMembers={members} onSave={handleSave} onDelete={handleDel} onClose={()=>setEditM(null)}/>}
     </div>
   </div>;
 }
