@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, Component } from "react";
 
 // ── Palette ───────────────────────────────────────────────────────────────────
 // Core colours are CSS variables so one switch flips the whole app between light and dark.
@@ -418,7 +418,9 @@ const UNIT_OPTIONS=[
 ];
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
+let _asOf=null; // Month Wrapped only: briefly pins "today" to a past date while it computes, then restores it
 function todayStr(){
+  if(_asOf) return _asOf;
   const d=new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
@@ -5274,7 +5276,7 @@ function CountUp({value}){
   },[value]);
   return <>{shown.toLocaleString()}</>;
 }
-function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onGkUpdate,onGkDelete,onBraverySave,onBraveryDelete,onBraveryUpdate,onIllnessSave,onIllnessDelete,onOlympiadSave,onOlympiadDelete,onOlympiadUpdate,onGoldenGoalSave,onGoldenGoalDelete,onDeleteEntry}){
+function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onGkUpdate,onGkDelete,onBraverySave,onBraveryDelete,onBraveryUpdate,onIllnessSave,onIllnessDelete,onOlympiadSave,onOlympiadDelete,onOlympiadUpdate,onGoldenGoalSave,onGoldenGoalDelete,onDeleteEntry,onWrapped}){
   const today=todayStr();
   const[showCal,setShowCal]=useState(true);
   const[showBadges,setShowBadges]=useState(false);
@@ -5353,6 +5355,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
     <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
       <span style={{fontSize:12,color:C.muted}}><span style={{fontWeight:700,color:C.text}}>{allEarned.size + levelCount}</span> / {personalBadges.length + PP_LEVELS.length} badges earned</span>
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        {onWrapped&&<button data-testid="wr-open" onClick={()=>onWrapped(member.id,year,month)} title={`${MONTHS_LONG[month]} ${year} Wrapped`} style={{background:"linear-gradient(120deg,#5B21B6,#BE185D)",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:700,fontSize:12,color:"#FFFFFF"}}>🎁 Wrapped</button>}
         <button onClick={()=>setShowStats(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:C.muted}}>📊 Stats</button>
         <button onClick={()=>setShowGrowth(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:C.muted}}>📏 Growth</button>
         {member.gkEnabled&&<button onClick={()=>setShowGK(true)} style={{background:"none",border:"1px solid #7E57C2",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontSize:12,color:"#7E57C2"}}>🧠 GK</button>}
@@ -8415,6 +8418,562 @@ function FamilyDoor({members,theme,onEnter,onClearPin}){
   </div>;
 }
 
+// ── Month Wrapped: a Spotify-style story review of one month. Read-only — it only reads logs, never saves. ──
+const MONTHS_LONG=["January","February","March","April","May","June","July","August","September","October","November","December"];
+const WR_SEEN_KEY="ff_wrapped_seen";
+function withAsOf(ds,fn){ const prev=_asOf; _asOf=ds; try{ return fn(); } finally{ _asOf=prev; } }
+function _wrYmd(y,m,d){ return `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`; }
+function _wrN(n){ return Math.round(n||0).toLocaleString("en-US"); }
+function _wrVol(v,unit){ return formatVol((unit==="km"||unit==="miles")?(+v||0):Math.round(+v||0),unit); }
+function _wrDate(ds,opt){ return new Date(ds+"T12:00:00").toLocaleDateString("en-GB",opt||{day:"numeric",month:"short"}); }
+const _WR_DATE_RE=/^\d{4}-\d{2}-\d{2}$/;
+function _wrFirstLog(member,logs){
+  let f=null;
+  for(const a of member.activities||[]) for(const [d,l] of Object.entries(getActivityLogs(logs,member.id,a.id))) if(l&&_WR_DATE_RE.test(d)&&(!f||d<f)) f=d;
+  if(f&&member.startDate&&member.startDate>f) f=member.startDate;
+  return f;
+}
+// month window: start, end (today for the current month), or null for a future month
+function _wrWindow(y,m){
+  const real=todayStr(), S=_wrYmd(y,m,1), last=_wrYmd(y,m,daysInMonth(y,m));
+  if(S>real) return null;
+  return {S,E:last<real?last:real,last,partial:last>real};
+}
+function wrActiveDays(member,logs,y,m){
+  const w=_wrWindow(y,m); if(!w) return 0;
+  const first=_wrFirstLog(member,logs); if(!first) return 0;
+  let n=0;
+  for(let d=1;d<=daysInMonth(y,m);d++){ const ds=_wrYmd(y,m,d); if(ds>w.E) break; if(ds>=first&&dayStatus(member,logs,ds)==="done") n++; }
+  return n;
+}
+function _wrBadgeSet(member,allMembers,logs){
+  const acts=member.activities||[];
+  const fs=computeFamStats(allMembers,logs);
+  const ov=(member.alternating&&acts.length>1)?computeMemberLevelStats(member,logs):{};
+  return new Set(acts.flatMap(a=>earnedBadges(getActivityLogs(logs,member.id,a.id),a.target,a.unit,{...fs,...ov})));
+}
+function wrPersona(st){
+  const pct=st.denom?st.active/st.denom:0;
+  const busyActs=st.acts.filter(a=>a.days>=4).length;
+  if(st.active===0) return {e:"🌱",title:"Fresh Start",line:"A new month is a clean page."};
+  if(pct>=0.95&&st.elapsed>=20) return {e:"⚡",title:"The Unstoppable",line:"Showed up nearly every single day."};
+  if(st.pbs.length>=3) return {e:"🏆",title:"Record Breaker",line:`${st.pbs.length} personal bests in one month.`};
+  if(st.streak.len>=14) return {e:"🔥",title:"Streak Machine",line:`${st.streak.len} days in a row.`};
+  if(busyActs>=3) return {e:"🎯",title:"All-Rounder",line:`Mixed it up across ${busyActs} activities.`};
+  if(st.weekendShare>=0.5&&st.active>=4) return {e:"⚔️",title:"Weekend Warrior",line:"Saturdays and Sundays were your thing."};
+  if(pct>=0.7) return {e:"🧗",title:"Steady Climber",line:"Consistent, week after week."};
+  if(st.prevActive!=null&&st.active-st.prevActive>=3) return {e:"🌟",title:"Comeback Star",line:"Far more active than last month."};
+  if(st.pbs.length>=1) return {e:"🚀",title:"Rising Star",line:"Set a new personal best."};
+  return {e:"🌱",title:"Getting Going",line:"Every journey starts with a few steps."};
+}
+function wrappedMember(member,allMembers,logs,y,m){
+  const w=_wrWindow(y,m); if(!w) return null;
+  const {S,E,partial}=w;
+  const acts=member.activities||[];
+  const first=_wrFirstLog(member,logs);
+  const dim=daysInMonth(y,m);
+  const days=[];
+  for(let d=1;d<=dim;d++){
+    const ds=_wrYmd(y,m,d);
+    const s=ds>E?"future":(!first||ds<first)?"before":dayStatus(member,logs,ds);
+    days.push({ds,d,s});
+  }
+  const live=days.filter(x=>x.s!=="future"&&x.s!=="before");
+  const active=live.filter(x=>x.s==="done").length;
+  const elapsed=live.length;
+  const ill=getIllnessLog(logs,member.id);
+  const illness=live.filter(x=>ill[x.ds]&&x.s!=="done").length;
+  const denom=Math.max(active,elapsed-illness);
+  // per activity
+  const actStats=acts.map(a=>{
+    const al=getActivityLogs(logs,member.id,a.id);
+    let daysDone=0,vol=0,best=0,prior=0;
+    for(const [d,l] of Object.entries(al)){
+      if(!l||!_WR_DATE_RE.test(d)||l.status==="skipped") continue;
+      const top=Math.max(0,...(l.sessions&&l.sessions.length>0?l.sessions:[l.value||0]).map(v=>+v||0));
+      if(d<S){ if(top>prior) prior=top; continue; }
+      if(d>E) continue;
+      if(l.status==="shielded"||!((+l.value||0)>0)) continue;
+      daysDone++; vol+=(+l.value||0); if(top>best) best=top;
+    }
+    return {id:a.id,name:a.name,unit:a.unit,days:daysDone,vol,best,prior};
+  });
+  const ranked=[...actStats].filter(a=>a.days>0).sort((a,b)=>b.days-a.days||b.vol-a.vol);
+  const pbs=actStats.filter(a=>a.prior>0&&a.best>a.prior).map(a=>({name:a.name,unit:a.unit,value:a.best,prev:a.prior}));
+  let close=null;
+  if(!pbs.length){
+    for(const a of actStats) if(a.prior>0&&a.best>0){ const r=a.best/a.prior; if(r>=0.8&&(!close||r>close.r)) close={name:a.name,unit:a.unit,value:a.best,record:a.prior,r}; }
+  }
+  // longest run (shield days keep a run going, like the app's streaks)
+  let streak={len:0,from:null,to:null,shields:0},run=0,runFrom=null,runSh=0;
+  for(const x of days){
+    if(x.s==="done"||x.s==="shielded"){ if(!run){ runFrom=x.ds; runSh=0; } run++; if(x.s==="shielded") runSh++; if(run>streak.len) streak={len:run,from:runFrom,to:x.ds,shields:runSh}; }
+    else run=0;
+  }
+  // power day: the weekday with the best hit rate (only when one clearly stands out)
+  const wd=[0,0,0,0,0,0,0], wn=[0,0,0,0,0,0,0];
+  for(const x of live){ const k=new Date(x.ds+"T12:00:00").getDay(); wn[k]++; if(x.s==="done") wd[k]++; }
+  const rate=wd.map((v,k)=>wn[k]?v/wn[k]:0);
+  const order=[0,1,2,3,4,5,6].sort((a,b)=>rate[b]-rate[a]||wd[b]-wd[a]);
+  const favIdx=(rate[order[0]]>rate[order[1]]&&wd[order[0]]>=2)?order[0]:-1;
+  const weekendShare=active?(wd[0]+wd[6])/active:0;
+  // Power Points as they stood at the end of the window
+  const pp=withAsOf(E,()=>computePowerPoints(member,logs));
+  let earned=0,bestDay=null;
+  for(const [d,v] of Object.entries(pp.dailyEarned||{})) if(d>=S&&d<=E){ earned+=(v||0); if(v>0&&(!bestDay||v>bestDay.pp)) bestDay={ds:d,pp:v}; }
+  const levels=(pp.levelHistory||[]).filter(l=>l.date>=S&&l.date<=E);
+  // badges and gems: what was earned by the end of the month that wasn't earned the day before it began
+  const dayBefore=_addDaysStr(S,-1);
+  const bEnd=withAsOf(E,()=>_wrBadgeSet(member,allMembers,logs));
+  const bStart=withAsOf(dayBefore,()=>_wrBadgeSet(member,allMembers,logs));
+  const badges=BADGES.filter(b=>bEnd.has(b.id)&&!bStart.has(b.id));
+  const gEnd=withAsOf(E,()=>computeGemVault(member,logs))||{};
+  const gStart=withAsOf(dayBefore,()=>computeGemVault(member,logs))||{};
+  const gems=GEM_DEFS.map(g=>({id:g.id,icon:g.icon,name:g.name,n:(gEnd[g.id]||0)-(gStart[g.id]||0)})).filter(g=>g.n>0);
+  let eggs=0;
+  if(member.eggMeter) for(const [d,c] of Object.entries(getEggLogs(logs,member.id))) if(d>=S&&d<=E) eggs+=(c||0);
+  const inWin=e=>e&&e.date&&e.date>=S&&e.date<=E;
+  const gkE=member.gkEnabled?getGkEntries(logs,member.id).filter(inWin):[];
+  const brE=member.braveryEnabled?getBraveryLog(logs,member.id).filter(e=>inWin(e)&&e.points>0):[];
+  const pm=m===0?11:m-1, py=m===0?y-1:y;
+  const prevActive=(first&&_wrYmd(py,pm,daysInMonth(py,pm))>=first)?wrActiveDays(member,logs,py,pm):null;
+  const st={member,y,m,label:`${MONTHS_LONG[m]} ${y}`,monthName:MONTHS_LONG[m],partial,S,E,days,active,elapsed,illness,denom,
+    acts:actStats,ranked,top:ranked[0]||null,pbs,close,streak,favDay:favIdx>=0?DAYS[favIdx]:null,favCount:favIdx>=0?wd[favIdx]:0,favOf:favIdx>=0?wn[favIdx]:0,weekendShare,
+    pp:{earned:Math.round(earned),bestDay,levels,total:pp.total},badges,gems,eggs,
+    gk:{n:gkE.length,pts:gkE.reduce((s,e)=>s+(e.points||0),0)},brave:{n:brE.length,pts:brE.reduce((s,e)=>s+(e.points||0),0)},
+    prevActive,prevName:MONTHS_LONG[pm]};
+  st.persona=wrPersona(st);
+  return st;
+}
+function wrappedFamily(members,logs,y,m){
+  const w=_wrWindow(y,m); if(!w) return null;
+  const sts=members.filter(x=>(x.activities||[]).length).map(x=>wrappedMember(x,members,logs,y,m)).filter(Boolean);
+  const tracking=sts.filter(s=>s.elapsed>0);
+  let allIn=0,longest=0,run=0;
+  if(tracking.length>=2){
+    for(let i=0;i<daysInMonth(y,m);i++){
+      const ds=_wrYmd(y,m,i+1); if(ds>w.E) break;
+      const all=tracking.every(s=>s.days[i].s==="done");
+      if(all){ allIn++; run++; if(run>longest) longest=run; } else run=0;
+    }
+  }
+  return {kind:"family",y,m,label:`${MONTHS_LONG[m]} ${y}`,monthName:MONTHS_LONG[m],partial:w.partial,members:sts,
+    combined:sts.reduce((s,x)=>s+x.active,0),allIn,longest,many:tracking.length>=2,
+    pp:sts.reduce((s,x)=>s+x.pp.earned,0),pbs:sts.reduce((s,x)=>s+x.pbs.length,0),eggs:sts.reduce((s,x)=>s+x.eggs,0)};
+}
+
+// ── Wrapped player (story cards) ──
+const WR_BG={
+  intro:"linear-gradient(160deg,#3B0764 0%,#831843 100%)",
+  days:"linear-gradient(160deg,#064E3B 0%,#164E63 100%)",
+  top:"linear-gradient(160deg,#1E3A8A 0%,#5B21B6 100%)",
+  streak:"linear-gradient(160deg,#7C2D12 0%,#991B1B 100%)",
+  pb:"linear-gradient(160deg,#422006 0%,#713F12 100%)",
+  pp:"linear-gradient(160deg,#312E81 0%,#1E40AF 100%)",
+  loot:"linear-gradient(160deg,#4A044E 0%,#6B21A8 100%)",
+  fav:"linear-gradient(160deg,#134E4A 0%,#365314 100%)",
+  vs:"linear-gradient(160deg,#0C4A6E 0%,#134E4A 100%)",
+  persona:"linear-gradient(160deg,#701A75 0%,#9F1239 100%)",
+  summary:"linear-gradient(160deg,#0F172A 0%,#312E81 100%)",
+};
+const WR_CSS=`
+.wr-ov{position:fixed;inset:0;z-index:400;background:rgba(3,6,20,.86);display:flex;align-items:center;justify-content:center;
+  font-family:'Space Grotesk',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;animation:wrFade .25s ease both;}
+.wr-frame{position:relative;width:min(430px,100vw);height:min(880px,100dvh);overflow:hidden;color:#fff;border-radius:22px;
+  box-shadow:0 30px 80px rgba(0,0,0,.5);user-select:none;-webkit-user-select:none;touch-action:manipulation;}
+@media (max-width:520px){.wr-frame{width:100vw;height:100dvh;border-radius:0;}}
+.wr-card{position:absolute;inset:0;overflow:hidden;}
+.wr-blob{position:absolute;border-radius:50%;filter:blur(40px);opacity:.22;animation:wrFloat 9s ease-in-out infinite alternate;pointer-events:none;}
+.wr-body{position:absolute;inset:0;padding:78px 26px 30px;display:flex;flex-direction:column;justify-content:center;gap:10px;}
+.wr-k{font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.9);}
+.wr-big{font-size:clamp(64px,22vw,104px);font-weight:800;line-height:.95;letter-spacing:-.03em;}
+.wr-h{font-size:clamp(28px,8.4vw,40px);font-weight:800;line-height:1.08;letter-spacing:-.015em;}
+.wr-p{font-size:17px;line-height:1.45;color:rgba(255,255,255,.92);font-weight:500;}
+.wr-s{font-size:14px;line-height:1.4;color:rgba(255,255,255,.9);}
+.wr-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-radius:14px;background:rgba(0,0,0,.28);}
+.wr-up{opacity:0;animation:wrUp .55s cubic-bezier(.2,.8,.2,1) forwards;}
+.wr-pop{opacity:0;animation:wrPop .6s cubic-bezier(.2,1.4,.4,1) forwards;}
+.wr-bars{position:absolute;top:12px;left:12px;right:12px;display:flex;gap:4px;z-index:3;}
+.wr-bar{flex:1;height:3px;border-radius:3px;background:rgba(255,255,255,.32);overflow:hidden;}
+.wr-bar>i{display:block;height:100%;background:#fff;width:0;}
+.wr-bar.done>i{width:100%;}
+.wr-bar.on>i{animation:wrFill var(--wr-dur,6500ms) linear forwards;}
+.wr-paused .wr-bar.on>i,.wr-paused .wr-blob{animation-play-state:paused;}
+.wr-head{position:absolute;top:24px;left:16px;right:10px;display:flex;align-items:center;justify-content:space-between;z-index:3;gap:8px;}
+.wr-who{font-size:13px;font-weight:700;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.6);display:flex;align-items:center;gap:6px;min-width:0;}
+.wr-x{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.35);color:#fff;width:36px;height:36px;border-radius:50%;font-size:18px;cursor:pointer;line-height:1;}
+.wr-tap{position:absolute;inset:0;z-index:2;}
+.wr-btn{background:#fff;color:#111827;border:none;border-radius:999px;padding:12px 18px;font-weight:800;font-size:15px;cursor:pointer;font-family:inherit;}
+.wr-btn2{background:rgba(0,0,0,.3);color:#fff;border:1.5px solid rgba(255,255,255,.7);border-radius:999px;padding:11px 16px;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit;}
+.wr-cal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;max-width:300px;}
+.wr-cal>span{aspect-ratio:1;border-radius:7px;}
+.wr-tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.wr-tile{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);border-radius:16px;padding:12px 13px;min-width:0;}
+.wr-tile b{display:block;font-size:24px;font-weight:800;line-height:1.15;overflow-wrap:break-word;}
+.wr-tile span{display:block;font-size:12px;color:rgba(255,255,255,.92);font-weight:600;margin-top:3px;}
+.wr-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:4;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3);color:#fff;width:44px;height:44px;border-radius:50%;font-size:20px;cursor:pointer;}
+@media (max-width:900px){.wr-nav{display:none;}}
+@keyframes wrFade{from{opacity:0}to{opacity:1}}
+@keyframes wrUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+@keyframes wrPop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
+@keyframes wrFill{from{width:0}to{width:100%}}
+@keyframes wrFloat{from{transform:translate(0,0) scale(1)}to{transform:translate(24px,-30px) scale(1.15)}}
+@media (prefers-reduced-motion:reduce){.wr-up,.wr-pop{animation:none;opacity:1;}.wr-blob{animation:none;}.wr-ov{animation:none;}}
+`;
+function _wrReduce(){ try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch{ return false; } }
+function WrCount({to,fmt=_wrN,dur=1000}){
+  const reduce=_wrReduce();
+  const[v,setV]=useState(reduce?to:0);
+  useEffect(()=>{
+    if(reduce){ setV(to); return; }
+    let raf=0,t0=0;
+    const step=t=>{ if(!t0) t0=t; const p=Math.min(1,(t-t0)/dur); setV(p>=1?to:to*(1-Math.pow(1-p,3))); if(p<1) raf=requestAnimationFrame(step); };
+    raf=requestAnimationFrame(step);
+    return ()=>cancelAnimationFrame(raf);
+  },[to]); // eslint-disable-line
+  return <>{fmt(v)}</>;
+}
+const _d=(n)=>({animationDelay:`${n*0.14}s`});
+function WrCard({bg,blobs,children}){
+  const B=blobs||["#F472B6","#60A5FA"];
+  return <div className="wr-card" style={{background:bg}}>
+    <div className="wr-blob" style={{width:260,height:260,background:B[0],top:-60,right:-70}}/>
+    <div className="wr-blob" style={{width:220,height:220,background:B[1],bottom:-50,left:-60,animationDelay:"-4s"}}/>
+    <div className="wr-body">{children}</div>
+  </div>;
+}
+function _wrDaysLine(st){
+  const p=st.denom?st.active/st.denom:0;
+  if(p>=0.9) return "Almost every single day. Wow.";
+  if(p>=0.7) return "More days on than off. That's a habit.";
+  if(p>=0.4) return "Showing up again and again.";
+  return "Every day counts. Here's to more of them.";
+}
+function wrMemberCards(st){
+  const M=st.member, so=st.partial?" so far":"";
+  const cards=[];
+  cards.push({id:"intro",dur:5000,el:<WrCard bg={WR_BG.intro} blobs={["#F0ABFC","#FB7185"]}>
+    <div className="wr-pop" style={{fontSize:76,lineHeight:1}}>{M.emoji||"⭐"}</div>
+    <div className="wr-k wr-up" style={_d(1)}>{M.name}'s</div>
+    <div className="wr-big wr-up" style={{..._d(2),fontSize:"clamp(52px,17vw,84px)"}}>{st.monthName}</div>
+    <div className="wr-h wr-up" style={_d(3)}>Wrapped{st.partial?" (so far)":""}</div>
+    <div className="wr-p wr-up" style={_d(5)}>{st.active?"Let's look back at your month.":"Nothing logged yet this month."}</div>
+    <div className="wr-s wr-up" style={{..._d(7),marginTop:18}}>Tap the right side to go on →</div>
+  </WrCard>});
+  if(!st.active){
+    cards.push({id:"empty",dur:6000,el:<WrCard bg={WR_BG.fav} blobs={["#86EFAC","#5EEAD4"]}>
+      <div className="wr-pop" style={{fontSize:70}}>🌱</div>
+      <div className="wr-h wr-up" style={_d(1)}>A quiet {st.monthName}{so}.</div>
+      <div className="wr-p wr-up" style={_d(2)}>No activity was logged. A new day is a fresh start.</div>
+    </WrCard>});
+    return cards;
+  }
+  const dot=s=>s==="done"?{background:"#FFFFFF"}:s==="shielded"?{background:"#93C5FD"}:(s==="future"||s==="before")?{border:"1.5px dashed rgba(255,255,255,.28)"}:{background:"rgba(255,255,255,.2)"};
+  const lead=new Date(st.S+"T12:00:00").getDay();
+  cards.push({id:"days",el:<WrCard bg={WR_BG.days} blobs={["#6EE7B7","#67E8F9"]}>
+    <div className="wr-k wr-up">You moved on</div>
+    <div className="wr-big wr-up" data-testid="wr-active" style={_d(1)}><WrCount to={st.active}/></div>
+    <div className="wr-h wr-up" style={_d(2)}>{st.active===1?"day":"days"}{so}</div>
+    <div className="wr-p wr-up" style={_d(3)}>out of {st.denom}{st.illness?` (plus ${st.illness} sick ${st.illness===1?"day":"days"} off)`:""}. {_wrDaysLine(st)}</div>
+    <div className="wr-cal wr-up" style={{..._d(4),marginTop:10}} role="img" aria-label={`${st.active} active days in ${st.monthName}`}>
+      {Array.from({length:lead}).map((_,i)=><span key={"b"+i}/>)}
+      {st.days.map(x=><span key={x.ds} style={dot(x.s)}/>)}
+    </div>
+  </WrCard>});
+  if(st.top){
+    const others=st.ranked.slice(1,4);
+    cards.push({id:"top",el:<WrCard bg={WR_BG.top} blobs={["#93C5FD","#C4B5FD"]}>
+      <div className="wr-k wr-up">Your number one</div>
+      <div className="wr-h wr-up" data-testid="wr-top" style={{..._d(1),fontSize:"clamp(36px,11vw,54px)"}}>{st.top.name}</div>
+      <div className="wr-p wr-up" style={_d(2)}>Done on <b>{st.top.days}</b> {st.top.days===1?"day":"days"}, <b>{_wrVol(st.top.vol,st.top.unit)}</b> in total.</div>
+      {others.length>0&&<div className="wr-up" style={{..._d(3),display:"flex",flexDirection:"column",gap:8,marginTop:12}}>
+        {others.map((a,i)=><div className="wr-row" key={a.id}><span style={{fontWeight:700}}>#{i+2} {a.name}</span><span className="wr-s">{a.days} {a.days===1?"day":"days"}</span></div>)}
+      </div>}
+    </WrCard>});
+  }
+  if(st.streak.len>=2){
+    cards.push({id:"streak",el:<WrCard bg={WR_BG.streak} blobs={["#FDBA74","#FCA5A5"]}>
+      <div className="wr-pop" style={{fontSize:64}}>🔥</div>
+      <div className="wr-k wr-up" style={_d(1)}>Longest run</div>
+      <div className="wr-big wr-up" data-testid="wr-streak" style={_d(2)}><WrCount to={st.streak.len}/></div>
+      <div className="wr-h wr-up" style={_d(3)}>days in a row</div>
+      <div className="wr-p wr-up" style={_d(4)}>{_wrDate(st.streak.from)} to {_wrDate(st.streak.to)}{st.streak.shields?`, with ${st.streak.shields} shield ${st.streak.shields===1?"day":"days"} keeping it alive`:""}.</div>
+    </WrCard>});
+  }
+  if(st.pbs.length){
+    cards.push({id:"pb",el:<WrCard bg={WR_BG.pb} blobs={["#FDE68A","#FCD34D"]}>
+      <div className="wr-pop" style={{fontSize:64}}>🏆</div>
+      <div className="wr-h wr-up" data-testid="wr-pbs" style={_d(1)}>{st.pbs.length} new personal {st.pbs.length===1?"best":"bests"}</div>
+      <div className="wr-up" style={{..._d(2),display:"flex",flexDirection:"column",gap:8,marginTop:8}}>
+        {st.pbs.slice(0,4).map(p=><div className="wr-row" key={p.name}><span style={{fontWeight:800}}>{p.name}</span><span style={{textAlign:"right"}}><b>{_wrVol(p.value,p.unit)}</b><span className="wr-s" style={{display:"block"}}>was {_wrVol(p.prev,p.unit)}</span></span></div>)}
+      </div>
+    </WrCard>});
+  } else if(st.close){
+    const gap=st.close.record-st.close.value;
+    cards.push({id:"pb",el:<WrCard bg={WR_BG.pb} blobs={["#FDE68A","#FCD34D"]}>
+      <div className="wr-pop" style={{fontSize:64}}>🎯</div>
+      <div className="wr-k wr-up" style={_d(1)}>{gap<=0?"Matched your record":"So close"}</div>
+      <div className="wr-h wr-up" style={_d(2)}>{st.close.name}: {_wrVol(st.close.value,st.close.unit)}</div>
+      <div className="wr-p wr-up" style={_d(3)}>{gap<=0?"You equalled your all-time best.":`Just ${_wrVol(gap,st.close.unit)} short of your record of ${_wrVol(st.close.record,st.close.unit)}.`}</div>
+    </WrCard>});
+  }
+  if(st.pp.earned>0){
+    const lv=st.pp.levels;
+    cards.push({id:"pp",el:<WrCard bg={WR_BG.pp} blobs={["#A5B4FC","#7DD3FC"]}>
+      <div className="wr-k wr-up">⚡ Power Points earned</div>
+      <div className="wr-big wr-up" data-testid="wr-pp" style={{..._d(1),fontSize:"clamp(48px,15vw,80px)"}}><WrCount to={st.pp.earned} dur={1300}/></div>
+      {st.pp.bestDay&&<div className="wr-p wr-up" style={_d(2)}>Best day: <b>{_wrDate(st.pp.bestDay.ds,{weekday:"short",day:"numeric",month:"short"})}</b> with {_wrN(st.pp.bestDay.pp)} PP.</div>}
+      {lv.length>0&&<div className="wr-up" style={{..._d(3),display:"flex",flexDirection:"column",gap:8,marginTop:10}}>
+        <div className="wr-s">{lv.length===1?"Level reached":`${lv.length} levels reached`}</div>
+        {lv.slice(-3).map(l=><div className="wr-row" key={l.level}><span style={{fontWeight:800}}>{l.icon} {l.title}</span><span className="wr-s">Level {l.level}</span></div>)}
+      </div>}
+    </WrCard>});
+  }
+  const loot=[];
+  if(st.badges.length) loot.push(["🏅",`${st.badges.length} new ${st.badges.length===1?"badge":"badges"}`,st.badges.slice(0,6).map(b=>b.e).join(" ")]);
+  if(st.gems.length) loot.push(["💎",`${st.gems.reduce((s,g)=>s+g.n,0)} new gems`,st.gems.map(g=>`${g.icon}×${g.n}`).join("  ")]);
+  if(st.eggs) loot.push(["🥚",`${_wrN(st.eggs)} ${st.eggs===1?"egg":"eggs"}`,"in the Egg-O-Meter"]);
+  if(st.gk.n) loot.push(["🧠",`${st.gk.n} GK ${st.gk.n===1?"win":"wins"}`,`${_wrN(st.gk.pts)} PP`]);
+  if(st.brave.n) loot.push(["🦁",`${st.brave.n} brave ${st.brave.n===1?"moment":"moments"}`,`${_wrN(st.brave.pts)} PP`]);
+  if(loot.length){
+    cards.push({id:"loot",el:<WrCard bg={WR_BG.loot} blobs={["#F5D0FE","#D8B4FE"]}>
+      <div className="wr-k wr-up">Your haul{so}</div>
+      <div className="wr-up" data-testid="wr-loot" style={{..._d(1),display:"flex",flexDirection:"column",gap:10,marginTop:6}}>
+        {loot.map(([e,h,s],i)=><div className="wr-row wr-up" key={h} style={{..._d(i+1),padding:"12px 14px"}}>
+          <span style={{fontSize:30}}>{e}</span><span style={{flex:1,minWidth:0}}><b style={{fontSize:18,display:"block"}}>{h}</b><span className="wr-s" style={{overflowWrap:"anywhere"}}>{s}</span></span></div>)}
+      </div>
+    </WrCard>});
+  }
+  if(st.active>=4&&st.favDay){
+    const full={Sun:"Sunday",Mon:"Monday",Tue:"Tuesday",Wed:"Wednesday",Thu:"Thursday",Fri:"Friday",Sat:"Saturday"}[st.favDay];
+    cards.push({id:"fav",el:<WrCard bg={WR_BG.fav} blobs={["#BEF264","#5EEAD4"]}>
+      <div className="wr-k wr-up">Your power day</div>
+      <div className="wr-big wr-up" data-testid="wr-fav" style={{..._d(1),fontSize:"clamp(48px,15vw,78px)"}}>{full}</div>
+      <div className="wr-p wr-up" style={_d(2)}>Active on {st.favCount} of {st.favOf} {full}s{so}, more than any other day.</div>
+    </WrCard>});
+  }
+  if(!st.partial&&st.prevActive!=null&&st.active>st.prevActive){
+    const diff=st.active-st.prevActive;
+    cards.push({id:"vs",el:<WrCard bg={WR_BG.vs} blobs={["#7DD3FC","#5EEAD4"]}>
+      <div className="wr-pop" style={{fontSize:60}}>📈</div>
+      <div className="wr-big wr-up" style={_d(1)}>+<WrCount to={diff}/></div>
+      <div className="wr-h wr-up" style={_d(2)}>more active {diff===1?"day":"days"}</div>
+      <div className="wr-p wr-up" style={_d(3)}>than {st.prevName} ({st.prevActive} → {st.active}).</div>
+    </WrCard>});
+  }
+  cards.push({id:"persona",el:<WrCard bg={WR_BG.persona} blobs={["#F9A8D4","#FDA4AF"]}>
+    <div className="wr-k wr-up">Your {st.monthName} title</div>
+    <div className="wr-pop" style={{..._d(2),fontSize:84,lineHeight:1}}>{st.persona.e}</div>
+    <div className="wr-h wr-up" data-testid="wr-persona" style={{..._d(3),fontSize:"clamp(36px,11vw,54px)"}}>{st.persona.title}</div>
+    <div className="wr-p wr-up" style={_d(4)}>{st.persona.line}</div>
+  </WrCard>});
+  return cards;
+}
+function wrSummaryTiles(st){
+  if(st.kind==="family") return [
+    [_wrN(st.combined),"active days together"],
+    [st.many?String(st.allIn):"–",st.many?"days you all moved":"all-in days"],
+    [_wrN(st.pp),"Power Points"],
+    [String(st.pbs),st.pbs===1?"personal best":"personal bests"],
+  ];
+  return [
+    [`${st.active}/${st.denom}`,"active days"],
+    [st.streak.len?`${st.streak.len}d`:"–","longest run"],
+    [st.top?st.top.name:"–","top activity"],
+    [String(st.pbs.length),st.pbs.length===1?"personal best":"personal bests"],
+    [_wrN(st.pp.earned),"Power Points"],
+    [`${st.persona.e} ${st.persona.title}`,"title"],
+  ];
+}
+function wrFamilyCards(st){
+  const so=st.partial?" so far":"";
+  const cards=[];
+  cards.push({id:"intro",dur:5000,el:<WrCard bg={WR_BG.intro} blobs={["#F0ABFC","#FB7185"]}>
+    <div className="wr-pop" style={{fontSize:64,lineHeight:1}}>{st.members.map(s=>s.member.emoji||"⭐").join(" ")}</div>
+    <div className="wr-k wr-up" style={_d(1)}>The family's</div>
+    <div className="wr-big wr-up" style={{..._d(2),fontSize:"clamp(52px,17vw,84px)"}}>{st.monthName}</div>
+    <div className="wr-h wr-up" style={_d(3)}>Wrapped{st.partial?" (so far)":""}</div>
+    <div className="wr-s wr-up" style={{..._d(6),marginTop:18}}>Tap the right side to go on →</div>
+  </WrCard>});
+  cards.push({id:"together",el:<WrCard bg={WR_BG.days} blobs={["#6EE7B7","#67E8F9"]}>
+    <div className="wr-k wr-up">Between all of you</div>
+    <div className="wr-big wr-up" data-testid="wr-combined" style={_d(1)}><WrCount to={st.combined}/></div>
+    <div className="wr-h wr-up" style={_d(2)}>active days{so}</div>
+    <div className="wr-p wr-up" style={_d(3)}>Every one of them added up.</div>
+  </WrCard>});
+  if(st.many&&st.allIn>0) cards.push({id:"allin",el:<WrCard bg={WR_BG.streak} blobs={["#FDBA74","#FCA5A5"]}>
+    <div className="wr-pop" style={{fontSize:60}}>🤝</div>
+    <div className="wr-big wr-up" data-testid="wr-allin" style={_d(1)}><WrCount to={st.allIn}/></div>
+    <div className="wr-h wr-up" style={_d(2)}>{st.allIn===1?"day":"days"} everyone moved</div>
+    {st.longest>=2&&<div className="wr-p wr-up" style={_d(3)}>Including {st.longest} in a row, all together.</div>}
+  </WrCard>});
+  if(st.pp>0) cards.push({id:"pp",el:<WrCard bg={WR_BG.pp} blobs={["#A5B4FC","#7DD3FC"]}>
+    <div className="wr-k wr-up">⚡ Family Power Points</div>
+    <div className="wr-big wr-up" style={{..._d(1),fontSize:"clamp(48px,15vw,80px)"}}><WrCount to={st.pp} dur={1300}/></div>
+    <div className="wr-p wr-up" style={_d(2)}>{st.pbs?`${st.pbs} personal ${st.pbs===1?"best":"bests"}`:"No new records this time"}{st.eggs?` · ${_wrN(st.eggs)} eggs`:""}.</div>
+  </WrCard>});
+  cards.push({id:"each",el:<WrCard bg={WR_BG.persona} blobs={["#F9A8D4","#FDA4AF"]}>
+    <div className="wr-k wr-up">Everyone's title</div>
+    <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:8}} data-testid="wr-each">
+      {st.members.map((s,i)=><div className="wr-row wr-up" key={s.member.id} style={{..._d(i+1),padding:"12px 14px"}}>
+        <span style={{fontSize:30}}>{s.member.emoji||"⭐"}</span>
+        <span style={{flex:1,minWidth:0}}><b style={{fontSize:17,display:"block"}}>{s.member.name}</b><span className="wr-s">{s.persona.e} {s.persona.title}{s.top?` · ${s.top.name}`:""}</span></span>
+      </div>)}
+    </div>
+  </WrCard>});
+  return cards;
+}
+// Share image: drawn on a canvas so it needs no extra library
+function wrDrawImage(st,who){
+  const W=1080,H=1350,c=document.createElement("canvas"); c.width=W; c.height=H;
+  const g=c.getContext("2d");
+  const gr=g.createLinearGradient(0,0,W*0.4,H); gr.addColorStop(0,"#0F172A"); gr.addColorStop(1,"#312E81"); g.fillStyle=gr; g.fillRect(0,0,W,H);
+  const blob=(x,y,r,col)=>{ const rg=g.createRadialGradient(x,y,0,x,y,r); rg.addColorStop(0,col); rg.addColorStop(1,"rgba(0,0,0,0)"); g.fillStyle=rg; g.fillRect(x-r,y-r,r*2,r*2); };
+  blob(W-80,120,420,"rgba(236,72,153,.45)"); blob(80,H-80,420,"rgba(59,130,246,.4)");
+  const F="'Space Grotesk',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif";
+  g.fillStyle="#fff"; g.textBaseline="alphabetic";
+  g.font=`700 34px ${F}`; g.fillStyle="rgba(255,255,255,.88)"; g.fillText(`${who.toUpperCase()}'S`,80,150);
+  g.fillStyle="#fff"; g.font=`800 120px ${F}`; g.fillText(st.monthName,80,270);
+  g.font=`800 64px ${F}`; g.fillText(`Wrapped${st.partial?" (so far)":""} · ${st.y}`,80,350);
+  const tiles=wrSummaryTiles(st), cols=2, tw=(W-160-30)/2, th=200;
+  tiles.forEach(([v,l],i)=>{
+    const x=80+(i%cols)*(tw+30), y=420+Math.floor(i/cols)*(th+30);
+    g.fillStyle="rgba(255,255,255,.1)"; g.strokeStyle="rgba(255,255,255,.22)"; g.lineWidth=2;
+    g.beginPath(); if(g.roundRect) g.roundRect(x,y,tw,th,28); else g.rect(x,y,tw,th); g.fill(); g.stroke();
+    let fs=64; g.font=`800 ${fs}px ${F}`; while(g.measureText(v).width>tw-60&&fs>30){ fs-=4; g.font=`800 ${fs}px ${F}`; }
+    g.fillStyle="#fff"; g.fillText(v,x+30,y+100);
+    g.font=`600 30px ${F}`; g.fillStyle="rgba(255,255,255,.88)"; g.fillText(l,x+30,y+155);
+  });
+  g.font=`700 30px ${F}`; g.fillStyle="rgba(255,255,255,.8)"; g.fillText("⚡ Family Fitness",80,H-70);
+  return c;
+}
+function WrSummary({st,who,onReplay}){
+  const[msg,setMsg]=useState("");
+  const tiles=wrSummaryTiles(st);
+  const fname=`${who.replace(/[^A-Za-z0-9]+/g,"-")}-${st.monthName}-${st.y}-wrapped.png`;
+  const getBlob=()=>new Promise(res=>{ try{ wrDrawImage(st,who).toBlob(b=>res(b),"image/png"); }catch{ res(null); } });
+  const save=async e=>{ e.stopPropagation(); const b=await getBlob(); if(!b){ setMsg("Couldn't make the image on this device."); return; }
+    const u=URL.createObjectURL(b); const a=document.createElement("a"); a.href=u; a.download=fname; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),4000); setMsg("Image saved."); };
+  const canShare=typeof navigator!=="undefined"&&!!navigator.share&&!!navigator.canShare;
+  const share=async e=>{ e.stopPropagation(); const b=await getBlob(); if(!b) return;
+    const f=new File([b],fname,{type:"image/png"});
+    try{ if(navigator.canShare({files:[f]})) await navigator.share({files:[f],title:`${who}'s ${st.monthName} Wrapped`}); else setMsg("Sharing images isn't supported here. Use Save instead."); }catch{} };
+  return <WrCard bg={WR_BG.summary} blobs={["#F472B6","#60A5FA"]}>
+    <div className="wr-k wr-up">{who}'s {st.monthName}{st.partial?" so far":""}</div>
+    <div className="wr-h wr-up" style={_d(1)}>That's a wrap.</div>
+    <div className="wr-tiles wr-up" data-testid="wr-summary" style={{..._d(2),marginTop:6}}>
+      {tiles.map(([v,l])=><div className="wr-tile" key={l}><b style={v.length>11?{fontSize:v.length>16?16:19}:undefined}>{v}</b><span>{l}</span></div>)}
+    </div>
+    <div className="wr-up" style={{..._d(3),display:"flex",gap:8,flexWrap:"wrap",marginTop:12,position:"relative",zIndex:5}}>
+      <button className="wr-btn" data-testid="wr-save" onClick={save}>⬇ Save image</button>
+      {canShare&&<button className="wr-btn2" data-testid="wr-share" onClick={share}>↗ Share</button>}
+      <button className="wr-btn2" data-testid="wr-replay" onClick={e=>{e.stopPropagation();onReplay();}}>↺ Replay</button>
+    </div>
+    {msg&&<div className="wr-s" role="status">{msg}</div>}
+  </WrCard>;
+}
+function WrappedPlayer({spec,members,logs,onClose}){
+  const [data]=useState(()=>{
+    try{
+      if(spec.kind==="family"){ const st=wrappedFamily(members,logs,spec.y,spec.m); return st?{st,who:"Family",cards:wrFamilyCards(st)}:null; }
+      const mem=members.find(x=>x.id===spec.id); if(!mem) return null;
+      const st=wrappedMember(mem,members,logs,spec.y,spec.m); return st?{st,who:mem.name,cards:wrMemberCards(st)}:null;
+    }catch(e){ console.warn("Wrapped failed",e); return null; }
+  });
+  const cards=data?[...data.cards,{id:"summary",dur:0,el:null}]:[];
+  const[i,setI]=useState(0);
+  const[paused,setPaused]=useState(false);
+  const[run,setRun]=useState(0); // bumps on replay so animations restart
+  const hold=useRef({t:0,held:false});
+  const closeRef=useRef(null);
+  const last=cards.length-1;
+  const go=useCallback(d=>setI(x=>Math.max(0,Math.min(last,x+d))),[last]);
+  // auto-advance with a JS timer (pausable); the bar fill is only a visual
+  const tm=useRef({key:"",left:0});
+  useEffect(()=>{
+    if(!data) return;
+    const c=cards[i]; const key=i+":"+run;
+    if(tm.current.key!==key) tm.current={key,left:c&&c.dur!==0?(c.dur||6500):0};
+    if(paused||!tm.current.left) return;
+    const start=Date.now(); const id=setTimeout(()=>{ tm.current.left=0; go(1); },tm.current.left);
+    return ()=>{ clearTimeout(id); tm.current.left=Math.max(0,tm.current.left-(Date.now()-start)); };
+  },[i,run,paused,go]); // eslint-disable-line
+  useEffect(()=>{
+    const prevFocus=document.activeElement; const prevOv=document.body.style.overflow;
+    document.body.style.overflow="hidden"; closeRef.current&&closeRef.current.focus();
+    const onKey=e=>{
+      if(e.key==="Escape"){ e.preventDefault(); onClose(); }
+      else if(e.key==="ArrowRight"){ e.preventDefault(); go(1); }
+      else if(e.key==="ArrowLeft"){ e.preventDefault(); go(-1); }
+      else if(e.key===" "&&!(e.target&&e.target.tagName==="BUTTON")){ e.preventDefault(); setPaused(p=>!p); }
+    };
+    window.addEventListener("keydown",onKey);
+    return ()=>{ window.removeEventListener("keydown",onKey); document.body.style.overflow=prevOv; try{ prevFocus&&prevFocus.focus&&prevFocus.focus(); }catch{} };
+  },[go,onClose]);
+  if(!data) return <div className="wr-ov" role="dialog" aria-modal="true" aria-label="Month Wrapped" onClick={onClose}>
+    <style>{WR_CSS}</style>
+    <div className="wr-frame" style={{background:WR_BG.summary,display:"flex",alignItems:"center",justifyContent:"center",padding:30,textAlign:"center"}}>
+      <div><div style={{fontSize:48}}>🌌</div><div className="wr-h" style={{fontSize:26}}>Nothing to wrap for that month.</div><div className="wr-s" style={{marginTop:8}}>Tap to close</div></div>
+    </div></div>;
+  const cur=cards[i];
+  const onDown=()=>{ hold.current={t:setTimeout(()=>{ hold.current.held=true; setPaused(true); },220),held:false}; };
+  const onUp=()=>{ clearTimeout(hold.current.t); if(hold.current.held) setPaused(false); };
+  const onTap=e=>{
+    if(hold.current.held){ hold.current.held=false; return; }
+    const r=e.currentTarget.getBoundingClientRect();
+    if(e.clientX-r.left<r.width*0.3) go(-1); else if(i<last) go(1);
+  };
+  const who=data.who;
+  return <div className="wr-ov" role="dialog" aria-modal="true" aria-label={`${who} ${data.st.label} Wrapped`} data-testid="wrapped"
+    onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+    <style>{WR_CSS}</style>
+    <button className="wr-nav" style={{left:"calc(50% - 215px - 64px)"}} aria-label="Previous card" onClick={()=>go(-1)} disabled={i===0}>‹</button>
+    <div className={"wr-frame"+(paused?" wr-paused":"")}>
+      <div key={cur.id+":"+run} style={{position:"absolute",inset:0}} aria-live="polite">
+        {cur.id==="summary"?<WrSummary st={data.st} who={who} onReplay={()=>{ setI(0); setRun(r=>r+1); setPaused(false); }}/>:cur.el}
+      </div>
+      <div className="wr-tap" data-testid="wr-tap" tabIndex={-1} onClick={onTap} onPointerDown={onDown} onPointerUp={onUp} onPointerLeave={onUp} onPointerCancel={onUp}
+        style={cur.id==="summary"?{bottom:"42%"}:undefined}/>
+      <div className="wr-bars" aria-hidden="true">
+        {cards.map((c,k)=><div key={c.id+":"+run} className={"wr-bar"+(k<i?" done":k===i?(c.dur===0?" done":" on"):"")}>
+          <i style={k===i?{"--wr-dur":`${c.dur||6500}ms`}:undefined}/>
+        </div>)}
+      </div>
+      <div className="wr-head">
+        <div className="wr-who"><span>{who}</span><span style={{opacity:.85,fontWeight:600}}>· {data.st.label}</span>{paused&&<span aria-label="paused">⏸</span>}</div>
+        <button ref={closeRef} className="wr-x" data-testid="wr-close" aria-label="Close" onClick={e=>{e.stopPropagation();onClose();}}>✕</button>
+      </div>
+      <div className="wr-s" style={{position:"absolute",bottom:6,left:0,right:0,textAlign:"center",zIndex:3,fontSize:11,opacity:.75,pointerEvents:"none"}} data-testid="wr-count">{i+1} / {cards.length}</div>
+    </div>
+    <button className="wr-nav" style={{right:"calc(50% - 215px - 64px)"}} aria-label="Next card" onClick={()=>go(1)} disabled={i===last}>›</button>
+  </div>;
+}
+class WrappedBoundary extends Component{
+  constructor(p){ super(p); this.state={err:false}; }
+  static getDerivedStateFromError(){ return {err:true}; }
+  componentDidCatch(e){ console.warn("Wrapped crashed",e); }
+  render(){
+    if(this.state.err) return <div className="wr-ov" role="dialog" aria-modal="true" onClick={this.props.onClose}><style>{WR_CSS}</style>
+      <div className="wr-frame" style={{background:WR_BG.summary,display:"flex",alignItems:"center",justifyContent:"center",padding:30,textAlign:"center"}}>
+        <div><div className="wr-h" style={{fontSize:24}}>Couldn't show this Wrapped.</div><div className="wr-s" style={{marginTop:8}}>Your data is untouched. Tap to close.</div></div></div></div>;
+    return this.props.children;
+  }
+}
+function wrSeenRead(){ try{ const a=JSON.parse(localStorage.getItem(WR_SEEN_KEY)||"[]"); return Array.isArray(a)?a:[]; }catch{ return []; } }
+function wrSeenWrite(a){ try{ localStorage.setItem(WR_SEEN_KEY,JSON.stringify(a.slice(-60))); }catch{} }
+function WrappedReady({title,onPlay,onDismiss}){
+  return <div className="ff-card ff-in" data-testid="wr-ready" style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",marginBottom:16,
+    background:"linear-gradient(120deg,#3B0764,#831843)",color:"#fff",border:"none"}}>
+    <div style={{fontSize:30}} aria-hidden="true">🎁</div>
+    <div style={{flex:1,minWidth:0}}>
+      <div style={{fontWeight:800,fontSize:15}}>{title}</div>
+      <div style={{fontSize:12,color:"rgba(255,255,255,.88)"}}>A quick look back at last month</div>
+    </div>
+    <button onClick={onPlay} data-testid="wr-ready-play" style={{background:"#fff",color:"#3B0764",border:"none",borderRadius:999,padding:"8px 16px",fontWeight:800,fontSize:13,cursor:"pointer"}}>▶ Play</button>
+    <button onClick={onDismiss} data-testid="wr-ready-x" aria-label="Dismiss" style={{background:"none",border:"none",color:"#fff",fontSize:18,cursor:"pointer",padding:4}}>✕</button>
+  </div>;
+}
+
 export default function App(){
   const[members,setMembers]=useState(DEF_MEMBERS);
   const[logs,setLogs]=useState({});
@@ -8453,6 +9012,8 @@ export default function App(){
   const now=new Date();
   const[yr,setYr]=useState(now.getFullYear());
   const[mo,setMo]=useState(now.getMonth());
+  const[wrapped,setWrapped]=useState(null); // {kind:"member"|"family", id?, y, m}
+  const[wrSeen,setWrSeen]=useState(wrSeenRead);
 
   useEffect(()=>{
     (async()=>{
@@ -8878,6 +9439,26 @@ export default function App(){
       </div>}
 
 
+      {/* Month Wrapped: "ready" nudge in the first week of a month, for last month */}
+      {(()=>{
+        if(!members.length||wrapped) return null;
+        const t=todayStr(); if(+t.slice(8,10)>7) return null;
+        const py=+t.slice(5,7)===1?+t.slice(0,4)-1:+t.slice(0,4), pm=(+t.slice(5,7)+10)%12;
+        const ym=`${py}-${String(pm+1).padStart(2,"0")}`;
+        let key,title,spec;
+        if(activeTab){ const m=shown.find(x=>x.id===activeTab); if(!m) return null;
+          key=`${m.id}:${ym}`; if(wrSeen.includes(key)) return null;
+          let n=0; try{ n=wrActiveDays(m,logs,py,pm); }catch{} if(!n) return null;
+          title=`${m.name}'s ${MONTHS_LONG[pm]} Wrapped is ready`; spec={kind:"member",id:m.id,y:py,m:pm};
+        } else {
+          key=`family:${ym}`; if(wrSeen.includes(key)) return null;
+          let n=0; try{ n=shown.reduce((s,m)=>s+wrActiveDays(m,logs,py,pm),0); }catch{} if(!n) return null;
+          title=`The family's ${MONTHS_LONG[pm]} Wrapped is ready`; spec={kind:"family",y:py,m:pm};
+        }
+        const mark=()=>{ const a=[...wrSeenRead().filter(k=>k!==key),key]; wrSeenWrite(a); setWrSeen(a); };
+        return <WrappedReady title={title} onPlay={()=>{ mark(); setWrapped(spec); }} onDismiss={mark}/>;
+      })()}
+
       {/* Individual member tab */}
       {activeTab&&shown.filter(m=>m.id===activeTab).map(m=>(
         <div key={m.id} style={{display:"flex",gap:20,flexWrap:"wrap",alignItems:"flex-start"}}>
@@ -8885,7 +9466,7 @@ export default function App(){
             <MemberCard member={m} logs={logs} allMembers={shown}
               onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}
               onOpenPP={(id,view)=>{setPpPanelFor(id);setPpView(v=>({view:view||"main",n:v.n+1}));}} onGrowthSave={handleGrowthSave}
-              onGkSave={handleGkSave} onGkUpdate={handleGkUpdate} onGkDelete={handleGkDelete} onBraverySave={handleBraverySave} onBraveryDelete={handleBraveryDelete} onBraveryUpdate={handleBraveryUpdate} onIllnessSave={handleIllnessSave} onIllnessDelete={handleIllnessDelete} onOlympiadSave={handleOlympiadSave} onOlympiadDelete={handleOlympiadDelete} onOlympiadUpdate={handleOlympiadUpdate} onGoldenGoalSave={handleGoldenGoalSave} onGoldenGoalDelete={handleGoldenGoalDelete} onDeleteEntry={handleDeleteEntry}/>
+              onGkSave={handleGkSave} onGkUpdate={handleGkUpdate} onGkDelete={handleGkDelete} onBraverySave={handleBraverySave} onBraveryDelete={handleBraveryDelete} onBraveryUpdate={handleBraveryUpdate} onIllnessSave={handleIllnessSave} onIllnessDelete={handleIllnessDelete} onOlympiadSave={handleOlympiadSave} onOlympiadDelete={handleOlympiadDelete} onOlympiadUpdate={handleOlympiadUpdate} onGoldenGoalSave={handleGoldenGoalSave} onGoldenGoalDelete={handleGoldenGoalDelete} onDeleteEntry={handleDeleteEntry} onWrapped={(id,y,m)=>setWrapped({kind:"member",id,y,m})}/>
           </div>
           {ppPanelFor===m.id&&<div style={{flex:"1 1 320px",maxWidth:380,minWidth:280}}>
             <PowerPointsPanel member={m} logs={logs} view={ppView.view} viewNonce={ppView.n} onClose={()=>setPpPanelFor(null)}/>
@@ -8894,7 +9475,9 @@ export default function App(){
       ))}
 
       {/* Family tab */}
-      {activeTab===null&&members.length>0&&<div key="family" className="ff-in-x"><FamilyDashboard members={shown} logs={logs} yr={yr} mo={mo} MONTHS={MONTHS}/></div>}
+      {activeTab===null&&members.length>0&&<div key="family" className="ff-in-x">{_wrWindow(yr,mo)&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
+        <button data-testid="wr-open-family" onClick={()=>setWrapped({kind:"family",y:yr,m:mo})} style={{background:"linear-gradient(120deg,#5B21B6,#BE185D)",border:"none",borderRadius:10,padding:"8px 14px",cursor:"pointer",fontWeight:700,fontSize:13,color:"#FFFFFF"}}>🎁 Family Wrapped · {MONTHS[mo]} {yr}{_wrWindow(yr,mo).partial?" (so far)":""}</button>
+      </div>}<FamilyDashboard members={shown} logs={logs} yr={yr} mo={mo} MONTHS={MONTHS}/></div>}
     </div>
 
     {showLooks&&<LookTray initial={sel.id==="studio"&&lookPreview?{id:"studio",acc:0,custom:null}:(deviceLook?{id:deviceLook,acc:deviceAcc,custom:deviceCustom}:(_pSel||{id:"studio",acc:0,custom:null}))} mode={mode} personName={activeMember?activeMember.name:null} deviceActive={!!deviceLook}
@@ -8905,6 +9488,7 @@ export default function App(){
       onApplyAll={(x)=>{ setAllSel(x); setLookPreview(null); }}
       onClearDevice={()=>{ clearDeviceSel(); setLookPreview(null); }}
       onClose={()=>{ setShowLooks(false); setLookPreview(null); }}/>}
+    {wrapped&&<WrappedBoundary onClose={()=>setWrapped(null)}><WrappedPlayer key={JSON.stringify(wrapped)} spec={wrapped} members={shown} logs={logs} onClose={()=>setWrapped(null)}/></WrappedBoundary>}
     {celebration&&<CelebrationScreen badge={celebration} memberName={celebration.memberName} onClose={()=>setCelebration(null)}/>}
     {toasts.length>0&&<Toast badge={toasts[0]} onDismiss={()=>setToasts(q=>q.slice(1))}/>}
     {editM&&<EditModal member={editM==="new"?null:(members.find(x=>x.id===editM.id)||editM)} isNew={editM==="new"} allMembers={members} onSave={handleSave} onDelete={handleDel} onClose={()=>setEditM(null)}/>}
