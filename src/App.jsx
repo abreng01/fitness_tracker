@@ -8976,6 +8976,7 @@ function WrappedReady({title,onPlay,onDismiss}){
 
 // ── GK Facts: a fact to read each day + top-10 revision flashcards. Read-only: no PP, no cloud saves. ──
 // Facts: append new ones at the END of a list so ids (topic + position) stay stable.
+const GK_TAB="__gk";
 const GK_TOPICS=[{id:"geo",name:"Geography",icon:"🌍"}];
 const GEO_FACTS=[
 ["The Pacific is the largest and deepest ocean. It covers about a third of Earth's surface, more than all the land put together.","Pacific Ocean","noaa"],
@@ -9788,6 +9789,9 @@ export default function App(){
       <button className="ff-nav" aria-label="Family" aria-current={activeTab===null?"page":undefined} onClick={()=>{setActiveTab(null);setPpPanelFor(null);}}>
         <span className="ff-avatar" style={{background:"var(--accent-soft)",color:"var(--accent-ink)"}}>👨‍👩‍👧</span><span>Family</span>
       </button>
+      <button className="ff-nav" aria-label="GK Facts" data-testid="nav-gk" aria-current={activeTab===GK_TAB?"page":undefined} onClick={()=>{setActiveTab(GK_TAB);setPpPanelFor(null);}}>
+        <span className="ff-avatar" style={{background:"var(--accent-soft)",color:"var(--accent-ink)"}}>💡</span><span>GK Facts</span>
+      </button>
       <div className="ff-side-grow" style={{flex:1}}/>
       <button className="ff-nav ff-side-add" aria-label="Add member" onClick={()=>setEditM("new")} style={{color:"var(--side-text,var(--accent-ink))",fontWeight:700}}>
         <span className="ff-avatar" style={{background:"var(--accent-soft)",color:"var(--accent-ink)"}}>＋</span><span>Add member</span>
@@ -9796,7 +9800,7 @@ export default function App(){
     <div className="ff-main" style={{position:"relative"}}>
     {mode==="light"&&lookId==="studio"&&<div aria-hidden="true" style={{position:"absolute",inset:0,backgroundImage:bgPattern,backgroundRepeat:"repeat",opacity:0.28,pointerEvents:"none"}}/>}
     <div className="ff-top">
-      <div style={{fontWeight:800,fontSize:18,letterSpacing:-0.4}}>{activeMember?activeMember.name:"Family"}</div>
+      <div style={{fontWeight:800,fontSize:18,letterSpacing:-0.4}}>{activeMember?activeMember.name:activeTab===GK_TAB?"GK Facts":"Family"}</div>
       <div style={{flex:1}}/>
       <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
         <button onClick={prevMo} style={navBtn} aria-label="Previous month">‹</button>
@@ -9860,6 +9864,8 @@ export default function App(){
         return <WrappedReady title={title} onPlay={()=>{ mark(); setWrapped(spec); }} onDismiss={mark}/>;
       })()}
 
+      {activeTab===GK_TAB&&members.length>0&&<GkFactsPage key="gk" members={shown} logs={logs} initialId={lastMemberTab.current}/>}
+
       {/* Individual member tab */}
       {activeTab&&shown.filter(m=>m.id===activeTab).map(m=>(
         <div key={m.id} style={{display:"flex",gap:20,flexWrap:"wrap",alignItems:"flex-start"}}>
@@ -9879,13 +9885,13 @@ export default function App(){
       {activeTab===null&&members.length>0&&<div key="family" className="ff-in-x">
         <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:14}}>
           <div role="tablist" aria-label="Family pages" style={{display:"inline-flex",gap:4,padding:4,borderRadius:12,background:"var(--card)",border:"1px solid var(--line)"}}>
-            {[["overview","👨‍👩‍👧 Overview"],["gk","💡 GK Facts"],["agree","📜 Agreement"]].map(([k,l])=><button key={k} role="tab" aria-selected={famTab===k} data-testid={"fam-tab-"+k} onClick={()=>setFamTab(k)}
+            {[["overview","👨‍👩‍👧 Overview"],["agree","📜 Agreement"]].map(([k,l])=><button key={k} role="tab" aria-selected={famTab===k} data-testid={"fam-tab-"+k} onClick={()=>setFamTab(k)}
               style={{border:"none",borderRadius:9,padding:"7px 14px",fontWeight:700,fontSize:13,cursor:"pointer",background:famTab===k?"var(--accent)":"transparent",color:famTab===k?"var(--on-accent,#fff)":"var(--text)"}}>{l}</button>)}
           </div>
           <div style={{flex:1}}/>
           {famTab==="overview"&&_wrWindow(yr,mo)&&<button data-testid="wr-open-family" onClick={()=>setWrapped({kind:"family",y:yr,m:mo})} style={{background:"linear-gradient(120deg,#5B21B6,#BE185D)",border:"none",borderRadius:10,padding:"8px 14px",cursor:"pointer",fontWeight:700,fontSize:13,color:"#FFFFFF"}}>🎁 Family Wrapped · {MONTHS[mo]} {yr}{_wrWindow(yr,mo).partial?" (so far)":""}</button>}
         </div>
-        {famTab==="agree"?<AgreementPage members={members} logs={logs} onSave={(id,ag)=>setMembers(prev=>prev.map(m=>{ if(m.id!==id) return m; const n={...m}; if(ag&&Object.keys(ag).length) n.agreement=ag; else delete n.agreement; return n; }))}/>:famTab==="gk"?<GkFactsPage key="gk" members={shown} logs={logs} initialId={lastMemberTab.current}/>:<FamilyDashboard members={shown} logs={logs} yr={yr} mo={mo} MONTHS={MONTHS}/>}
+        {famTab==="agree"?<AgreementPage members={members} logs={logs} onSave={(id,ag)=>setMembers(prev=>prev.map(m=>{ if(m.id!==id) return m; const n={...m}; if(ag&&Object.keys(ag).length) n.agreement=ag; else delete n.agreement; return n; }))}/>:<FamilyDashboard members={shown} logs={logs} yr={yr} mo={mo} MONTHS={MONTHS}/>}
       </div>}
     </div>
 
