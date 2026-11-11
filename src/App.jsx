@@ -5923,7 +5923,7 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
       <div style={{display:"flex",gap:8}}>
         {!isNew&&<button onClick={()=>{if(window.confirm("Remove?"))onDelete(member.id);}} style={{padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",cursor:"pointer",color:C.missed,fontWeight:600}}>Delete</button>}
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>{setGapVisibleOnDevice(gapOnThisDevice);onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,illnessEnabled,stackPoints,chaseTarget,...(pin?{pin}:{}),...(photo?{photo}:{}),...(member?.memberLook?{memberLook:member.memberLook}:{}),...(member?.memberLookAcc?{memberLookAcc:member.memberLookAcc}:{}),...(member?.memberCustom?{memberCustom:member.memberCustom}:{})});}} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
+        <button onClick={()=>{setGapVisibleOnDevice(gapOnThisDevice);onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,illnessEnabled,stackPoints,chaseTarget,...(pin?{pin}:{}),...(photo?{photo}:{}),...(member?.memberLook?{memberLook:member.memberLook}:{}),...(member?.memberLookAcc?{memberLookAcc:member.memberLookAcc}:{}),...(member?.memberCustom?{memberCustom:member.memberCustom}:{}),...(member?.agreement?{agreement:member.agreement}:{})});}} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
       </div>
     </div>
   </div>;
@@ -8974,6 +8974,404 @@ function WrappedReady({title,onPlay,onDismiss}){
   </div>;
 }
 
+// ── GK Facts: a fact to read each day + top-10 revision flashcards. Read-only: no PP, no cloud saves. ──
+// Facts: append new ones at the END of a list so ids (topic + position) stay stable.
+const GK_TOPICS=[{id:"geo",name:"Geography",icon:"🌍"}];
+const GEO_FACTS=[
+["The Pacific is the largest and deepest ocean. It covers about a third of Earth's surface, more than all the land put together.","Pacific Ocean","noaa"],
+["The deepest known point in the ocean is the Challenger Deep in the Mariana Trench, almost 11 kilometres down. Mount Everest would fit inside it with room to spare.","Mariana Trench","noaa"],
+["Earth has five oceans: the Pacific, Atlantic, Indian, Southern and Arctic.","ocean","noaa"],
+["The Arctic is the smallest and shallowest of the five oceans.","Arctic Ocean","noaa"],
+["The Southern Ocean flows all the way around Antarctica.","Southern Ocean","noaa"],
+["About 71% of Earth's surface is covered by water.","hydrosphere"],
+["About 97% of Earth's water is salty sea water. Only about 3% is fresh water, and most of that is frozen in ice.","freshwater","noaa"],
+["The shore of the Dead Sea is the lowest place on land, more than 400 metres below sea level. Its water is so salty that people float easily.","Dead Sea"],
+["The Indian Ocean is the only ocean named after a country.","Indian Ocean"],
+["The Caspian Sea is really the world's largest lake by area. It is called a sea because its water is slightly salty.","Caspian Sea"],
+["Lake Baikal in Russia is the deepest lake in the world, more than 1,600 metres deep. It holds about a fifth of all the unfrozen fresh water on Earth's surface.","Lake Baikal"],
+["Lake Superior in North America is the largest freshwater lake by surface area.","Lake Superior"],
+["The Atlantic Ocean gets a few centimetres wider every year because the plates under it are slowly pulling apart.","Mid-Atlantic Ridge","usgs-p"],
+["The Mediterranean Sea is almost surrounded by land. It joins the Atlantic Ocean through the narrow Strait of Gibraltar, only about 13 kilometres wide.","Strait of Gibraltar"],
+["The Great Barrier Reef off Australia is the largest coral reef system in the world, stretching for more than 2,000 kilometres.","Great Barrier Reef","noaa"],
+["The Sargasso Sea in the Atlantic is the only sea with no coastline. Its edges are made by ocean currents, not land.","Sargasso Sea","noaa"],
+["The Bay of Bengal is the largest bay in the world.","Bay of Bengal"],
+["Ocean tides are caused mainly by the Moon's gravity pulling on the water.","tide","noaa"],
+["The Bay of Fundy in Canada has the highest tides in the world. The water can rise and fall by about 16 metres.","Bay of Fundy","noaa"],
+["Mount Everest, on the border of Nepal and China, is the highest mountain above sea level at 8,849 metres.","Mount Everest"],
+["Everest is called Sagarmatha in Nepal and Chomolungma in Tibet.","Mount Everest"],
+["Mauna Kea in Hawaii is taller than Everest if you measure from its base on the ocean floor, more than 10,000 metres. Most of it is underwater.","Mauna Kea"],
+["The Himalayas are still rising by a few millimetres every year, because the Indian plate keeps pushing into Asia.","Himalayas","usgs-p"],
+["K2, on the border of Pakistan and China, is the second-highest mountain in the world at 8,611 metres.","K2"],
+["The Andes in South America are the longest mountain range on land, about 7,000 kilometres long.","Andes"],
+["The longest mountain range of all is underwater. The mid-ocean ridge winds about 65,000 kilometres around the globe.","oceanic ridge","usgs-p"],
+["Mount Kilimanjaro in Tanzania is Africa's highest mountain at 5,895 metres. It stands on its own, not as part of a range.","Kilimanjaro"],
+["Aconcagua in Argentina is the highest mountain outside Asia, at about 6,960 metres.","Aconcagua"],
+["Denali in Alaska is the highest mountain in North America, at 6,190 metres.","Denali"],
+["The top of Chimborazo in Ecuador is the point on Earth's surface farthest from the centre of the Earth, because Earth bulges at the equator.","Chimborazo"],
+["Kangchenjunga, on the border of India and Nepal, is the third-highest mountain in the world and the highest in India.","Kanchenjunga"],
+["All 14 mountains taller than 8,000 metres are in Asia, in the Himalaya and Karakoram ranges.","Himalayas"],
+["Mont Blanc is the highest mountain in the Alps, at about 4,800 metres.","Mont Blanc"],
+["The Ural Mountains in Russia are often used as the dividing line between Europe and Asia.","Ural Mountains"],
+["Mount Elbrus in Russia is usually counted as Europe's highest mountain, at 5,642 metres.","Mount Elbrus"],
+["Mount Vinson is the highest mountain in Antarctica, at about 4,890 metres.","Vinson Massif"],
+["Mount Kosciuszko is the highest mountain on mainland Australia, at 2,228 metres.","Mount Kosciuszko"],
+["The Nile and the Amazon are the two longest rivers. The Nile is usually listed as the longest, at about 6,650 kilometres, but some measurements make the Amazon longer.","Nile River"],
+["The Amazon carries more water than any other river in the world, more than the next several biggest rivers put together.","Amazon River"],
+["The Ganga begins at the Gangotri Glacier in the Himalayas and flows into the Bay of Bengal.","Ganges River"],
+["The Ganga and the Brahmaputra together build the largest river delta in the world, in India and Bangladesh.","Ganges-Brahmaputra delta"],
+["The Sundarbans is the largest mangrove forest in the world, and home to the Bengal tiger.","Sundarbans"],
+["The Yangtze in China is the longest river in Asia and the third-longest in the world.","Yangtze River"],
+["The Danube flows through or along the borders of 10 countries, more than any other river.","Danube River"],
+["The Congo River is the deepest river in the world, more than 220 metres deep in places.","Congo River"],
+["The Brahmaputra is called the Yarlung Tsangpo in Tibet and the Jamuna in Bangladesh.","Brahmaputra River"],
+["The Godavari is the longest river that flows only through peninsular India. It is sometimes called the Dakshin Ganga.","Godavari River"],
+["The name \"India\" comes from the Indus River, which was called Sindhu in Sanskrit.","Indus River"],
+["Angel Falls in Venezuela is the highest uninterrupted waterfall in the world, about 979 metres tall.","Angel Falls"],
+["Victoria Falls, on the border of Zambia and Zimbabwe, is called Mosi-oa-Tunya by local people. It means \"the smoke that thunders\".","Victoria Falls"],
+["Niagara Falls sits on the border between Canada and the United States.","Niagara Falls"],
+["Jog Falls in Karnataka is one of India's highest waterfalls. The water drops about 253 metres.","Jog Falls"],
+["The Kaveri River rises in Karnataka and flows through Tamil Nadu into the Bay of Bengal.","Kaveri River"],
+["Antarctica is the largest desert in the world. A desert is a place with very little rain or snow. It does not have to be hot.","Antarctica"],
+["The Sahara is the largest hot desert in the world. It is roughly as big as the whole United States.","Sahara"],
+["The Atacama Desert in Chile is one of the driest places on Earth. Some weather stations there have hardly ever recorded rain.","Atacama Desert"],
+["The coldest temperature ever measured by a weather station was −89.2 °C, at Vostok Station in Antarctica in 1983.","Vostok Station","wmo"],
+["The hottest air temperature on record is 56.7 °C, measured in Death Valley, California, in 1913.","Death Valley","wmo"],
+["Cherrapunji (Sohra) in Meghalaya once got more than 26 metres of rain in a single year, from 1860 to 1861.","Cherrapunji","wmo"],
+["Mawsynram in Meghalaya is one of the wettest places on Earth.","Mawsynram"],
+["The Thar Desert in Rajasthan is India's largest desert.","Thar Desert"],
+["The Gobi Desert in Mongolia and China is a cold desert. In winter it can fall below −40 °C.","Gobi"],
+["Most of the world's fresh water is frozen in the giant ice sheet that covers Antarctica.","Antarctic ice sheet","nasa"],
+["The Rann of Kutch in Gujarat is one of the largest salt deserts in the world. In winter it becomes a huge white plain.","Rann of Kachchh"],
+["India gets most of its yearly rain from the monsoon, between June and September.","monsoon"],
+["There are seven continents: Asia, Africa, North America, South America, Antarctica, Europe and Australia.","continent"],
+["Asia is the largest continent, both by area and by number of people.","Asia"],
+["Australia is the smallest continent, and it is also a single country.","Australia"],
+["Russia is the largest country in the world by area. It stretches across 11 time zones.","Russia"],
+["Vatican City is the smallest country in the world. It sits inside the city of Rome.","Vatican City"],
+["Canada has the longest coastline of any country.","Canada"],
+["Africa has 54 countries, more than any other continent.","Africa"],
+["Indonesia is made up of more than 17,000 islands.","Indonesia"],
+["Greenland is the largest island in the world. Australia is bigger, but it counts as a continent.","Greenland"],
+["Nobody lives in Antarctica all the time. Scientists stay at research stations there for months at a time.","Antarctica"],
+["Monaco is the most crowded country in the world, with more people per square kilometre than anywhere else.","Monaco"],
+["China and Russia share borders with 14 countries each, more than any other country.","China"],
+["Brazil is the largest country in South America, and the only one where Portuguese is the main language.","Brazil"],
+["Ecuador is named after the equator, which passes right through it.","Ecuador"],
+["Nepal's flag is the only national flag that is not a rectangle. It is made of two triangles.","flag of Nepal"],
+["Bhutan measures how well it is doing with \"Gross National Happiness\".","Bhutan"],
+["The Maldives is the lowest country in the world. Its highest natural point is only about 2.4 metres above sea level.","Maldives"],
+["Istanbul in Turkey is spread over two continents, Europe and Asia, divided by a strait called the Bosporus.","Istanbul"],
+["Mongolia has fewer people per square kilometre than any other country.","Mongolia"],
+["Iceland sits on top of the Mid-Atlantic Ridge, where two of Earth's plates are pulling apart.","Iceland","usgs-p"],
+["Lesotho is completely surrounded by South Africa. San Marino and Vatican City are completely surrounded by Italy.","Lesotho"],
+["Chile is about 4,300 kilometres long but on average only about 175 kilometres wide.","Chile"],
+["About a quarter of the Netherlands lies below sea level, protected by dikes and dunes.","Netherlands"],
+["Liechtenstein and Uzbekistan are \"doubly landlocked\": they are surrounded only by other landlocked countries.","landlocked country"],
+["Kazakhstan is the largest country in the world with no coastline.","Kazakhstan"],
+["Papua New Guinea has more than 800 languages, more than any other country.","Papua New Guinea"],
+["Canada has more lakes than any other country, more than half of all the lakes in the world.","Canada"],
+["Finland is called the land of a thousand lakes, but it actually has about 188,000.","Finland"],
+["Canberra, not Sydney, is the capital of Australia.","Canberra"],
+["Ottawa, not Toronto, is the capital of Canada.","Ottawa"],
+["La Paz in Bolivia, about 3,600 metres up, is the highest seat of government in the world.","La Paz"],
+["South Africa has three capital cities: Pretoria, Cape Town and Bloemfontein.","South Africa"],
+["Reykjavík in Iceland is the northernmost capital city of an independent country.","Reykjavik"],
+["Wellington in New Zealand is the southernmost capital city of an independent country.","Wellington"],
+["Brasília was built from scratch to become Brazil's capital, and opened in 1960.","Brasilia"],
+["Washington, D.C., the capital of the United States, is not part of any state.","Washington, D.C."],
+["Tokyo used to be called Edo.","Tokyo"],
+["Ulaanbaatar in Mongolia is often called the coldest capital city in the world.","Ulaanbaatar"],
+["India's capital moved from Calcutta (Kolkata) to Delhi in 1911. New Delhi was officially opened in 1931.","New Delhi"],
+["Nigeria moved its capital from Lagos to Abuja in 1991.","Abuja"],
+["India has 28 states and 8 union territories.","India","india"],
+["Rajasthan is India's largest state by area. Goa is the smallest.","Rajasthan","india"],
+["Uttar Pradesh has more people than any other Indian state.","Uttar Pradesh","india"],
+["The Tropic of Cancer passes through 8 Indian states.","Tropic of Cancer","india"],
+["Kanyakumari is the southern tip of mainland India. India's southernmost point of all is Indira Point on Great Nicobar Island.","Kanyakumari"],
+["At Kanyakumari, three seas meet: the Arabian Sea, the Bay of Bengal and the Indian Ocean.","Kanyakumari"],
+["Bangladesh shares India's longest land border, about 4,100 kilometres.","Bangladesh"],
+["Lakshadweep, India's smallest union territory, is a group of coral islands in the Arabian Sea.","Lakshadweep","india"],
+["Barren Island in the Andaman Sea is India's only active volcano.","Barren Island","usgs-v"],
+["Chilika Lake in Odisha is India's largest lagoon, where sea water mixes with river water.","Chilika Lake"],
+["The Western Ghats are older than the Himalayas, and are a UNESCO World Heritage Site.","Western Ghats"],
+["Anamudi in Kerala is the highest peak in South India, at 2,695 metres.","Anai Peak"],
+["Majuli, in the Brahmaputra River in Assam, is one of the largest river islands in the world.","Majuli"],
+["Ladakh is a cold desert, high up in the Himalayas.","Ladakh"],
+["The Deccan Plateau covers most of southern India.","Deccan"],
+["Bengaluru sits about 900 metres above sea level. That is one reason it is cooler than many other Indian cities.","Bengaluru"],
+["Indian Standard Time is set by the 82.5° East line of longitude, which passes near Mirzapur in Uttar Pradesh.","Indian Standard Time","india"],
+["Arunachal Pradesh is the first part of India to see the sunrise each morning.","Arunachal Pradesh"],
+["Gujarat has the longest coastline of any Indian state.","Gujarat"],
+["Kerala's backwaters are a long chain of lagoons, lakes and canals near the Arabian Sea.","Kerala"],
+["Meghalaya means \"abode of the clouds\".","Meghalaya"],
+["In Meghalaya, people grow living bridges from the roots of rubber fig trees.","Meghalaya"],
+["Loktak Lake in Manipur has floating islands called phumdis. One of them holds Keibul Lamjao, the only floating national park in the world.","Loktak Lake"],
+["The Narmada flows west into the Arabian Sea, while most of the big rivers of peninsular India flow east.","Narmada River"],
+["The Palk Strait separates India from Sri Lanka.","Palk Strait"],
+["Adam's Bridge, also called Ram Setu, is a chain of shallow sandbanks between India and Sri Lanka.","Adams Bridge"],
+["The Western Ghats are also called the Sahyadri.","Western Ghats"],
+["Earth is not a perfect ball. It bulges a little at the equator.","Earth","nasa"],
+["Lines of latitude run east to west. They tell you how far north or south of the equator a place is.","latitude"],
+["The Prime Meridian, 0° longitude, runs through Greenwich in London.","prime meridian"],
+["The International Date Line roughly follows 180° longitude. Cross it and the date changes by a whole day.","International Date Line"],
+["Earth's outer shell is broken into huge tectonic plates that move about as fast as your fingernails grow.","plate tectonics","usgs-p"],
+["About 250 million years ago, all the continents were joined in one supercontinent called Pangaea.","Pangea","usgs-p"],
+["The Ring of Fire around the Pacific Ocean has about three-quarters of the world's active volcanoes.","Ring of Fire","usgs-v"],
+["Mount Etna on the island of Sicily in Italy is one of the most active volcanoes in the world.","Mount Etna","usgs-v"],
+["A compass points to magnetic north, which is not the same place as the North Pole, and it slowly moves.","magnetic pole"],
+["Around the equator, Earth is about 40,075 kilometres around.","Earth","nasa"],
+["The South Pole sits on a sheet of ice about 2.7 kilometres thick.","South Pole","nasa"],
+["There is no land at the North Pole. It sits on floating sea ice.","North Pole","nasa"],
+["Between the Tropic of Cancer and the Tropic of Capricorn, the Sun can be directly overhead at noon on some days of the year.","tropics"],
+["On many flat world maps, Greenland looks as big as Africa. In fact Africa is about 14 times larger.","Mercator projection"],
+["China uses a single time zone for the whole country, even though it is wide enough for about five.","China"],
+["France has more time zones than any other country, 12, because of its islands and territories around the world.","France"],
+["There are 195 countries in the world: 193 members of the United Nations plus Vatican City and Palestine.","country"],
+["Surtsey, an island near Iceland, was born from an underwater volcano in 1963.","Surtsey","usgs-v"],
+["The Hawaiian Islands were made by a hot spot under the Pacific plate that keeps building new volcanoes.","Hawaii","usgs-v"],
+["The Grand Canyon in the USA was carved by the Colorado River and is up to about 1.8 kilometres deep.","Grand Canyon"],
+["The Amazon is the largest tropical rainforest in the world. Most of it is in Brazil.","Amazon Rainforest"],
+["Lake Titicaca, between Peru and Bolivia, is the highest large lake that boats can sail on, about 3,800 metres up.","Lake Titicaca"],
+["Salar de Uyuni in Bolivia is the largest salt flat in the world. After rain it becomes a giant mirror.","Salar de Uyuni"],
+["Uluru is a giant sandstone rock in the middle of Australia, sacred to the Aboriginal people of the area.","Uluru"],
+["Iguazú Falls, on the border of Argentina and Brazil, is made up of about 275 separate waterfalls.","Iguacu Falls"],
+["Mount Fuji, Japan's highest mountain, is a volcano. It last erupted in 1707.","Mount Fuji","usgs-v"],
+["Ha Long Bay in Vietnam has close to 2,000 limestone islands rising out of the sea.","Ha Long Bay"],
+["The Suez Canal in Egypt joins the Mediterranean Sea to the Red Sea. It opened in 1869.","Suez Canal"],
+["The Panama Canal joins the Atlantic and Pacific oceans. It opened in 1914.","Panama Canal"],
+["Russia and the USA are only about 4 kilometres apart, at two small islands in the Bering Strait called the Diomedes.","Diomede Islands"],
+["Yellowstone in the USA became the world's first national park in 1872.","Yellowstone National Park"],
+["The Galápagos Islands of Ecuador helped Charles Darwin form his ideas about how living things change over time.","Galapagos Islands"],
+["Most of the animals and plants on Madagascar live nowhere else on Earth.","Madagascar"],
+["The Danakil Depression in Ethiopia is one of the hottest places on Earth, with bubbling yellow and green hot springs.","Denakil Plain"],
+["The Nile flows north, from East Africa all the way to the Mediterranean Sea.","Nile River"],
+["Thousands of years ago, the Sahara was green, with lakes, grasslands and animals like hippos.","Sahara"],
+["Point Nemo, in the South Pacific, is the spot in the ocean farthest from any land, about 2,700 kilometres from the nearest coast.","Point Nemo","noaa"],
+["Lake Victoria is Africa's largest lake. The White Nile flows out of it.","Lake Victoria"],
+["Lake Hillier in Western Australia is bright pink.","Lake Hillier"],
+["Antarctica is bigger than Europe.","Antarctica"],
+["Australia is wider than the Moon. It is about 4,000 kilometres across, while the Moon is about 3,475 kilometres wide.","Australia"],
+["About 9 out of every 10 people on Earth live in the Northern Hemisphere.","Northern Hemisphere","un"],
+["The world's population passed 8 billion people in November 2022.","world population","un"],
+["Together, India and China are home to more than a third of all the people on Earth.","world population","un"],
+];
+const GK_SOURCES={
+  brit:{name:"Britannica",url:q=>"https://www.britannica.com/search?query="+encodeURIComponent(q)},
+  noaa:{name:"NOAA Ocean Facts",url:()=>"https://oceanservice.noaa.gov/facts/"},
+  "usgs-v":{name:"USGS Volcano Hazards",url:()=>"https://www.usgs.gov/natural-hazards/volcano-hazards"},
+  "usgs-p":{name:"USGS: This Dynamic Earth",url:()=>"https://pubs.usgs.gov/gip/dynamic/dynamic.html"},
+  wmo:{name:"WMO Weather & Climate Extremes",url:()=>"https://wmo.int/site/world-weather-and-climate-extremes-archive"},
+  nasa:{name:"NASA Earth Observatory",url:()=>"https://earthobservatory.nasa.gov/"},
+  un:{name:"UN World Population Prospects",url:()=>"https://population.un.org/wpp/"},
+  india:{name:"Know India (Govt of India)",url:()=>"https://knowindia.india.gov.in/states-uts/"},
+};
+const GK_FACTS={geo:GEO_FACTS};
+// Top-10 revision lists (rank order). Numbers rounded.
+const GK_LISTS=[
+  {id:"countries",match:/countr/i,title:"Most populous countries",icon:"🌏",
+   source:"Vik's study list (UN population figures)",
+   rows:[["India","1.48B","South Asia"],["China","1.41B","East Asia"],["United States","349M","North America"],["Indonesia","288M","Southeast Asia"],["Pakistan","259M","South Asia"],["Nigeria","242M","West Africa"],["Brazil","214M","South America"],["Bangladesh","178M","South Asia"],["Russia","143M","Europe/Asia"],["Ethiopia","139M","East Africa"]]},
+  {id:"cities",match:/cit/i,title:"Most populous cities",icon:"🏙️",
+   source:"Vik's study list (UN figures, whole metro area)",
+   rows:[["Jakarta","42M","Indonesia"],["Dhaka","37M","Bangladesh"],["Tokyo","33M","Japan"],["Delhi","30M","India"],["Shanghai","30M","China"],["Guangzhou","28M","China"],["Cairo","25M","Egypt"],["Manila","25M","Philippines"],["Kolkata","23M","India"],["Seoul","23M","South Korea"]]},
+  {id:"languages",match:/lang/i,title:"Most spoken languages",icon:"🗣️",
+   source:"Vik's study list (total speakers, first and second language)",
+   rows:[["English","1.50B","Global lingua franca"],["Mandarin Chinese","1.18B","China, Taiwan"],["Hindi","609M","India"],["Spanish","559M","Latin America, Spain"],["Standard Arabic","335M","Middle East and North Africa"],["French","312M","Europe, West and Central Africa"],["Bengali","284M","Bangladesh, India"],["Portuguese","267M","Brazil, Portugal"],["Russian","255M","Russia and nearby countries"],["Indonesian","252M","Indonesia"]]},
+];
+function gkRng(seed){ let a=2166136261; for(const ch of String(seed)) a=Math.imul(a^ch.charCodeAt(0),16777619)>>>0; return ()=>{ a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+function gkOrder(memberId,topic){ const n=(GK_FACTS[topic]||[]).length, r=gkRng(memberId+"|"+topic), a=Array.from({length:n},(_,i)=>i); for(let i=n-1;i>0;i--){ const j=Math.floor(r()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+// per device, per person: which facts were seen and which one is "today's"
+function gkStateRead(memberId,topic){ try{ const s=JSON.parse(localStorage.getItem(`ff_gkf_${memberId}_${topic}`)||"null"); if(s&&Array.isArray(s.seen)) return s; }catch{} return {seen:[],day:"",cur:-1}; }
+function gkStateWrite(memberId,topic,s){ try{ localStorage.setItem(`ff_gkf_${memberId}_${topic}`,JSON.stringify(s)); }catch{} }
+function gkNextUnseen(memberId,topic,seen){
+  const order=gkOrder(memberId,topic), set=new Set(seen);
+  const i=order.find(k=>!set.has(k));
+  return i===undefined?null:i;
+}
+function GkFactsPage({members,logs,initialId}){
+  const eligible=members.filter(m=>m.gkEnabled);
+  const pool=eligible.length?eligible:members;
+  const[mid,setMid]=useState(()=>(pool.find(m=>m.id===initialId)||pool[0]||{}).id);
+  const[topic,setTopic]=useState("geo");
+  const facts=GK_FACTS[topic]||[];
+  const today=todayStr();
+  const[st,setSt]=useState(()=>gkStateRead(mid,topic));
+  const[anim,setAnim]=useState(0);
+  // settle today's fact for this person
+  useEffect(()=>{
+    if(!mid) return;
+    let s=gkStateRead(mid,topic);
+    if(s.day!==today||!(s.cur>=0&&s.cur<facts.length)){
+      let seen=s.seen.filter(i=>i>=0&&i<facts.length);
+      let nx=gkNextUnseen(mid,topic,seen);
+      if(nx===null){ seen=[]; nx=gkNextUnseen(mid,topic,seen); }
+      s={seen:nx===null?seen:[...seen,nx],day:today,cur:nx===null?-1:nx};
+      gkStateWrite(mid,topic,s);
+    }
+    setSt(s);
+  },[mid,topic,today]); // eslint-disable-line
+  const another=()=>{
+    let seen=st.seen.filter(i=>i>=0&&i<facts.length);
+    let nx=gkNextUnseen(mid,topic,seen);
+    let restarted=false;
+    if(nx===null){ seen=[]; nx=gkNextUnseen(mid,topic,seen); restarted=true; }
+    if(nx===null) return;
+    const s={seen:[...seen,nx],day:today,cur:nx,restarted};
+    gkStateWrite(mid,topic,s); setSt(s); setAnim(a=>a+1);
+  };
+  const m=members.find(x=>x.id===mid);
+  const fact=st.cur>=0?facts[st.cur]:null;
+  const seenCount=Math.min(st.seen.length,facts.length);
+  const gk=m?getGkEntries(logs||{},m.id):[];
+  return <div className="ff-in" data-testid="gkfacts">
+    {pool.length>1&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}} role="group" aria-label="Whose facts">
+      {pool.map(x=><button key={x.id} data-testid={"gk-who-"+x.name} aria-pressed={x.id===mid} onClick={()=>setMid(x.id)}
+        style={{display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:999,cursor:"pointer",fontWeight:700,fontSize:13,
+          border:`1.5px solid ${x.id===mid?"var(--accent)":"var(--line)"}`,background:x.id===mid?"var(--accent-soft)":"var(--card)",color:x.id===mid?"var(--accent-ink)":"var(--text)"}}>
+        <span>{x.emoji||"⭐"}</span>{x.name}</button>)}
+    </div>}
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:14}} role="group" aria-label="Topic">
+      {GK_TOPICS.map(t=><button key={t.id} aria-pressed={t.id===topic} onClick={()=>setTopic(t.id)}
+        style={{padding:"7px 14px",borderRadius:999,fontWeight:700,fontSize:13,cursor:"pointer",border:"1.5px solid var(--accent)",background:t.id===topic?"var(--accent)":"var(--card)",color:t.id===topic?"var(--on-accent,#fff)":"var(--accent-ink)"}}>{t.icon} {t.name}</button>)}
+      <span style={{fontSize:12,color:"var(--muted)"}}>More topics coming</span>
+    </div>
+    <div className="ff-card" style={{padding:"22px 22px 18px",marginBottom:20,position:"relative",overflow:"hidden"}}>
+      <div style={{fontSize:12,fontWeight:800,letterSpacing:".1em",textTransform:"uppercase",color:"var(--muted)"}}>💡 {anim===0?"Today's fact":"Did you know?"}</div>
+      {fact?<div key={anim} className="ff-in" style={{marginTop:10}}>
+        <div data-testid="gk-fact" style={{fontSize:"clamp(18px,2.4vw,22px)",lineHeight:1.45,fontWeight:600,color:"var(--text)",maxWidth:"60ch"}}>{fact[0]}</div>
+        {(()=>{ const S=GK_SOURCES[fact[2]]||GK_SOURCES.brit; return <a data-testid="gk-source" href={S.url(fact[1])} target="_blank" rel="noopener noreferrer"
+          style={{display:"inline-block",marginTop:10,fontSize:13,fontWeight:700,color:"var(--accent-ink)"}}>Read more on {S.name} ↗</a>; })()}
+      </div>:<div style={{marginTop:10,color:"var(--muted)"}}>No facts for this topic yet.</div>}
+      <div style={{display:"flex",alignItems:"center",gap:12,marginTop:16,flexWrap:"wrap"}}>
+        <button data-testid="gk-new" onClick={another} style={{background:"var(--accent)",color:"var(--on-accent,#fff)",border:"none",borderRadius:12,padding:"10px 18px",fontWeight:800,fontSize:14,cursor:"pointer"}}>🔄 New fact</button>
+        <span data-testid="gk-count" style={{fontSize:12,color:"var(--muted)"}}>{st.restarted?"You've read them all! Starting again. ":""}{seenCount} of {facts.length} {GK_TOPICS.find(t=>t.id===topic)?.name.toLowerCase()} facts read</span>
+      </div>
+    </div>
+    <div style={{fontWeight:800,fontSize:16,margin:"4px 0 4px"}}>📚 Top 10 lists to revise</div>
+    <div style={{fontSize:13,color:"var(--muted)",marginBottom:12}}>Tap a row to see the answer.</div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:14}}>
+      {GK_LISTS.map(L=><GkList key={L.id+mid} L={L} learned={gk.some(e=>L.match.test(String(e.reason||"")))}/>)}
+    </div>
+  </div>;
+}
+function GkList({L,learned}){
+  const[open,setOpen]=useState(()=>new Set());
+  const all=open.size===L.rows.length;
+  const toggle=i=>setOpen(s=>{ const n=new Set(s); n.has(i)?n.delete(i):n.add(i); return n; });
+  return <div className="ff-card" data-testid={"gk-list-"+L.id} style={{padding:16,display:"flex",flexDirection:"column",gap:8}}>
+    <div style={{display:"flex",alignItems:"center",gap:8}}>
+      <span style={{fontSize:22}}>{L.icon}</span>
+      <div style={{flex:1,minWidth:0}}><div style={{fontWeight:800,fontSize:15}}>{L.title}</div>
+        {learned&&<div style={{fontSize:11,fontWeight:700,color:"var(--accent-ink)"}}>✓ Learned, GK points earned</div>}</div>
+      <button data-testid={"gk-all-"+L.id} onClick={()=>setOpen(all?new Set():new Set(L.rows.map((_,i)=>i)))}
+        style={{background:"none",border:"1px solid var(--line)",borderRadius:8,padding:"4px 10px",fontSize:12,fontWeight:700,color:"var(--muted)",cursor:"pointer"}}>{all?"Hide all":"Show all"}</button>
+    </div>
+    <ol style={{listStyle:"none",margin:0,padding:0,display:"flex",flexDirection:"column",gap:5}}>
+      {L.rows.map(([name,num,sub],i)=>{ const shown=open.has(i);
+        return <li key={i}><button onClick={()=>toggle(i)} aria-expanded={shown} data-testid={`gk-row-${L.id}-${i+1}`}
+          style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"7px 10px",borderRadius:10,cursor:"pointer",textAlign:"left",
+            border:"1px solid var(--line)",background:shown?"var(--accent-soft)":"var(--bg2,var(--card))",color:"var(--text)"}}>
+          <span style={{width:24,fontWeight:800,color:"var(--accent-ink)",fontVariantNumeric:"tabular-nums"}}>{i+1}</span>
+          {shown?<><span style={{flex:1,minWidth:0}}><span style={{fontWeight:700,display:"block"}}>{name}</span>{sub&&<span style={{fontSize:11,color:"var(--muted)",display:"block"}}>{sub}</span>}</span><span style={{fontSize:12,color:"var(--muted)",fontVariantNumeric:"tabular-nums",whiteSpace:"nowrap"}}>{num}</span></>
+            :<span style={{flex:1,color:"var(--muted)",fontSize:13}}>Tap to reveal</span>}
+        </button></li>; })}
+    </ol>
+    <div style={{fontSize:11,color:"var(--muted)",lineHeight:1.4}}>Source: {L.source}.</div>
+  </div>;
+}
+
+// ── Agreement: a just-for-fun Power Points pact, signed on screen ──
+const AGREE_PENALTY=[
+  "Buy Vishruth an ice cream of his choice, any flavour, any size.",
+  "Do 100 squats while Vishruth counts out loud.",
+  "Hand over the TV remote for one whole weekend.",
+  "Announce at dinner: \"Vishruth is the Power Points champion of this house.\"",
+];
+function agreeParties(members){
+  const son=members.find(m=>m.id==="son")||members.find(m=>/vik|vishruth/i.test(m.name));
+  const dad=members.find(m=>/abrg|abilash/i.test(m.name));
+  return {son,dad};
+}
+// signature pad -> compact SVG path (rounded points, small enough to sync)
+function SignPad({label,onDone,testid}){
+  const ref=useRef(null); const strokes=useRef([]); const drawing=useRef(false);
+  const[has,setHas]=useState(false);
+  const pt=e=>{ const r=ref.current.getBoundingClientRect(); return [Math.round((e.clientX-r.left)/r.width*300),Math.round((e.clientY-r.top)/r.height*100)]; };
+  const redraw=()=>{ const c=ref.current, g=c.getContext("2d"); g.clearRect(0,0,c.width,c.height); g.lineWidth=2.6; g.lineCap="round"; g.lineJoin="round"; g.strokeStyle="#1E3A8A";
+    for(const s of strokes.current){ g.beginPath(); s.forEach(([x,y],i)=>i?g.lineTo(x*c.width/300,y*c.height/100):g.moveTo(x*c.width/300,y*c.height/100)); g.stroke(); } };
+  useEffect(()=>{ const c=ref.current; const r=c.getBoundingClientRect(); const d=Math.min(2,window.devicePixelRatio||1); c.width=Math.round(r.width*d); c.height=Math.round(r.height*d); },[]);
+  const down=e=>{ e.preventDefault(); ref.current.setPointerCapture?.(e.pointerId); drawing.current=true; strokes.current.push([pt(e)]); };
+  const move=e=>{ if(!drawing.current) return; const s=strokes.current[strokes.current.length-1], p=pt(e), q=s[s.length-1];
+    if(Math.abs(p[0]-q[0])+Math.abs(p[1]-q[1])>=2&&strokes.current.reduce((n,x)=>n+x.length,0)<900){ s.push(p); redraw(); } };
+  const up=()=>{ if(!drawing.current) return; drawing.current=false; const ok=strokes.current.some(s=>s.length>3); setHas(ok); };
+  const clear=()=>{ strokes.current=[]; setHas(false); redraw(); };
+  const done=()=>{ const d=strokes.current.filter(s=>s.length>1).map(s=>"M"+s.map(p=>p.join(" ")).join("L")).join(""); onDone(d); };
+  return <div style={{display:"flex",flexDirection:"column",gap:6}}>
+    <canvas ref={ref} data-testid={testid} aria-label={label} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={up} onPointerCancel={up}
+      style={{width:"100%",height:110,touchAction:"none",background:"#FFFDF7",border:"1.5px dashed #B9A77E",borderRadius:10,cursor:"crosshair"}}/>
+    <div style={{display:"flex",gap:8}}>
+      <button onClick={clear} style={{background:"none",border:"1px solid #B9A77E",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,color:"#5B4A26",cursor:"pointer"}}>Clear</button>
+      <button onClick={done} disabled={!has} data-testid={testid+"-ok"} style={{background:has?"#1E3A8A":"#CBD5E1",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontSize:12,fontWeight:800,cursor:has?"pointer":"default"}}>✍️ Sign</button>
+    </div>
+  </div>;
+}
+const SigShow=({d,testid})=>/^[ML0-9 ]+$/.test(d||"")?<svg data-testid={testid} viewBox="0 0 300 100" style={{width:"100%",height:90,display:"block"}}><path d={d} fill="none" stroke="#1E3A8A" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"/></svg>:null;
+function AgreementPage({members,logs,onSave}){
+  const {son,dad}=agreeParties(members);
+  const[redo,setRedo]=useState(false);
+  if(!son||!dad) return <div className="ff-card" style={{padding:20}}>The agreement needs Vik and ABRG in the family list.</div>;
+  const A=dad.agreement||{};
+  let ppDad=0,ppSon=0; try{ ppDad=computePowerPoints(dad,logs).total||0; ppSon=computePowerPoints(son,logs).total||0; }catch{}
+  const broken=ppDad>ppSon, gap=Math.abs(ppSon-ppDad);
+  const signedBoth=A.dadSig&&A.sonSig;
+  const save=patch=>onSave(dad.id,{...A,...patch});
+  const ink="#2B2414", paper="#FBF6E9", rule="#D8CBA8";
+  const fmt=n=>Math.round(n).toLocaleString("en-US");
+  const dateStr=ds=>ds?new Date(ds+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"}):"";
+  return <div className="ff-in" data-testid="agreement">
+    <div data-testid="agree-status" style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderRadius:14,marginBottom:16,
+      background:broken?"#FEE2E2":"#DCFCE7",border:`1.5px solid ${broken?"#DC2626":"#16A34A"}`,color:broken?"#7F1D1D":"#14532D"}}>
+      <span style={{fontSize:26}}>{broken?"🚨":"✅"}</span>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontWeight:800,fontSize:15}}>{broken?"Agreement broken! Penalty is due.":"Agreement honoured"}</div>
+        <div style={{fontSize:13}}>Vishruth {fmt(ppSon)} PP · Abilash {fmt(ppDad)} PP · {broken?`Abilash is ${fmt(gap)} PP ahead`:`Vishruth leads by ${fmt(gap)} PP`}</div>
+      </div>
+    </div>
+    <div style={{background:paper,color:ink,borderRadius:16,padding:"clamp(20px,4vw,40px)",boxShadow:"0 10px 30px rgba(60,40,10,.18)",border:`1px solid ${rule}`,maxWidth:760,margin:"0 auto",fontFamily:"Georgia,'Times New Roman',serif",position:"relative"}}>
+      <div style={{textAlign:"center",borderBottom:`2px double ${rule}`,paddingBottom:14,marginBottom:18}}>
+        <div style={{fontSize:12,letterSpacing:".25em",textTransform:"uppercase",color:"#7A6A45"}}>Official family document</div>
+        <div style={{fontSize:"clamp(24px,4.5vw,34px)",fontWeight:700,margin:"6px 0 2px"}}>The Power Points Pact</div>
+        <div style={{fontSize:14,fontStyle:"italic",color:"#6B5B37"}}>An agreement between father and son, binding forever (or until bedtime)</div>
+      </div>
+      <p style={{fontSize:16,lineHeight:1.7,margin:"0 0 14px"}}>I, <b>Abilash Rengasamy</b>, of sound mind and slightly tired legs, solemnly agree to the following, in front of my son <b>Vishruth</b>:</p>
+      <ol style={{fontSize:16,lineHeight:1.7,margin:"0 0 14px",paddingLeft:22}}>
+        <li>I will <b>never overtake Vishruth in Power Points</b>, not by a single point, on any day, in any month.</li>
+        <li>If I ever do, I accept that this Pact is broken and a <b>massive penalty</b> is due, as listed below.</li>
+        <li>The scoreboard in this app is the final judge. No arguing, no excuses, no "the app is wrong".</li>
+        <li>This Pact cannot be cancelled without Vishruth's written permission (and a good snack).</li>
+      </ol>
+      <div style={{background:"#F3EAD3",border:`1px solid ${rule}`,borderRadius:12,padding:"12px 16px",margin:"0 0 20px"}}>
+        <div style={{fontWeight:700,fontSize:15,marginBottom:6}}>⚖️ The massive penalty</div>
+        <ul style={{margin:0,paddingLeft:20,fontSize:15,lineHeight:1.65}}>{AGREE_PENALTY.map(p=><li key={p}>{p}</li>)}</ul>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:20,marginTop:8}}>
+        {[["dadSig","Signed","Abilash Rengasamy","agree-sign-dad"],["sonSig","Witnessed and accepted","Vishruth","agree-sign-son"]].map(([k,cap,who,tid])=><div key={k}>
+          <div style={{fontSize:12,letterSpacing:".12em",textTransform:"uppercase",color:"#7A6A45",marginBottom:6}}>{cap}</div>
+          {A[k]?<SigShow d={A[k]} testid={tid+"-done"}/>:<SignPad label={`${who} signature`} testid={tid} onDone={d=>save({[k]:d,[k+"At"]:todayStr()})}/>}
+          <div style={{borderTop:`1.5px solid ${ink}`,marginTop:6,paddingTop:4,display:"flex",justifyContent:"space-between",fontSize:14}}>
+            <span style={{fontWeight:700}}>{who}</span><span style={{color:"#6B5B37"}}>{A[k+"At"]?dateStr(A[k+"At"]):"Date: ________"}</span>
+          </div>
+        </div>)}
+      </div>
+      {signedBoth&&<div style={{textAlign:"center",marginTop:22}}><span data-testid="agree-seal" style={{display:"inline-block",transform:"rotate(-8deg)",border:"3px solid #B91C1C",color:"#B91C1C",borderRadius:10,padding:"5px 14px",fontWeight:800,letterSpacing:".14em",fontFamily:"system-ui,sans-serif",fontSize:15,opacity:.85}}>SIGNED & SEALED</span></div>}
+      {signedBoth&&<div style={{textAlign:"center",marginTop:18,fontSize:13,color:"#6B5B37"}}>
+        {redo?<button data-testid="agree-redo-yes" onClick={()=>{ onSave(dad.id,{}); setRedo(false); }} style={{background:"#B91C1C",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontWeight:700,cursor:"pointer",fontFamily:"system-ui,sans-serif"}}>Tap again to erase both signatures</button>
+          :<button data-testid="agree-redo" onClick={()=>setRedo(true)} style={{background:"none",border:"none",color:"#7A6A45",textDecoration:"underline",cursor:"pointer",fontFamily:"inherit",fontSize:13}}>Redo signatures</button>}
+      </div>}
+    </div>
+  </div>;
+}
+
 export default function App(){
   const[members,setMembers]=useState(DEF_MEMBERS);
   const[logs,setLogs]=useState({});
@@ -8981,6 +9379,8 @@ export default function App(){
   const[editM,setEditM]=useState(null);
   const[toasts,setToasts]=useState([]);
   const[activeTab,setActiveTab]=useState(null);
+  const lastMemberTab=useRef(null); // last person viewed, so GK Facts opens on them
+  const[famTab,setFamTab]=useState("overview"); // Family page: overview or GK Facts
   const[door,setDoor]=useState(false); // true = show the "Who's using this?" screen
   const doorChosen=useRef(false);      // door already decided the landing tab (incl. Family)
   const[ppPanelFor,setPpPanelFor]=useState(null);
@@ -9359,6 +9759,7 @@ export default function App(){
 
   // Derive active theme and pattern — per-member if set, otherwise global
   const activeMember = activeTab ? members.find(m=>m.id===activeTab) : null;
+  if(activeMember) lastMemberTab.current=activeMember.id;
   const activeThemeId = (activeMember?.memberTheme) || theme;
   const activePatternId = (activeMember?.memberPattern) || pattern;
 
@@ -9475,9 +9876,17 @@ export default function App(){
       ))}
 
       {/* Family tab */}
-      {activeTab===null&&members.length>0&&<div key="family" className="ff-in-x">{_wrWindow(yr,mo)&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
-        <button data-testid="wr-open-family" onClick={()=>setWrapped({kind:"family",y:yr,m:mo})} style={{background:"linear-gradient(120deg,#5B21B6,#BE185D)",border:"none",borderRadius:10,padding:"8px 14px",cursor:"pointer",fontWeight:700,fontSize:13,color:"#FFFFFF"}}>🎁 Family Wrapped · {MONTHS[mo]} {yr}{_wrWindow(yr,mo).partial?" (so far)":""}</button>
-      </div>}<FamilyDashboard members={shown} logs={logs} yr={yr} mo={mo} MONTHS={MONTHS}/></div>}
+      {activeTab===null&&members.length>0&&<div key="family" className="ff-in-x">
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:14}}>
+          <div role="tablist" aria-label="Family pages" style={{display:"inline-flex",gap:4,padding:4,borderRadius:12,background:"var(--card)",border:"1px solid var(--line)"}}>
+            {[["overview","👨‍👩‍👧 Overview"],["gk","💡 GK Facts"],["agree","📜 Agreement"]].map(([k,l])=><button key={k} role="tab" aria-selected={famTab===k} data-testid={"fam-tab-"+k} onClick={()=>setFamTab(k)}
+              style={{border:"none",borderRadius:9,padding:"7px 14px",fontWeight:700,fontSize:13,cursor:"pointer",background:famTab===k?"var(--accent)":"transparent",color:famTab===k?"var(--on-accent,#fff)":"var(--text)"}}>{l}</button>)}
+          </div>
+          <div style={{flex:1}}/>
+          {famTab==="overview"&&_wrWindow(yr,mo)&&<button data-testid="wr-open-family" onClick={()=>setWrapped({kind:"family",y:yr,m:mo})} style={{background:"linear-gradient(120deg,#5B21B6,#BE185D)",border:"none",borderRadius:10,padding:"8px 14px",cursor:"pointer",fontWeight:700,fontSize:13,color:"#FFFFFF"}}>🎁 Family Wrapped · {MONTHS[mo]} {yr}{_wrWindow(yr,mo).partial?" (so far)":""}</button>}
+        </div>
+        {famTab==="agree"?<AgreementPage members={members} logs={logs} onSave={(id,ag)=>setMembers(prev=>prev.map(m=>{ if(m.id!==id) return m; const n={...m}; if(ag&&Object.keys(ag).length) n.agreement=ag; else delete n.agreement; return n; }))}/>:famTab==="gk"?<GkFactsPage key="gk" members={shown} logs={logs} initialId={lastMemberTab.current}/>:<FamilyDashboard members={shown} logs={logs} yr={yr} mo={mo} MONTHS={MONTHS}/>}
+      </div>}
     </div>
 
     {showLooks&&<LookTray initial={sel.id==="studio"&&lookPreview?{id:"studio",acc:0,custom:null}:(deviceLook?{id:deviceLook,acc:deviceAcc,custom:deviceCustom}:(_pSel||{id:"studio",acc:0,custom:null}))} mode={mode} personName={activeMember?activeMember.name:null} deviceActive={!!deviceLook}
