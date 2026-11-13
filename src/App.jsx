@@ -2290,6 +2290,17 @@ function _tombApply(logs){
   }
   return out;
 }
+// Deleted members: remembered in the saved data itself ("deletedMembers"), so a device that still has the person
+// in its copy can't bring them back on its next save. A deliberate restore from a backup lifts the deletion.
+let _memberDel=new Set(), _memberUndel=new Set();
+function _memberDelAdd(id){ _memberDel.add(id); _memberUndel.delete(id); }
+function _memberDelLoad(d){ if(d&&Array.isArray(d.deletedMembers)) for(const id of d.deletedMembers) if(!_memberUndel.has(id)) _memberDel.add(id); }
+function _memberDelLift(ids){ for(const id of ids){ _memberDel.delete(id); _memberUndel.add(id); } }
+function _memberDelMerge(remote, members){
+  const del=new Set([...(Array.isArray(remote&&remote.deletedMembers)?remote.deletedMembers:[]),..._memberDel].filter(id=>!_memberUndel.has(id)));
+  for(const id of del) _memberDel.add(id);
+  return {members:(members||[]).filter(m=>!del.has(m.id)), deletedMembers:[...del]};
+}
 function _tombDone(applied){ _tombs=_tombs.filter(t=>!applied.some(a=>a.mid===t.mid&&a.actId===t.actId&&a.date===t.date)); }
 
 // Deep-merge two log trees
@@ -2411,7 +2422,7 @@ function downloadBackup(data, dateStr){
 // is refused instead of overwriting newer data; the app then re-reads, merges and retries.
 const CF_URL   = "https://ff-store.abrg0104.workers.dev";
 const CF_TOKEN = "4de559c8478bd81ef7d43d77ba4203091b9e9fcd4256151d";
-const STORE_MODE = "dual";
+const STORE_MODE = "cf";
 const JSONBIN_MIRROR = true;      // in "cf" mode: keep writing a copy to JSONBin (stops by itself if its quota runs out)
 const CF_ON = STORE_MODE!=="jsonbin" && !!CF_URL && !!CF_TOKEN;
 _cloud.cf = { state: CF_ON?"idle":"off", v:null, at:null, message:"" };
@@ -2485,7 +2496,7 @@ async function loadData(){
       const cur=await cfGet();
       const raw=cfDecodeState(cur);
       if(raw){
-        const d=migrateData(raw);
+        const d=migrateData(raw); _memberDelLoad(d); if(Array.isArray(d.members)) d.members=d.members.filter(m=>!_memberDel.has(m.id));
         try{localStorage.setItem("ff_data",JSON.stringify(d));}catch{}
         saveLocalBackup(d);
         _cloud.ok=true; _markSynced(); _cfNote("ok",{v:cur.v});
@@ -2508,7 +2519,7 @@ async function loadData(){
       });
       if(res.ok){
         const raw=cloudDecode(await res.json());
-        const d=migrateData(raw);
+        const d=migrateData(raw); _memberDelLoad(d); if(Array.isArray(d.members)) d.members=d.members.filter(m=>!_memberDel.has(m.id));
         try{localStorage.setItem("ff_data",JSON.stringify(d));}catch{}
         // Daily snapshot — silently saves once per day before any writes happen
         saveLocalBackup(d);
@@ -2531,7 +2542,7 @@ async function saveDataCf(p){
       const remote=cfDecodeState(cur)||{};
       const tombsNow=_tombs.slice();
       const merged={
-        members: mergeMembers(remote.members, p.members),
+        ..._memberDelMerge(remote, mergeMembers(remote.members, p.members)),
         logs: _tombApply(deepMergeLogs(remote.logs||{}, p.logs||{})),
         theme: p.theme,
         pattern: p.pattern,
@@ -2577,7 +2588,7 @@ async function saveData(p){
     const remote=cloudDecode(await res.json());
     const tombsNow=_tombs.slice();
     const merged={
-      members: mergeMembers(remote.members, p.members),
+      ..._memberDelMerge(remote, mergeMembers(remote.members, p.members)),
       logs: _tombApply(deepMergeLogs(remote.logs||{}, p.logs||{})),
       theme: p.theme,
       pattern: p.pattern,
@@ -9394,6 +9405,7 @@ export default function App(){
   useEffect(()=>{ _saveStatusCb = setSaveStatus; return ()=>{ _saveStatusCb=null; }; },[]);
 
   function handleRestore(data){
+    if(Array.isArray(data.members)) _memberDelLift(data.members.map(m=>m.id)); // restoring brings deleted people back
     if(data.members) setMembers(data.members);
     if(data.logs) setLogs(data.logs);
     if(data.theme) setTheme(data.theme);
@@ -9638,7 +9650,7 @@ export default function App(){
     setMembers(p=>{const ex=p.find(x=>x.id===m.id);return ex?p.map(x=>x.id===m.id?m:x):[...p,m];});
     setEditM(null);
   },[editM,handleTargetChange]);
-  const handleDel=useCallback((id)=>{setMembers(p=>p.filter(m=>m.id!==id));setEditM(null);},[]);
+  const handleDel=useCallback((id)=>{_memberDelAdd(id);setMembers(p=>p.filter(m=>m.id!==id));setEditM(null);},[]);
   const[celebration,setCelebration]=useState(null);
   const handleBadge=useCallback((b,memberName)=>{
     if(MAJOR_MILESTONE_IDS.has(b.id)){
