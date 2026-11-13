@@ -9384,6 +9384,613 @@ function AgreementPage({members,logs,onSave}){
   </div>;
 }
 
+// ── Head to Head: compare two people. Read-only. "Fair" compares each person with their own usual. ──
+const H2H_TAB="__h2h";
+const H2H_PERIODS=[["week","Last 7 days"],["month","This month"],["all","All time"]];
+const _h2hKey=a=>String(a.name||"").trim().toLowerCase()+"|"+String(a.unit||"").trim().toLowerCase();
+const _h2hMins=(v,unit)=>unit==="sec"?v/60:unit==="min"?v:(unit==="hr"||unit==="hrs"||unit==="hours")?v*60:0;
+function h2hWindow(period){
+  const t=todayStr();
+  if(period==="week") return {from:_addDaysStr(t,-6),to:t};
+  if(period==="month") return {from:t.slice(0,8)+"01",to:t};
+  return {from:"0000-00-00",to:t};
+}
+const _h2hDaysBetween=(a,b)=>Math.round((new Date(b+"T12:00:00")-new Date(a+"T12:00:00"))/86400000)+1;
+function h2hMember(member,logs,period,pp){
+  const {from,to}=h2hWindow(period);
+  const acts={};
+  let first=null;
+  for(const a of member.activities||[]){
+    const al=getActivityLogs(logs,member.id,a.id);
+    let total=0,best=0,days=0,aFirst=null,baseTot=0;
+    const entries=Object.entries(al).filter(([d,l])=>l&&/^\d{4}-\d{2}-\d{2}$/.test(d)&&l.status!=="skipped"&&l.status!=="shielded"&&(+l.value||0)>0);
+    for(const [d,l] of entries){ if(!aFirst||d<aFirst) aFirst=d; }
+    const start=period==="all"?aFirst:from;
+    const baseFrom=start?_addDaysStr(start,-90):null;
+    for(const [d,l] of entries){
+      const v=+l.value||0, top=Math.max(0,...(l.sessions&&l.sessions.length?l.sessions:[v]).map(x=>+x||0));
+      if(d>=from&&d<=to){ total+=v; days++; if(top>best) best=top; }
+      else if(baseFrom&&d<start&&d>=baseFrom) baseTot+=v;
+    }
+    if(aFirst&&(!first||aFirst<first)) first=aFirst;
+    // fair: this period's daily rate vs their own daily rate over the 90 days before it (all time: share of days done)
+    let fair=null;
+    if(period==="all"){ if(aFirst) fair=days/_h2hDaysBetween(aFirst,to); }
+    else if(aFirst&&aFirst<from){
+      const bStart=aFirst>baseFrom?aFirst:baseFrom, bDays=_h2hDaysBetween(bStart,_addDaysStr(from,-1));
+      const pDays=_h2hDaysBetween(from,to), baseRate=bDays>0?baseTot/bDays:0;
+      if(baseRate>0) fair=(total/pDays)/baseRate;
+    }
+    acts[_h2hKey(a)]={name:a.name,unit:a.unit,total,best,days,fair,isNew:!!aFirst&&aFirst>=from&&period!=="all"};
+  }
+  // common ground
+  const start=period==="all"?(first||to):(first&&first>from?first:from);
+  const span=first?Math.max(1,_h2hDaysBetween(start,to)):0;
+  let active=0,run=0,streak=0,mins=0;
+  for(let i=0;i<span;i++){
+    const d=_addDaysStr(start,i), s=dayStatus(member,logs,d);
+    if(s==="done"){ active++; run++; } else if(s==="shielded"){ run++; } else run=0;
+    if(run>streak) streak=run;
+  }
+  for(const k in acts) mins+=_h2hMins(acts[k].total,acts[k].unit);
+  let ppSum=0,ppBase=0;
+  const de=(pp&&pp.dailyEarned)||{};
+  const bFrom=_addDaysStr(start,-90);
+  for(const [d,v] of Object.entries(de)){ if(d>=start&&d<=to) ppSum+=v||0; else if(d<start&&d>=bFrom) ppBase+=v||0; }
+  const bDays=first&&first<start?_h2hDaysBetween(first>bFrom?first:bFrom,_addDaysStr(start,-1)):0;
+  const ppFair=period!=="all"&&bDays>0&&ppBase>0?(ppSum/span)/(ppBase/bDays):null;
+  return {acts,active,span,streak,mins,pp:ppSum,ppFair,activeFair:span?active/span:null};
+}
+const _h2hPct=x=>x==null?"–":Math.round(x*100)+"%";
+const _h2hN=n=>Math.round(n||0).toLocaleString("en-US");
+function H2HBar({l,r,lv,rv,lc,rc,lab,sub,testid,winner}){
+  const a=Math.max(0,l||0), b=Math.max(0,r||0), sum=a+b, lp=sum?a/sum*100:50;
+  return <div data-testid={testid} style={{padding:"12px 14px",borderRadius:14,border:"1px solid var(--line)",background:"var(--card)"}}>
+    <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:8,marginBottom:8}}>
+      <span style={{fontWeight:800,fontSize:15,fontVariantNumeric:"tabular-nums",color:"var(--text)"}}>{winner===-1&&"👑 "}{lv}</span>
+      <span style={{fontWeight:700,fontSize:13,color:"var(--muted)",textAlign:"center",minWidth:0}}>{lab}</span>
+      <span style={{fontWeight:800,fontSize:15,fontVariantNumeric:"tabular-nums",color:"var(--text)"}}>{rv}{winner===1&&" 👑"}</span>
+    </div>
+    <div style={{position:"relative",height:12,borderRadius:999,background:"var(--empty,var(--line))",overflow:"hidden",display:"flex"}} role="img" aria-label={`${lab}: ${lv} versus ${rv}`}>
+      <div style={{width:`${sum?lp:0}%`,background:lc,transition:"width .5s ease"}}/>
+      <div style={{flex:1}}/>
+      <div style={{width:`${sum?100-lp:0}%`,background:rc,transition:"width .5s ease"}}/>
+      <div style={{position:"absolute",left:"50%",top:-2,bottom:-2,width:2,background:"var(--text)",opacity:.35}}/>
+    </div>
+    {sub&&<div style={{display:"flex",justifyContent:"space-between",marginTop:6,fontSize:11,color:"var(--muted)",gap:8}}><span>{sub[0]}</span><span style={{textAlign:"right"}}>{sub[1]}</span></div>}
+  </div>;
+}
+function HeadToHeadPage({members,logs}){
+  const ms=members.filter(m=>(m.activities||[]).length);
+  const defL=(ms.find(m=>m.id==="son")||ms[0]||{}).id;
+  const defR=(ms.find(m=>m.id!==defL&&/abrg|abilash/i.test(m.name))||ms.find(m=>m.id!==defL)||{}).id;
+  const[lid,setLid]=useState(defL);
+  const[rid,setRid]=useState(defR);
+  const[period,setPeriod]=useState("month");
+  const[fair,setFair]=useState(true);
+  const L=ms.find(m=>m.id===lid), R=ms.find(m=>m.id===rid);
+  const data=useMemo(()=>{
+    if(!L||!R) return null;
+    let ppL=null,ppR=null; try{ ppL=computePowerPoints(L,logs); ppR=computePowerPoints(R,logs); }catch{}
+    return {l:h2hMember(L,logs,period,ppL),r:h2hMember(R,logs,period,ppR)};
+  },[L,R,logs,period]);
+  if(ms.length<2) return <div className="ff-card" style={{padding:20}}>Head to Head needs at least two people with activities.</div>;
+  const lc=L?.color||"#6366F1", rc=R?.color||"#F97316";
+  const pick=(cur,set,other)=><select value={cur} onChange={e=>set(e.target.value)} aria-label="Choose person"
+    style={{padding:"6px 10px",borderRadius:10,border:"1px solid var(--line)",background:"var(--card)",color:"var(--text)",fontWeight:700,fontSize:14,maxWidth:"100%"}}>
+    {ms.map(m=><option key={m.id} value={m.id} disabled={m.id===other}>{m.emoji||"⭐"} {m.name}</option>)}</select>;
+  const rows=[];
+  let sL=0,sR=0;
+  const win=(a,b)=>{ if(a==null&&b==null) return 0; if(b==null||(a!=null&&a>b)) return -1; if(a==null||b>a) return 1; return 0; };
+  const shared=data?Object.keys(data.l.acts).filter(k=>data.r.acts[k]):[];
+  const fmtAct=(s,unit)=>fair?(s.isNew?"New":(s.fair==null?"–":_h2hPct(s.fair))):formatVol(unit==="km"||unit==="miles"?Math.round(s.total*10)/10:Math.round(s.total),unit);
+  for(const k of shared){
+    const a=data.l.acts[k], b=data.r.acts[k];
+    const av=fair?(a.isNew?null:a.fair):a.total, bv=fair?(b.isNew?null:b.fair):b.total;
+    const w=(av||0)===0&&(bv||0)===0?0:win(av,bv); if(w<0) sL++; else if(w>0) sR++;
+    rows.push(<H2HBar key={k} testid={"h2h-row-"+k.split("|")[0].replace(/\s+/g,"-")} l={av} r={bv} lc={lc} rc={rc} winner={w}
+      lv={fmtAct(a,a.unit)} rv={fmtAct(b,b.unit)} lab={a.name+(fair?(period==="all"?" · days done":" · vs usual"):"")}
+      sub={[`Best ${_h2hN(a.best)} ${a.unit} · ${a.days} day${a.days===1?"":"s"}`,`Best ${_h2hN(b.best)} ${b.unit} · ${b.days} day${b.days===1?"":"s"}`]}/>);
+  }
+  const common=[];
+  if(data){
+    const c=(key,lab,a,b,fa,fb)=>{ const w=(a||0)===0&&(b||0)===0?0:win(a,b); if(w<0) sL++; else if(w>0) sR++;
+      common.push(<H2HBar key={key} testid={"h2h-common-"+key} l={a} r={b} lc={lc} rc={rc} winner={w} lv={fa} rv={fb} lab={lab}/>); };
+    const l=data.l, r=data.r;
+    if(fair){
+      c("active","Active days · share of days",l.activeFair,r.activeFair,_h2hPct(l.activeFair),_h2hPct(r.activeFair));
+      c("streak","Longest streak",l.streak,r.streak,`${l.streak}d`,`${r.streak}d`);
+      if(period!=="all") c("pp","Power Points · vs usual",l.ppFair,r.ppFair,_h2hPct(l.ppFair),_h2hPct(r.ppFair));
+    } else {
+      c("active","Active days",l.active,r.active,String(l.active),String(r.active));
+      c("streak","Longest streak",l.streak,r.streak,`${l.streak}d`,`${r.streak}d`);
+      c("time","Total active time",l.mins,r.mins,formatVol(Math.round(l.mins),"min"),formatVol(Math.round(r.mins),"min"));
+      c("pp","Power Points",l.pp,r.pp,_h2hN(l.pp),_h2hN(r.pp));
+    }
+  }
+  const own=side=>{ const me=data[side], other=data[side==="l"?"r":"l"];
+    const ks=Object.keys(me.acts).filter(k=>!other.acts[k]&&(me.acts[k].total>0||!fair));
+    return ks.length?ks.map(k=>{ const s=me.acts[k]; return <div key={k} style={{display:"flex",justifyContent:"space-between",gap:8,padding:"8px 0",borderTop:"1px solid var(--line)",fontSize:13}}>
+      <span style={{fontWeight:700,minWidth:0}}>{s.name}</span>
+      <span style={{color:"var(--muted)",fontVariantNumeric:"tabular-nums",textAlign:"right"}}>{s.total>0?formatVol(s.unit==="km"||s.unit==="miles"?Math.round(s.total*10)/10:Math.round(s.total),s.unit):"–"}{fair&&s.fair!=null&&!s.isNew?` · ${_h2hPct(s.fair)}`:""}{s.isNew&&s.total>0?" · new":""}</span></div>; })
+      :<div style={{fontSize:13,color:"var(--muted)",padding:"8px 0",borderTop:"1px solid var(--line)"}}>Nothing else this period.</div>; };
+  const seg=(val,set,opts,tid)=><div role="group" style={{display:"inline-flex",gap:3,padding:3,borderRadius:11,background:"var(--card)",border:"1px solid var(--line)"}}>
+    {opts.map(([k,lab])=><button key={String(k)} data-testid={tid+"-"+k} aria-pressed={val===k} onClick={()=>set(k)}
+      style={{border:"none",borderRadius:8,padding:"6px 11px",fontWeight:700,fontSize:12,cursor:"pointer",background:val===k?"var(--accent)":"transparent",color:val===k?"var(--on-accent,#fff)":"var(--text)"}}>{lab}</button>)}</div>;
+  return <div className="ff-in" data-testid="h2h">
+    <div className="ff-card" style={{padding:"16px 18px",marginBottom:14,display:"grid",gridTemplateColumns:"1fr auto 1fr",alignItems:"center",gap:10}}>
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,minWidth:0}}>
+        <div style={{width:56,height:56,borderRadius:"50%",display:"grid",placeItems:"center",fontSize:28,background:lc+"33",border:`3px solid ${lc}`}}>{L?.emoji||"⭐"}</div>
+        {pick(lid,setLid,rid)}
+      </div>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontWeight:900,fontSize:22,letterSpacing:".04em",color:"var(--muted)"}}>VS</div>
+        <div data-testid="h2h-score" style={{fontWeight:900,fontSize:26,fontVariantNumeric:"tabular-nums",color:"var(--text)"}}>{sL} – {sR}</div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,minWidth:0}}>
+        <div style={{width:56,height:56,borderRadius:"50%",display:"grid",placeItems:"center",fontSize:28,background:rc+"33",border:`3px solid ${rc}`}}>{R?.emoji||"⭐"}</div>
+        {pick(rid,setRid,lid)}
+      </div>
+    </div>
+    <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:6}}>
+      {seg(period,setPeriod,H2H_PERIODS,"h2h-period")}
+      {seg(fair,setFair,[[true,"⚖️ Fair"],[false,"🔢 Raw"]],"h2h-mode")}
+    </div>
+    <div style={{fontSize:12,color:"var(--muted)",marginBottom:14,lineHeight:1.45}}>
+      {fair?(period==="all"?"Fair: how often each person did it, as a share of days since they started.":"Fair: each person against their own usual (their daily average over the 90 days before). 100% means a normal stretch; anyone can win."):"Raw: actual totals."}
+    </div>
+    {!data?null:<>
+      <div style={{fontWeight:800,fontSize:15,margin:"4px 0 8px"}}>🤝 Same activity</div>
+      {rows.length?<div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:18}}>{rows}</div>
+        :<div className="ff-card" style={{padding:14,fontSize:13,color:"var(--muted)",marginBottom:18}}>No activities in common. Common ground below still compares them.</div>}
+      <div style={{fontWeight:800,fontSize:15,margin:"4px 0 8px"}}>🌍 Common ground</div>
+      <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:18}}>{common}</div>
+      <div style={{fontWeight:800,fontSize:15,margin:"4px 0 8px"}}>🎯 Their own thing</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:12}}>
+        {[["l",L,lc],["r",R,rc]].map(([side,m,col])=><div key={side} className="ff-card" data-testid={"h2h-own-"+side} style={{padding:"12px 14px",borderTop:`4px solid ${col}`}}>
+          <div style={{fontWeight:800,fontSize:14,marginBottom:4}}>{m?.emoji} {m?.name}</div>{own(side)}</div>)}
+      </div>
+    </>}
+  </div>;
+}
+
+// ── Activity guides: animated how-to, muscles worked (with names) and benefits. Read-only. ──
+// Activity guide animations: a jointed mannequin drawn on canvas. Angles: 0 = up, + = toward the front (right), PI = down.
+const GD_W=500,GD_H=400,GD_FLOOR=330;
+const GD_LEN={shin:84,thigh:88,torso:110,neck:12,head:20,upper:62,fore:58,foot:34};
+const gdLerp=(a,b,t)=>a+(b-a)*t, gdEase=t=>t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+const gdAdd=(p,th,l)=>[p[0]+Math.sin(th)*l,p[1]-Math.cos(th)*l];
+const GD_NEAR=["#F3D9B8","#E2BC92","#B98A5E"], GD_FAR=["#D2B38E","#BD966D","#8F6942"];
+function gdIK(a,c,l1,l2,bendSign){ // two-link: from a to c, returns middle joint
+  const dx=c[0]-a[0], dy=c[1]-a[1]; let d=Math.hypot(dx,dy); d=Math.min(d,l1+l2-0.01);
+  const ang=Math.atan2(dy,dx), cosA=(l1*l1+d*d-l2*l2)/(2*l1*d), A=Math.acos(Math.max(-1,Math.min(1,cosA)));
+  const t=ang+bendSign*A; return [a[0]+Math.cos(t)*l1,a[1]+Math.sin(t)*l1];
+}
+function gdDraw(g,P,opt){
+  const limb=(a,b,w0,w1,base,glow)=>{
+    const dx=b[0]-a[0], dy=b[1]-a[1], L=Math.hypot(dx,dy)||1, nx=-dy/L, ny=dx/L;
+    const gr=g.createLinearGradient(a[0]+nx*w0,a[1]+ny*w0,a[0]-nx*w0,a[1]-ny*w0);
+    gr.addColorStop(0,base[0]); gr.addColorStop(.45,base[1]); gr.addColorStop(1,base[2]);
+    g.fillStyle=gr; g.beginPath();
+    g.moveTo(a[0]+nx*w0,a[1]+ny*w0); g.lineTo(b[0]+nx*w1,b[1]+ny*w1);
+    g.arc(b[0],b[1],w1,Math.atan2(ny,nx),Math.atan2(-ny,-nx),false);
+    g.lineTo(a[0]-nx*w0,a[1]-ny*w0); g.arc(a[0],a[1],w0,Math.atan2(-ny,-nx),Math.atan2(ny,nx),false); g.fill();
+    if(glow>0.02){ g.save(); g.globalAlpha=Math.min(1,glow); g.shadowColor="#F97316"; g.shadowBlur=18; g.fillStyle="rgba(249,115,22,.55)"; g.beginPath();
+      g.moveTo(a[0]+nx*w0*.8,a[1]+ny*w0*.8); g.lineTo(b[0]+nx*w1*.8,b[1]+ny*w1*.8); g.lineTo(b[0]-nx*w1*.8,b[1]-ny*w1*.8); g.lineTo(a[0]-nx*w0*.8,a[1]-ny*w0*.8); g.fill(); g.restore(); }
+  };
+  const ball=(p,r,col,glow)=>{ const gr=g.createRadialGradient(p[0]-r*.35,p[1]-r*.35,r*.1,p[0],p[1],r); gr.addColorStop(0,col[0]); gr.addColorStop(1,col[2]); g.fillStyle=gr; g.beginPath(); g.arc(p[0],p[1],r,0,7); g.fill();
+    if(glow>0.02){ g.save(); g.globalAlpha=Math.min(1,glow); g.shadowColor="#F97316"; g.shadowBlur=18; g.fillStyle="rgba(249,115,22,.5)"; g.beginPath(); g.arc(p[0],p[1],r*.85,0,7); g.fill(); g.restore(); } };
+  const G=P.glow||{};
+  const hip=P.hip, sh=gdAdd(hip,P.torso,GD_LEN.torso), neck=gdAdd(sh,P.torso,GD_LEN.neck), head=gdAdd(neck,P.head??P.torso,GD_LEN.head);
+  const leg=(th,sh2)=>{ const k=gdAdd(hip,th,GD_LEN.thigh), a=gdAdd(k,sh2,GD_LEN.shin); return [k,a]; };
+  const [nk,na]=P.nKnee?[P.nKnee,P.nAnkle]:leg(P.nThigh,P.nShin), [fk,fa]=P.fKnee?[P.fKnee,P.fAnkle]:leg(P.fThigh??P.nThigh,P.fShin??P.nShin);
+  const arm=(u,f)=>{ const e=gdAdd(sh,u,GD_LEN.upper), w=gdAdd(e,f,GD_LEN.fore); return [e,w]; };
+  const [ne,nw]=P.nElbow?[P.nElbow,P.nWrist]:arm(P.nUp,P.nFore), [fe,fw]=P.fElbow?[P.fElbow,P.fWrist]:arm(P.fUp??P.nUp,P.fFore??P.nFore);
+  const toe=a=>P.toeFn?P.toeFn(a):(a[1]<GD_FLOOR-14?[a[0]+12,GD_FLOOR-3]:[a[0]+GD_LEN.foot*.85,a[1]+5]);
+  const off=P.farOff||[-6,-3], F=p=>[p[0]+off[0],p[1]+off[1]];
+  if(!opt||!opt.noShadow){
+    const xs=[na[0],fa[0],hip[0],sh[0],nw[0]], minx=Math.min(...xs), maxx=Math.max(...xs), sx=(minx+maxx)/2, sw=Math.max(50,(maxx-minx)/2+24);
+    const sg=g.createRadialGradient(sx,GD_FLOOR+2,4,sx,GD_FLOOR+2,sw); sg.addColorStop(0,"rgba(0,0,0,.22)"); sg.addColorStop(1,"rgba(0,0,0,0)");
+    g.save(); g.translate(sx,GD_FLOOR+2); g.scale(1,.16); g.translate(-sx,-(GD_FLOOR+2)); g.fillStyle=sg; g.beginPath(); g.arc(sx,GD_FLOOR+2,sw,0,7); g.fill(); g.restore();
+  }
+  // far side
+  limb(F(sh),F(fe),8,7,GD_FAR,(G.arms||0)*.6); limb(F(fe),F(fw),7,5,GD_FAR,(G.fore||0)*.6);
+  limb(F(fa),F(toe(fa)),7,5,GD_FAR,0); limb(F(fa),F(fk),9,10,GD_FAR,(G.calves||0)*.6); limb(F(fk),F(hip),11,14,GD_FAR,(G.legs||0)*.7);
+  // body
+  limb(hip,sh,16,19,GD_NEAR,G.core||0); ball(hip,16,GD_NEAR,G.glutes||0);
+  limb(sh,neck,6,6,GD_NEAR,0); ball(head,GD_LEN.head,GD_NEAR,0);
+  // near side
+  limb(na,toe(na),7,5,GD_NEAR,0); limb(na,nk,9,10,GD_NEAR,G.calves||0); ball(nk,10,GD_NEAR,0); limb(nk,hip,11,14,GD_NEAR,G.legs||0);
+  ball(sh,11,GD_NEAR,G.shoulders||0);
+  limb(sh,ne,8,7,GD_NEAR,G.arms||0); ball(ne,7,GD_NEAR,0); limb(ne,nw,7,5,GD_NEAR,G.fore||0); ball(nw,5.5,GD_NEAR,0);
+  return {sh,hip,nw,na};
+}
+// hip position that puts a foot (ankle) at a given point
+const gdHipFromAnkle=(ankle,thigh,shin)=>{ const k=gdAdd(ankle,shin+Math.PI,GD_LEN.shin); return gdAdd(k,thigh+Math.PI,GD_LEN.thigh); };
+const GD_ANIMS={
+  squat:{cyc:2600,cue(t){ return t<550?0:t<1100?1:t<1400?2:t<2300?4:3; },rep:true,
+    pose(t){ const k=t<1100?gdEase(t/1100):t<1400?1:t<2300?1-gdEase((t-1400)/900):0;
+      const thigh=gdLerp(Math.PI,1.6,k), shin=gdLerp(Math.PI,Math.PI+0.62,k);
+      return {hip:gdHipFromAnkle([235,GD_FLOOR-8],thigh,shin),torso:gdLerp(0.06,0.62,k),nThigh:thigh,nShin:shin,nUp:gdLerp(Math.PI-0.12,1.42,k),nFore:gdLerp(Math.PI-0.05,1.52,k),glow:{legs:k,glutes:k,core:k*.3},k}; }},
+  lunge:{cyc:2800,cue(t){ return t<600?0:t<1200?1:t<1500?2:t<2400?3:4; },rep:true,
+    pose(t){ const k=t<1200?gdEase(t/1200):t<1500?1:t<2400?1-gdEase((t-1500)/900):0;
+      const nT=gdLerp(2.7,1.62,k), nS=gdLerp(Math.PI-0.05,Math.PI,k), fT=gdLerp(3.62,3.42,k), fS=gdLerp(3.95,4.75,k);
+      const hip=gdHipFromAnkle([300,GD_FLOOR-8],nT,nS);
+      return {hip,torso:0.04,nThigh:nT,nShin:nS,fThigh:fT,fShin:fS,nUp:Math.PI-0.15,nFore:Math.PI-0.6,farOff:[-4,-2],glow:{legs:k,glutes:k,core:.2},k}; }},
+  wallsit:{cyc:1000,hold:60,cue(t,el){ return Math.floor(el/2600)%5; },
+    wall:true, pose(t,el){ const br=Math.sin(el/650)*0.5; const thigh=1.57, shin=Math.PI;
+      const hip=gdHipFromAnkle([265,GD_FLOOR-8],thigh,shin); hip[1]+=br;
+      return {hip,torso:0,nThigh:thigh,nShin:shin,nUp:Math.PI-0.25,nFore:1.75,glow:{legs:.6+.3*Math.sin(el/500),glutes:.35,calves:.2},k:1}; }},
+  plank:{cyc:1000,hold:30,cue(t,el){ return Math.floor(el/2600)%5; },
+    pose(t,el){ const br=Math.sin(el/700)*1.0; const th=1.42+br*0.004; const ankle=[130,GD_FLOOR-25];
+      const hip=gdHipFromAnkle(ankle,th+Math.PI,th+Math.PI); return {hip,torso:th+0.01,head:1.5,nThigh:th+Math.PI,nShin:th+Math.PI,nUp:Math.PI,nFore:Math.PI/2,farOff:[-5,-4],toeFn:a=>[a[0]-4,GD_FLOOR-2],
+        glow:{core:.55+.35*Math.sin(el/500),glutes:.35,legs:.25,shoulders:.3},k:1}; }},
+  pushup:{cyc:2400,cue(t){ return t<500?0:t<1100?1:t<1300?2:t<2000?3:4; },rep:true,
+    pose(t){ const k=t<1100?gdEase(t/1100):t<1300?1:t<2000?1-gdEase((t-1300)/700):0;
+      const toe=[115,GD_FLOOR-3], a=gdLerp(0.42,0.13,k), th=Math.PI/2-a;
+      const ankle=[toe[0]+4,toe[1]-12], hip=gdAdd(gdAdd(ankle,th,GD_LEN.shin),th,GD_LEN.thigh), sh=gdAdd(hip,th,GD_LEN.torso);
+      const upSh=gdAdd(gdAdd(gdAdd(ankle,Math.PI/2-0.42,GD_LEN.shin),Math.PI/2-0.42,GD_LEN.thigh),Math.PI/2-0.42,GD_LEN.torso);
+      const hand=[upSh[0]+4,GD_FLOOR-6], elbow=gdIK(sh,hand,GD_LEN.upper,GD_LEN.fore,1);
+      return {hip,torso:th,head:th+0.15,nThigh:th+Math.PI,nShin:th+Math.PI,nKnee:gdAdd(ankle,th,GD_LEN.shin),nAnkle:ankle,fKnee:gdAdd(ankle,th,GD_LEN.shin),fAnkle:ankle,nElbow:elbow,nWrist:hand,fElbow:elbow,fWrist:hand,
+        toeFn:a2=>[a2[0]-4,GD_FLOOR-2],farOff:[-5,-4],glow:{arms:.4+.6*k,shoulders:.4+.5*k,core:.5,fore:.2},chest:k,k}; }},
+  hang:{cyc:4000,hold:20,bar:true,scale:.7,cue(t,el){ return Math.floor(el/2600)%4; },
+    pose(t,el){ return {hip:[250,0],torso:0,nThigh:Math.PI-0.12,nShin:Math.PI+0.75,fThigh:Math.PI-0.05,fShin:Math.PI+0.65,nUp:0.05,nFore:0.02,fUp:0.05,fFore:0.02,glow:{fore:.6+.3*Math.sin(el/500),arms:.25,shoulders:.4,core:.25},sway:Math.sin(el/900)*0.035,k:1}; }},
+  walking:{cyc:1100,gait:{amp:0.42,knee:0.75,lean:0.06,arm:0.45,elbow:0.25,bob:3},cue(t,el){ return Math.floor(el/2600)%4; }},
+  running:{cyc:700,gait:{amp:0.7,knee:1.5,lean:0.2,arm:0.8,elbow:1.45,bob:7},cue(t,el){ return Math.floor(el/2600)%4; }},
+};
+GD_ANIMS.steps=GD_ANIMS.walking;
+function gdGaitPose(G,t,cyc){
+  const ph=t/cyc*Math.PI*2, legA=ph, legB=ph+Math.PI;
+  const thigh=p=>Math.PI-G.amp*Math.sin(p);
+  const shin=p=>thigh(p)+0.05+G.knee*Math.max(0,Math.sin(p-1.1))*1.0+ (G.knee>1?0.3:0.1)*Math.max(0,-Math.cos(p));
+  const hip0=[245,0];
+  const ank=p=>gdAdd(gdAdd(hip0,thigh(p),GD_LEN.thigh),shin(p),GD_LEN.shin);
+  const low=Math.max(ank(legA)[1],ank(legB)[1]);
+  const hip=[245,GD_FLOOR-8-low];
+  return {hip,torso:G.lean,head:G.lean*0.5,nThigh:thigh(legA),nShin:shin(legA),fThigh:thigh(legB),fShin:shin(legB),
+    nUp:Math.PI+G.arm*Math.sin(legA)*-1+0.0,nFore:Math.PI+G.arm*Math.sin(legA)*-1-G.elbow,fUp:Math.PI-G.arm*Math.sin(legA)*-1,fFore:Math.PI-G.arm*Math.sin(legA)*-1-G.elbow,
+    farOff:[-5,-3],glow:{legs:.45+.3*Math.abs(Math.sin(ph)),calves:.5,glutes:.4},k:1};
+}
+// renders one frame; returns {cue, count} for the caption
+function gdFrame(g,key,el,css){
+  const A=GD_ANIMS[key]; if(!A) return null;
+  g.clearRect(0,0,GD_W,GD_H);
+  g.fillStyle=css.floor; g.fillRect(0,GD_FLOOR,GD_W,GD_H-GD_FLOOR); g.fillStyle=css.line; g.fillRect(0,GD_FLOOR,GD_W,2);
+  const t=el%A.cyc;
+  let P;
+  if(A.gait){ P=gdGaitPose(A.gait,t,A.cyc);
+    const sp=key==="running"?0.36:0.15; g.fillStyle=css.line; for(let i=0;i<8;i++){ const x=((i*80-el*sp)%640+640)%640-70; g.fillRect(x,GD_FLOOR+18,34,3); }
+  } else P=A.pose(t,el);
+  if(A.wall){ g.fillStyle=css.wall; g.fillRect(0,40,P.hip[0]-18,GD_FLOOR-40); g.fillStyle=css.line; g.fillRect(P.hip[0]-20,40,3,GD_FLOOR-40); }
+  if(A.bar){
+    g.fillStyle=css.bar; g.fillRect(150,26,200,8); g.fillRect(150,26,6,GD_FLOOR-26); g.fillRect(344,26,6,GD_FLOOR-26);
+    const s=A.scale, hand=[250,32];
+    g.save(); g.translate(hand[0],hand[1]); g.rotate(P.sway||0); g.scale(s,s);
+    // build figure hanging below the hand at origin
+    const shY=GD_LEN.upper+GD_LEN.fore, hip=[0,shY+GD_LEN.torso];
+    gdDraw(g,{...P,hip},{noShadow:true});
+    g.restore();
+  } else { const sc=A.fit||0.86; g.save(); g.translate(GD_W/2,GD_FLOOR); g.scale(sc,sc); g.translate(-GD_W/2,-GD_FLOOR); gdDraw(g,P); g.restore(); }
+  // timer ring for holds
+  if(A.hold){ const secs=Math.floor(el/1000)%(A.hold+1), cx=GD_W-56, cy=118, R=30;
+    g.lineWidth=7; g.strokeStyle=css.line; g.beginPath(); g.arc(cx,cy,R,0,7); g.stroke();
+    g.strokeStyle=css.accent; g.lineCap="round"; g.beginPath(); g.arc(cx,cy,R,-Math.PI/2,-Math.PI/2+Math.PI*2*(secs/A.hold)); g.stroke();
+    g.fillStyle=css.fg; g.font="700 18px system-ui,sans-serif"; g.textAlign="center"; g.textBaseline="middle"; g.fillText(secs+"s",cx,cy); }
+  return {cue:A.cue(t,el),count:A.rep?Math.floor(el/A.cyc):null,hold:!!A.hold};
+}
+
+
+const GD_MUSCLES={
+  quads:["Quadriceps","front of thigh","Straighten your knee. Used to stand up, climb stairs, kick and jump."],
+  glutes:["Glutes","bottom","Your biggest muscles. Power standing up, climbing and running, and keep your hips steady."],
+  hams:["Hamstrings","back of thigh","Bend your knee and help push you forward when you run."],
+  adductors:["Adductors","inner thigh","Pull your legs together and stop your knees wobbling."],
+  calves:["Calves","back of lower leg","Push you up onto your toes. Busy in every step and jump."],
+  shins:["Tibialis","shin","Lifts your toes and helps you balance."],
+  abs:["Abs (rectus abdominis)","front of tummy","Hold your trunk steady and bend you forward."],
+  obliques:["Obliques","sides of tummy","Twist and bend you sideways, and brace your middle."],
+  lowback:["Erector spinae","lower back","Keep your spine straight and tall."],
+  delts:["Deltoids","shoulders","Lift and steady your arms in every direction."],
+  chest:["Pectorals","chest","Push things away from you, like in a push-up."],
+  biceps:["Biceps","front of upper arm","Bend your elbow, like lifting a bag."],
+  triceps:["Triceps","back of upper arm","Straighten your elbow and help you push."],
+  forearms:["Forearm flexors","forearms","Grip and hold things."],
+  traps:["Trapezius","upper back","Lift and steady your shoulders and neck."],
+  lats:["Latissimus dorsi (lats)","sides of back","Pull your arms down and back, like climbing or hanging."],
+};
+const GD_SRC={nhsStr:["NHS: Strength exercises","https://www.nhs.uk/live-well/exercise/strength-exercises/"],mayoCore:["Mayo Clinic: Core exercises","https://www.mayoclinic.org/healthy-lifestyle/fitness/in-depth/core-exercises/art-20044751"],
+  nhsWalk:["NHS: Walking for health","https://www.nhs.uk/live-well/exercise/walking-for-health/"],nhsBen:["NHS: Benefits of exercise","https://www.nhs.uk/live-well/exercise/exercise-health-benefits/"]};
+const GD_ALL=Object.keys(GD_MUSCLES);
+const GUIDE_DEFS={
+  squat:{name:"Squats",icon:"🦵",anim:"squat",tips:["Feet shoulder-width apart","Push your hips back, like sitting on a chair","Knees follow your toes","Chest up, back straight","Drive through your heels to stand"],
+    P:["quads","glutes"],S:["hams","adductors","calves","abs","lowback"],
+    ben:[["🦵","Strong legs","Builds the thigh and bottom muscles you use to stand up, climb stairs and jump."],["⚖️","Better balance","Trains the leg and core muscles that keep you steady."],["🦴","Stronger bones","Working against your body weight helps keep bones and joints strong."],["🏃","Everyday power","The same movement as sitting down and standing up, so daily life gets easier."]],src:["nhsStr"]},
+  lunge:{name:"Lunges",icon:"🚶",anim:"lunge",tips:["Step one foot forward","Lower until both knees bend to about 90°","Front knee stays over your ankle","Back knee hovers just above the floor","Push through your front heel to come back up"],
+    P:["quads","glutes"],S:["hams","adductors","calves","abs"],
+    ben:[["⚖️","Balance","Working one leg at a time trains balance and control."],["🦵","Strong legs","Builds the thighs and glutes, one side at a time."],["🔁","Even both sides","Helps your weaker leg catch up with your stronger one."],["🪜","Stairs and climbing","The same pattern you use on stairs and hills."]],src:["nhsStr"]},
+  wallsit:{name:"Wall Sit",icon:"🧱",anim:"wallsit",tips:["Back flat against the wall","Slide down until your knees are at about 90°","Knees over your ankles","Hands off your thighs","Breathe steadily"],
+    P:["quads"],S:["glutes","calves","adductors","abs"],
+    ben:[["⏱️","Leg endurance","Holding still trains your thighs to keep working for longer."],["🦵","Strong thighs","Builds the quadriceps without any jumping."],["🦿","Supports the knees","Strengthens the muscles around the knee."],["🏠","Anywhere","Needs only a wall."]],src:["nhsStr"]},
+  plank:{name:"Plank",icon:"🧱",anim:"plank",tips:["Elbows under your shoulders","Body in one straight line, head to heels","Squeeze your tummy and bottom","Keep breathing, don't hold your breath","Start with 20 to 30 seconds"],
+    P:["abs","obliques"],S:["delts","glutes","quads","lowback","chest","triceps"],
+    ben:[["🧱","Strong core","Builds the deep tummy and back muscles that hold your body steady."],["🧍","Better posture","A strong core helps you sit and stand tall."],["🛡️","Healthier back","Strengthening the muscles around your spine supports your back."],["💪","Whole-body hold","Shoulders, bottom and legs all work together to stay still."]],src:["mayoCore","nhsStr"]},
+  pushup:{name:"Push-up",icon:"💪",anim:"pushup",tips:["Hands a little wider than your shoulders","Body in one straight line","Lower your chest towards the floor","Elbows angle back, not straight out","Push the floor away to come up"],
+    P:["chest","triceps","delts"],S:["abs","obliques","glutes","quads"],
+    ben:[["💪","Upper-body strength","Builds the chest, shoulders and arms you use to push and lift."],["🧱","Core too","Your tummy works hard to keep your body straight."],["🏠","No equipment","Just you and the floor."],["📈","Easy to scale","Do them on your knees or against a wall to start, then progress."]],src:["nhsStr"]},
+  hang:{name:"Passive Hang",icon:"🙌",anim:"hang",tips:["Grip the bar with hands shoulder-width apart","Arms straight, shoulders relaxed","Hang still, no swinging","Breathe slowly; drop down safely when tired"],
+    P:["forearms","lats"],S:["delts","traps","abs","biceps"],
+    ben:[["✊","Grip strength","Hanging trains the forearm muscles that hold on tight."],["🤸","Shoulder stretch","Gently stretches the shoulders and back."],["🧗","Climbing ready","Builds a base for pull-ups and climbing."],["🧘","Calm focus","Holding still while breathing slowly takes patience."]],src:[]},
+  walking:{name:"Walking",icon:"🚶",anim:"walking",tips:["Stand tall, look ahead","Swing your arms naturally","Land on your heel, roll to your toes","Walk briskly enough to breathe a little faster"],
+    P:["calves","quads","glutes"],S:["hams","shins","abs"],
+    ben:[["❤️","Heart and lungs","Brisk walking gets your heart pumping and counts as exercise."],["⚖️","Healthy weight","Regular walking helps manage weight."],["🦵","Easy on joints","Low impact, so it suits most people."],["😊","Mood boost","Being active, especially outdoors, lifts your mood."]],src:["nhsWalk"]},
+  running:{name:"Running",icon:"🏃",anim:"running",tips:["Lean slightly forward from your ankles","Land softly, feet under your body","Arms bent, swing forward and back","Breathe steadily and start slow"],
+    P:["quads","glutes","hams","calves"],S:["shins","abs","obliques","lowback"],
+    ben:[["❤️","Heart and lung fitness","Running is a vigorous activity that builds stamina."],["🦴","Strong bones","Each landing loads your bones, which helps keep them strong."],["😊","Mood","Exercise like running helps you feel good."],["🔋","Energy","Fitter heart and lungs make everyday things feel easier."]],src:["nhsBen"]},
+  steps:{name:"Steps",icon:"👣",anim:"walking",tips:["Stand tall, look ahead","Swing your arms naturally","Land on your heel, roll to your toes","Take the stairs when you can"],
+    P:["calves","quads","glutes"],S:["hams","shins","abs"],
+    ben:[["❤️","Heart and lungs","More steps through the day means more time active."],["⚖️","Healthy weight","Moving more helps manage weight."],["🦵","Easy on joints","Low impact, so it suits most people."],["🪑","Less sitting","Breaking up long sitting is good for your body."]],src:["nhsWalk"]},
+  strength:{name:"Strength Training",icon:"🏋️",anim:"mix",tips:["Warm up first","Good form before heavier weights","Breathe out as you push or lift","Work all the major muscle groups","Rest a day before training the same muscles hard again"],
+    P:[],S:GD_ALL,
+    ben:[["💪","Stronger muscles","Working against resistance builds and keeps muscle."],["🦴","Stronger bones","Strength activities help keep bones healthy."],["🧍","Everyday ease","Carrying, lifting and climbing get easier."],["📅","Twice a week","Health guidance suggests strength activities on at least 2 days a week."]],src:["nhsStr"],general:true},
+  chess:{name:"Chess",icon:"♟️",brain:true,tips:[],P:[],S:[],
+    ben:[["🎯","Focus","Practises paying attention to one thing for a long time."],["🗺️","Planning ahead","Thinking a few moves ahead before acting."],["🧠","Memory","Remembering openings, patterns and past games."],["🧩","Problem solving","Finding the best move when there are many choices."],["⏳","Patience","Waiting, thinking, and not rushing."]],src:[]},
+};
+function gdMatch(name){
+  const n=String(name||"").toLowerCase();
+  if(/wall\s*-?\s*sit/.test(n)) return "wallsit";
+  if(/squat/.test(n)) return "squat";
+  if(/lunge/.test(n)) return "lunge";
+  if(/plank/.test(n)) return "plank";
+  if(/push\s*-?\s*up/.test(n)) return "pushup";
+  if(/hang/.test(n)) return "hang";
+  if(/run|jog/.test(n)) return "running";
+  if(/step/.test(n)) return "steps";
+  if(/walk/.test(n)) return "walking";
+  if(/chess/.test(n)) return "chess";
+  if(/strength|weight|gym/.test(n)) return "strength";
+  return null;
+}
+const GD_SIL=[["circle",{cx:80,cy:28,r:17}],["rect",{x:72,y:42,width:16,height:14,rx:5}],
+  ["path",{d:"M48 62 Q80 52 112 62 L116 96 Q112 128 108 160 Q104 176 112 186 L48 186 Q56 176 52 160 Q48 128 44 96 Z"}],
+  ["path",{d:"M46 64 Q34 66 32 84 L26 150 Q24 172 22 186 L32 188 Q36 170 40 150 L48 98 Z"}],["path",{d:"M114 64 Q126 66 128 84 L134 150 Q136 172 138 186 L128 188 Q124 170 120 150 L112 98 Z"}],
+  ["path",{d:"M50 182 L78 182 L76 250 Q74 300 72 340 L58 340 Q56 300 54 250 Z"}],["path",{d:"M82 182 L110 182 L106 250 Q104 300 102 340 L88 340 Q86 300 84 250 Z"}]];
+const GD_FRONT=[["delts","ellipse",{cx:49,cy:74,rx:11,ry:13}],["chest","path",{d:"M57 68 Q70 64 79 68 L79 94 Q68 99 57 92 Z"}],["biceps","ellipse",{cx:41,cy:108,rx:7,ry:16}],["forearms","ellipse",{cx:33,cy:146,rx:6,ry:18}],
+  ["obliques","path",{d:"M57 100 L68 102 L68 150 Q62 158 56 154 Q53 128 57 100 Z"}],["quads","path",{d:"M56 192 Q66 186 76 194 Q78 226 72 250 Q62 254 58 246 Q52 222 56 192 Z"}],
+  ["adductors","path",{d:"M76 194 Q80 194 79 206 Q78 224 74 236 Q72 214 76 194 Z"}],["shins","ellipse",{cx:64,cy:290,rx:6,ry:28}]];
+const GD_FRONT_MID=[["abs","rect",{x:70,y:100,width:9,height:13,rx:3}],["abs","rect",{x:81,y:100,width:9,height:13,rx:3}],["abs","rect",{x:70,y:116,width:9,height:13,rx:3}],["abs","rect",{x:81,y:116,width:9,height:13,rx:3}],["abs","rect",{x:70,y:132,width:9,height:14,rx:3}],["abs","rect",{x:81,y:132,width:9,height:14,rx:3}],["abs","path",{d:"M71 149 L89 149 Q86 166 80 172 Q74 166 71 149 Z"}]];
+const GD_BACK=[["delts","ellipse",{cx:49,cy:74,rx:11,ry:13}],["triceps","ellipse",{cx:41,cy:108,rx:7,ry:16}],["forearms","ellipse",{cx:33,cy:146,rx:6,ry:18}],["lats","path",{d:"M58 86 L78 100 L78 140 Q66 146 60 132 Q54 108 58 86 Z"}],
+  ["glutes","ellipse",{cx:68,cy:180,rx:13,ry:14}],["hams","path",{d:"M56 198 Q66 194 77 198 Q78 228 72 252 Q62 254 58 248 Q52 222 56 198 Z"}],["calves","ellipse",{cx:65,cy:278,rx:8,ry:22}]];
+const GD_BACK_MID=[["traps","path",{d:"M80 50 L104 70 L92 84 L80 104 L68 84 L56 70 Z"}],["lowback","rect",{x:71,y:136,width:8,height:26,rx:4}],["lowback","rect",{x:81,y:136,width:8,height:26,rx:4}]];
+const GD_CSS=`
+.gd-mus{fill:var(--empty,#DCE3EA);stroke:var(--line);stroke-width:.8;cursor:pointer;transition:fill .3s}
+.gd-mus.p{fill:#F97316;animation:gdPulse 1.6s ease-in-out infinite}
+.gd-mus.s{fill:#FDBA74}
+.gd-mus.sel{stroke:var(--text);stroke-width:2}
+.gd-mus:focus-visible{outline:2px solid var(--accent)}
+.gd-sil{fill:var(--bg2,var(--line));opacity:.55}
+@keyframes gdPulse{0%,100%{opacity:1}50%{opacity:.65}}
+@keyframes gdBrain{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+@media (prefers-reduced-motion:reduce){.gd-mus.p{animation:none}}
+`;
+function GdBody({side,P,S,sel,onPick}){
+  const list=side==="front"?GD_FRONT:GD_BACK, mid=side==="front"?GD_FRONT_MID:GD_BACK_MID;
+  const shape=(m,t,a,k)=>{ const Tag=t; const cls="gd-mus"+(P.includes(m)?" p":S.includes(m)?" s":"")+(sel===m?" sel":"");
+    return <Tag key={k} {...a} className={cls} data-m={m} tabIndex={0} role="button" aria-label={GD_MUSCLES[m][0]} onClick={()=>onPick(m)} onKeyDown={e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); onPick(m); } }}/>; };
+  return <svg viewBox="0 0 160 360" role="img" aria-label={side==="front"?"Front of body":"Back of body"} style={{width:"100%",height:"auto",display:"block"}}>
+    <g>{GD_SIL.map(([t,a],i)=>{ const Tag=t; return <Tag key={i} {...a} className="gd-sil"/>; })}</g>
+    <g>{list.map(([m,t,a],i)=>shape(m,t,a,"l"+i))}</g>
+    <g transform="translate(160 0) scale(-1 1)">{list.map(([m,t,a],i)=>shape(m,t,a,"r"+i))}</g>
+    <g>{mid.map(([m,t,a],i)=>shape(m,t,a,"m"+i))}</g>
+  </svg>;
+}
+function GdStage({anim,tips}){
+  const ref=useRef(null);
+  const[paused,setPaused]=useState(false), [slow,setSlow]=useState(false);
+  const[cap,setCap]=useState({cue:0,count:null,hold:false});
+  const st=useRef({t0:performance.now(),paused:false,pausedAt:0,slow:false});
+  useEffect(()=>{ st.current.t0=performance.now(); },[anim]);
+  useEffect(()=>{
+    const cv=ref.current; if(!cv) return; const g=cv.getContext("2d"); let raf=0, last=-1;
+    const reduce=(()=>{ try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch{ return false; } })();
+    const loop=now=>{
+      raf=requestAnimationFrame(loop);
+      const r=cv.getBoundingClientRect(), d=Math.min(2,window.devicePixelRatio||1), w=Math.round(r.width*d), h=Math.round(r.height*d);
+      if(!w||!h) return;
+      if(cv.width!==w||cv.height!==h){ cv.width=w; cv.height=h; }
+      g.setTransform(cv.width/GD_W,0,0,cv.height/GD_H,0,0);
+      const cs=getComputedStyle(document.documentElement), v=k=>cs.getPropertyValue(k).trim();
+      const css={floor:v("--empty")||"#E3E9EF",line:v("--line")||"#C9D3DD",accent:v("--accent")||"#E2621B",fg:v("--text")||"#16202B",wall:v("--bg2")||"#E8EDF2",bar:v("--muted")||"#8A97A6"};
+      const S=st.current, tNow=S.paused?S.pausedAt:now; let el=(tNow-S.t0)/(S.slow?2.2:1);
+      let key=anim;
+      if(anim==="mix"){ const seg=Math.floor(el/5200)%2; key=seg?"pushup":"squat"; el=el%5200; }
+      if(reduce){ el=key==="squat"||key==="lunge"||key==="pushup"?1250:6000; }
+      const res=gdFrame(g,key,el,css);
+      if(res&&(res.cue!==last||res.count!==cap.count)){ last=res.cue; setCap(c=>(c.cue===res.cue&&c.count===res.count&&c.hold===res.hold)?c:res); }
+      if(reduce) cancelAnimationFrame(raf);
+    };
+    raf=requestAnimationFrame(loop);
+    return ()=>cancelAnimationFrame(raf);
+  },[anim]); // eslint-disable-line
+  const toggle=()=>{ const S=st.current; S.paused=!S.paused; if(S.paused) S.pausedAt=performance.now(); else S.t0+=performance.now()-S.pausedAt; setPaused(S.paused); };
+  const slowT=()=>{ const S=st.current, now=performance.now(), el=(now-S.t0)/(S.slow?2.2:1); S.slow=!S.slow; S.t0=now-el*(S.slow?2.2:1); setSlow(S.slow); };
+  const tipI=anim==="mix"?-1:cap.cue;
+  return <div>
+    <div style={{position:"relative",borderRadius:14,overflow:"hidden",background:"var(--card)",border:"1px solid var(--line)",aspectRatio:"5/4",width:"100%"}}>
+      <canvas ref={ref} data-testid="gd-canvas" aria-label="Animated demonstration" style={{width:"100%",height:"100%",display:"block"}}/>
+      {tips.length>0&&<div style={{position:"absolute",left:10,right:10,top:10,display:"flex",justifyContent:"space-between",gap:8,pointerEvents:"none"}}>
+        <span data-testid="gd-cue" style={{background:"rgba(15,23,32,.8)",color:"#fff",borderRadius:10,padding:"6px 10px",fontSize:13,fontWeight:600,maxWidth:"75%"}}>{tips[Math.max(0,tipI)%tips.length]}</span>
+        {cap.count!=null&&anim!=="mix"&&<b style={{background:"var(--accent)",color:"var(--on-accent,#fff)",borderRadius:10,padding:"5px 10px",fontSize:14}}>{cap.count} reps</b>}
+      </div>}
+    </div>
+    <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
+      <button onClick={toggle} data-testid="gd-pause" style={{border:"1px solid var(--line)",background:"var(--card)",color:"var(--text)",borderRadius:10,padding:"7px 13px",fontWeight:700,fontSize:13,cursor:"pointer"}}>{paused?"▶ Play":"⏸ Pause"}</button>
+      <button onClick={slowT} style={{border:"1px solid var(--line)",background:"var(--card)",color:"var(--text)",borderRadius:10,padding:"7px 13px",fontWeight:700,fontSize:13,cursor:"pointer"}}>{slow?"⚡ Normal speed":"🐢 Slow motion"}</button>
+    </div>
+    {tips.length>0&&<ol style={{margin:"12px 0 0",paddingLeft:20,display:"flex",flexDirection:"column",gap:3,fontSize:14}}>
+      {tips.map((t,i)=><li key={i} style={i===tipI?{color:"var(--accent-ink)",fontWeight:800}:{color:"var(--text)"}}>{t}</li>)}</ol>}
+  </div>;
+}
+function GuideView({gk}){
+  const G=GUIDE_DEFS[gk];
+  const[sel,setSel]=useState(null);
+  useEffect(()=>setSel(null),[gk]);
+  const card={background:"var(--card)",border:"1px solid var(--line)",borderRadius:16,padding:16,minWidth:0};
+  const lab={fontSize:12,fontWeight:800,letterSpacing:".08em",textTransform:"uppercase",color:"var(--muted)",marginBottom:10};
+  const chip=(m,main)=><button key={m} onClick={()=>setSel(m)} data-testid={"gd-chip-"+m} style={{border:`1.5px solid ${main?"#F97316":"#FDBA74"}`,background:sel===m?(main?"#F97316":"#FDBA74"):"transparent",color:sel===m?"#1A0E05":"var(--text)",borderRadius:999,padding:"4px 10px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{GD_MUSCLES[m][0]}</button>;
+  return <div data-testid={"guide-"+gk}>
+    <style>{GD_CSS}</style>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(100%,320px),1fr))",gap:14}}>
+      <section style={card}>
+        <div style={lab}>{G.brain?"What it trains":"How to do it"}</div>
+        {G.brain?<div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:10,padding:"20px 0"}}>
+            <div style={{fontSize:96,animation:"gdBrain 2.4s ease-in-out infinite"}} aria-hidden="true">🧠</div>
+            <div style={{fontSize:14,color:"var(--muted)",textAlign:"center",maxWidth:"36ch"}}>Chess exercises the mind rather than the muscles.</div>
+          </div>
+          :<GdStage key={G.anim} anim={G.anim} tips={G.tips}/>}
+        {G.general&&<div style={{fontSize:12,color:"var(--muted)",marginTop:8}}>Strength training covers many exercises, so this shows two examples and a whole-body map.</div>}
+      </section>
+      {!G.brain&&<section style={card}>
+        <div style={lab}>Muscles it works</div>
+        <div style={{display:"flex",justifyContent:"center",gap:10}}>
+          {["front","back"].map(sd=><figure key={sd} style={{margin:0,flex:1,maxWidth:190,textAlign:"center"}}><GdBody side={sd} P={G.P} S={G.S} sel={sel} onPick={setSel}/><figcaption style={{fontSize:12,color:"var(--muted)",fontWeight:700}}>{sd==="front"?"Front":"Back"}</figcaption></figure>)}
+        </div>
+        {G.P.length>0&&<div style={{marginTop:10}}><div style={{fontSize:12,fontWeight:800,color:"var(--muted)",marginBottom:6}}>🟠 Main muscles</div><div data-testid="gd-main" style={{display:"flex",flexWrap:"wrap",gap:6}}>{G.P.map(m=>chip(m,true))}</div></div>}
+        {G.S.length>0&&<div style={{marginTop:10}}><div style={{fontSize:12,fontWeight:800,color:"var(--muted)",marginBottom:6}}>{G.general?"Muscles worked across a full routine":"🟡 Helper muscles"}</div><div data-testid="gd-help" style={{display:"flex",flexWrap:"wrap",gap:6}}>{G.S.map(m=>chip(m,false))}</div></div>}
+        <div data-testid="gd-info" aria-live="polite" style={{marginTop:12,background:"var(--bg2,var(--card))",border:"1px solid var(--line)",borderRadius:12,padding:"10px 12px",fontSize:13,minHeight:54}}>
+          {sel?<><b>{GD_MUSCLES[sel][0]}</b> <span style={{color:"var(--muted)"}}>({GD_MUSCLES[sel][1]})</span><div>{GD_MUSCLES[sel][2]} <span style={{color:"var(--accent-ink)",fontWeight:700}}>{G.P.includes(sel)?"Main muscle in this move.":G.S.includes(sel)?(G.general?"":"Helps in this move."):"Not much used in this move."}</span></div></>
+            :<span style={{color:"var(--muted)"}}>Tap a muscle on the body or a name above to learn what it does.</span>}
+        </div>
+      </section>}
+    </div>
+    <section style={{...card,marginTop:14}}>
+      <div style={lab}>Why it's good for you</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(100%,220px),1fr))",gap:10}}>
+        {G.ben.map(([e,h,p])=><div key={h} style={{background:"var(--bg2,var(--card))",border:"1px solid var(--line)",borderRadius:12,padding:12,display:"flex",gap:10,minWidth:0}}>
+          <span style={{fontSize:22,lineHeight:1}} aria-hidden="true">{e}</span><div><b style={{fontSize:14}}>{h}</b><div style={{fontSize:13,color:"var(--muted)"}}>{p}</div></div></div>)}
+      </div>
+      {G.src.length>0&&<div style={{fontSize:12,color:"var(--muted)",marginTop:10}}>Sources: {G.src.map((k,i)=><span key={k}>{i?" · ":""}<a href={GD_SRC[k][1]} target="_blank" rel="noopener noreferrer" style={{color:"var(--accent-ink)"}}>{GD_SRC[k][0]}</a></span>)}</div>}
+      {!G.brain&&<div style={{fontSize:12,color:"var(--muted)",marginTop:6}}>Form tips only, not medical advice. Stop if anything hurts.</div>}
+    </section>
+  </div>;
+}
+function GuidesPage({members,initialId}){
+  const[mid,setMid]=useState(()=>(members.find(m=>m.id===initialId)||members[0]||{}).id);
+  const m=members.find(x=>x.id===mid);
+  const mine=[]; for(const a of (m&&m.activities)||[]){ const k=gdMatch(a.name); if(k&&!mine.includes(k)) mine.push(k); }
+  const[gk,setGk]=useState(()=>mine[0]||"squat");
+  useEffect(()=>{ if(mine.length&&!mine.includes(gk)) setGk(mine[0]); },[mid]); // eslint-disable-line
+  const pill=(k,on,onClick,tid)=><button key={k} data-testid={tid} aria-pressed={on} onClick={onClick}
+    style={{padding:"7px 13px",borderRadius:999,fontWeight:700,fontSize:13,cursor:"pointer",border:`1.5px solid ${on?"var(--accent)":"var(--line)"}`,background:on?"var(--accent)":"var(--card)",color:on?"var(--on-accent,#fff)":"var(--text)"}}>{k}</button>;
+  const others=Object.keys(GUIDE_DEFS).filter(k=>!mine.includes(k));
+  return <div className="ff-in" data-testid="guides">
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}} role="group" aria-label="Whose activities">
+      {members.map(x=>pill(`${x.emoji||"⭐"} ${x.name}`,x.id===mid,()=>setMid(x.id),"gd-who-"+x.name))}
+    </div>
+    {mine.length>0&&<><div style={{fontSize:12,fontWeight:800,color:"var(--muted)",margin:"2px 0 6px"}}>{m?.name}'s activities</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>{mine.map(k=>pill(`${GUIDE_DEFS[k].icon} ${GUIDE_DEFS[k].name}`,gk===k,()=>setGk(k),"gd-pick-"+k))}</div></>}
+    <details style={{marginBottom:14}}><summary style={{cursor:"pointer",fontSize:13,fontWeight:700,color:"var(--muted)"}}>More guides</summary>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>{others.map(k=>pill(`${GUIDE_DEFS[k].icon} ${GUIDE_DEFS[k].name}`,gk===k,()=>setGk(k),"gd-pick-"+k))}</div></details>
+    <GuideView gk={gk}/>
+  </div>;
+}
+
+const GUIDES_TAB="__guides";
+// ── Health calculators: BMI and daily protein. Inputs stay on this device only; nothing is synced. ──
+const CALC_TAB="__calc";
+const BMI_STD={
+  asia:{name:"Asian (India)",cuts:[[18.5,"Underweight","#3B82F6"],[23,"Healthy","#16A34A"],[25,"Overweight","#F59E0B"],[Infinity,"Obese","#DC2626"]],healthy:[18.5,22.9],
+    src:["India consensus statement (Misra et al., 2009)","https://pubmed.ncbi.nlm.nih.gov/19582986/"]},
+  who:{name:"WHO standard",cuts:[[18.5,"Underweight","#3B82F6"],[25,"Healthy","#16A34A"],[30,"Overweight","#F59E0B"],[Infinity,"Obese","#DC2626"]],healthy:[18.5,24.9],
+    src:["WHO BMI classification","https://www.who.int/data/gho/data/themes/topics/topic-details/GHO/body-mass-index"]},
+};
+function bmiCalc(kg,cm){ if(!(kg>0)||!(cm>0)) return null; const m=cm/100; return kg/(m*m); }
+function bmiCategory(b,std){ for(const c of BMI_STD[std].cuts) if(b<c[0]) return {label:c[1],color:c[2]}; return null; }
+const PROTEIN={adult:{label:"Adult (18+)",rate:0.8},teen:{label:"Teen (14–17)",rate:0.85},child:{label:"Child (4–13)",rate:0.95}};
+function proteinCalc(kg,group,active){
+  if(!(kg>0)) return null;
+  if(group==="adult"&&active) return {lo:kg*1.4,hi:kg*2.0,rate:"1.4–2.0"};
+  const r=PROTEIN[group].rate; return {lo:kg*r,hi:kg*r,rate:String(r)};
+}
+function calcRead(){ try{ return JSON.parse(localStorage.getItem("ff_calc")||"{}")||{}; }catch{ return {}; } }
+function calcWrite(o){ try{ localStorage.setItem("ff_calc",JSON.stringify(o)); }catch{} }
+function CalcPage(){
+  const init=calcRead();
+  const[kg,setKg]=useState(init.kg||"");
+  const[unit,setUnit]=useState(init.unit||"cm");
+  const[cm,setCm]=useState(init.cm||"");
+  const[ft,setFt]=useState(init.ft||"");
+  const[inch,setInch]=useState(init.inch||"");
+  const[age,setAge]=useState(init.age||"");
+  const[std,setStd]=useState(init.std||"asia");
+  const[group,setGroup]=useState(init.group||"adult");
+  const[active,setActive]=useState(!!init.active);
+  useEffect(()=>{ calcWrite({kg,unit,cm,ft,inch,age,std,group,active}); },[kg,unit,cm,ft,inch,age,std,group,active]);
+  const w=parseFloat(kg), hcm=unit==="cm"?parseFloat(cm):((parseFloat(ft)||0)*30.48+(parseFloat(inch)||0)*2.54);
+  const b=bmiCalc(w,hcm>0?hcm:NaN), yrs=parseFloat(age), child=yrs>0&&yrs<18;
+  const cat=b&&!child?bmiCategory(b,std):null, S=BMI_STD[std];
+  const hm=hcm/100, range=hcm>0?[S.healthy[0]*hm*hm,S.healthy[1]*hm*hm]:null;
+  const pr=proteinCalc(w,group,active);
+  const card={background:"var(--card)",border:"1px solid var(--line)",borderRadius:16,padding:18,minWidth:0};
+  const lab={fontSize:12,fontWeight:800,letterSpacing:".08em",textTransform:"uppercase",color:"var(--muted)"};
+  const inp={width:"100%",padding:"10px 12px",borderRadius:10,border:"1.5px solid var(--line)",background:"var(--bg2,var(--card))",color:"var(--text)",fontSize:16,fontWeight:700,boxSizing:"border-box"};
+  const fl={display:"flex",flexDirection:"column",gap:5,fontSize:13,fontWeight:700,color:"var(--muted)",minWidth:0};
+  const seg=(val,set,opts,tid)=><div role="group" style={{display:"inline-flex",gap:3,padding:3,borderRadius:11,background:"var(--bg2,var(--card))",border:"1px solid var(--line)",flexWrap:"wrap"}}>
+    {opts.map(([k,l])=><button key={String(k)} data-testid={tid+"-"+k} aria-pressed={val===k} onClick={()=>set(k)} style={{border:"none",borderRadius:8,padding:"6px 11px",fontWeight:700,fontSize:12,cursor:"pointer",background:val===k?"var(--accent)":"transparent",color:val===k?"var(--on-accent,#fff)":"var(--text)"}}>{l}</button>)}</div>;
+  // BMI scale bar 15..35
+  const lo=15, hi=35, pos=b?Math.max(0,Math.min(100,(b-lo)/(hi-lo)*100)):null;
+  let prev=lo; const segs=S.cuts.map(([c,l,col])=>{ const e=Math.min(c,hi), s={l,col,from:prev,to:e}; prev=e; return s; });
+  return <div className="ff-in" data-testid="calc">
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(100%,340px),1fr))",gap:14}}>
+      <section style={card} data-testid="bmi">
+        <div style={lab}>⚖️ Body Mass Index (BMI)</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:12}}>
+          <label style={fl}>Weight (kg)<input data-testid="bmi-kg" style={inp} type="number" inputMode="decimal" min="1" step="0.1" value={kg} onChange={e=>setKg(e.target.value)} placeholder="e.g. 70"/></label>
+          <label style={fl}>Age (optional)<input data-testid="bmi-age" style={inp} type="number" inputMode="numeric" min="2" max="120" value={age} onChange={e=>setAge(e.target.value)} placeholder="years"/></label>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginTop:12,flexWrap:"wrap"}}><span style={{fontSize:13,fontWeight:700,color:"var(--muted)"}}>Height in</span>{seg(unit,setUnit,[["cm","cm"],["ft","ft + in"]],"bmi-unit")}</div>
+        {unit==="cm"?<label style={{...fl,marginTop:8}}>Height (cm)<input data-testid="bmi-cm" style={inp} type="number" inputMode="decimal" min="30" step="0.1" value={cm} onChange={e=>setCm(e.target.value)} placeholder="e.g. 170"/></label>
+          :<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:8}}>
+            <label style={fl}>Feet<input data-testid="bmi-ft" style={inp} type="number" inputMode="numeric" min="1" max="8" value={ft} onChange={e=>setFt(e.target.value)} placeholder="5"/></label>
+            <label style={fl}>Inches<input data-testid="bmi-in" style={inp} type="number" inputMode="decimal" min="0" max="11.9" step="0.5" value={inch} onChange={e=>setInch(e.target.value)} placeholder="7"/></label></div>}
+        <div style={{display:"flex",alignItems:"center",gap:10,marginTop:12,flexWrap:"wrap"}}><span style={{fontSize:13,fontWeight:700,color:"var(--muted)"}}>Ranges</span>{seg(std,setStd,[["asia","Asian (India)"],["who","WHO standard"]],"bmi-std")}</div>
+        <div style={{marginTop:16,padding:14,borderRadius:14,background:"var(--bg2,var(--card))",border:"1px solid var(--line)"}}>
+          {b?<>
+            <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap"}}>
+              <span data-testid="bmi-val" style={{fontSize:40,fontWeight:900,fontVariantNumeric:"tabular-nums",color:"var(--text)"}}>{b.toFixed(1)}</span>
+              {cat&&<span data-testid="bmi-cat" style={{fontWeight:800,fontSize:16,color:"#fff",background:cat.color,borderRadius:999,padding:"4px 12px"}}>{cat.label}</span>}
+            </div>
+            {!child&&<div style={{position:"relative",marginTop:12}}>
+              <div style={{display:"flex",height:12,borderRadius:999,overflow:"hidden"}}>{segs.map(s=><div key={s.l} title={s.l} style={{flex:s.to-s.from,background:s.col,opacity:.85}}/>)}</div>
+              <div aria-hidden="true" style={{position:"absolute",top:-5,left:`calc(${pos}% - 2px)`,width:4,height:22,borderRadius:2,background:"var(--text)"}}/>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--muted)",marginTop:4,fontVariantNumeric:"tabular-nums"}}><span>15</span>{S.cuts.slice(0,3).map(c=><span key={c[0]}>{c[0]}</span>)}<span>35</span></div>
+            </div>}
+            {child?<div data-testid="bmi-child" style={{fontSize:13,marginTop:8,color:"var(--text)"}}>Under 18, adult BMI ranges don't apply. Children's BMI is judged against growth charts for their age and sex (BMI-for-age), so check with a doctor rather than reading a label here.</div>
+              :range&&<div data-testid="bmi-range" style={{fontSize:13,marginTop:10,color:"var(--text)"}}>Healthy weight for this height ({S.name}): <b>{range[0].toFixed(1)}–{range[1].toFixed(1)} kg</b></div>}
+          </>:<div style={{fontSize:13,color:"var(--muted)"}}>Enter weight and height to see BMI.</div>}
+        </div>
+        <div style={{fontSize:12,color:"var(--muted)",marginTop:10,lineHeight:1.45}}>BMI is a rough screening number. It doesn't tell muscle from fat, so very muscular people can read high. Asian (India) ranges are lower because health risks start at a lower BMI; a <a href="https://pubmed.ncbi.nlm.nih.gov/39814628/" target="_blank" rel="noopener noreferrer" style={{color:"var(--accent-ink)"}}>2025 revision</a> also looks at waist size and health checks. Source: <a href={S.src[1]} target="_blank" rel="noopener noreferrer" style={{color:"var(--accent-ink)"}}>{S.src[0]}</a>.</div>
+      </section>
+      <section style={card} data-testid="protein">
+        <div style={lab}>🥚 Daily protein</div>
+        <label style={{...fl,marginTop:12}}>Weight (kg)<input data-testid="pr-kg" style={inp} type="number" inputMode="decimal" min="1" step="0.1" value={kg} onChange={e=>setKg(e.target.value)} placeholder="e.g. 70"/></label>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginTop:12,flexWrap:"wrap"}}><span style={{fontSize:13,fontWeight:700,color:"var(--muted)"}}>Who</span>{seg(group,setGroup,Object.entries(PROTEIN).map(([k,v])=>[k,v.label]),"pr-group")}</div>
+        {group==="adult"&&<div style={{display:"flex",alignItems:"center",gap:10,marginTop:10,flexWrap:"wrap"}}><span style={{fontSize:13,fontWeight:700,color:"var(--muted)"}}>Activity</span>{seg(active,setActive,[[false,"Everyday"],[true,"Trains regularly"]],"pr-active")}</div>}
+        <div style={{marginTop:16,padding:14,borderRadius:14,background:"var(--bg2,var(--card))",border:"1px solid var(--line)"}}>
+          {pr?<>
+            <div data-testid="pr-val" style={{fontSize:40,fontWeight:900,fontVariantNumeric:"tabular-nums",color:"var(--text)"}}>{pr.lo===pr.hi?Math.round(pr.lo):`${Math.round(pr.lo)}–${Math.round(pr.hi)}`} <span style={{fontSize:18,fontWeight:800}}>g a day</span></div>
+            <div style={{fontSize:13,color:"var(--muted)"}}>{pr.rate} g per kg of body weight · about {pr.lo===pr.hi?Math.round(pr.lo/3):`${Math.round(pr.lo/3)}–${Math.round(pr.hi/3)}`} g per meal over 3 meals</div>
+            <div style={{fontSize:12,color:"var(--muted)",marginTop:10,fontWeight:700}}>Roughly how much protein is in:</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:6}}>{[["🥚","1 egg","6 g"],["🥛","1 glass milk (250 ml)","8 g"],["🍲","1 katori cooked dal","7 g"],["🧀","100 g paneer","18 g"],["🥜","2 tbsp peanuts","7 g"]].map(([e,n,v])=><span key={n} style={{fontSize:12,border:"1px solid var(--line)",borderRadius:999,padding:"4px 10px"}}>{e} {n} ≈ <b>{v}</b></span>)}</div>
+          </>:<div style={{fontSize:13,color:"var(--muted)"}}>Enter weight to see the daily amount.</div>}
+        </div>
+        <div style={{fontSize:12,color:"var(--muted)",marginTop:10,lineHeight:1.45}}>
+          0.8 g/kg is the standard adult recommendation (ICMR-NIN uses 0.83 g/kg for Indian adults). Children need a little more per kg while growing. People who train hard regularly are often advised 1.4–2.0 g/kg. Food values are approximate. Sources: <a href="https://www.nin.res.in/rdabook/brief_note.pdf" target="_blank" rel="noopener noreferrer" style={{color:"var(--accent-ink)"}}>ICMR-NIN</a> · <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC8147948/" target="_blank" rel="noopener noreferrer" style={{color:"var(--accent-ink)"}}>Protein needs in children</a> · <a href="https://pubmed.ncbi.nlm.nih.gov/17908291/" target="_blank" rel="noopener noreferrer" style={{color:"var(--accent-ink)"}}>ISSN position stand</a>.</div>
+      </section>
+    </div>
+    <div style={{fontSize:12,color:"var(--muted)",marginTop:12}}>These numbers stay on this device and aren't saved to the family data. General guidance only, not medical advice.</div>
+  </div>;
+}
+
 export default function App(){
   const[members,setMembers]=useState(DEF_MEMBERS);
   const[logs,setLogs]=useState({});
@@ -9804,6 +10411,15 @@ export default function App(){
       <button className="ff-nav" aria-label="GK Facts" data-testid="nav-gk" aria-current={activeTab===GK_TAB?"page":undefined} onClick={()=>{setActiveTab(GK_TAB);setPpPanelFor(null);}}>
         <span className="ff-avatar" style={{background:"var(--accent-soft)",color:"var(--accent-ink)"}}>💡</span><span>GK Facts</span>
       </button>
+      <button className="ff-nav" aria-label="Head to Head" data-testid="nav-h2h" aria-current={activeTab===H2H_TAB?"page":undefined} onClick={()=>{setActiveTab(H2H_TAB);setPpPanelFor(null);}}>
+        <span className="ff-avatar" style={{background:"var(--accent-soft)",color:"var(--accent-ink)"}}>⚔️</span><span>Head to Head</span>
+      </button>
+      <button className="ff-nav" aria-label="Activity Guides" data-testid="nav-guides" aria-current={activeTab===GUIDES_TAB?"page":undefined} onClick={()=>{setActiveTab(GUIDES_TAB);setPpPanelFor(null);}}>
+        <span className="ff-avatar" style={{background:"var(--accent-soft)",color:"var(--accent-ink)"}}>🏋️</span><span>Activity Guides</span>
+      </button>
+      <button className="ff-nav" aria-label="Calculators" data-testid="nav-calc" aria-current={activeTab===CALC_TAB?"page":undefined} onClick={()=>{setActiveTab(CALC_TAB);setPpPanelFor(null);}}>
+        <span className="ff-avatar" style={{background:"var(--accent-soft)",color:"var(--accent-ink)"}}>🧮</span><span>Calculators</span>
+      </button>
       <div className="ff-side-grow" style={{flex:1}}/>
       <button className="ff-nav ff-side-add" aria-label="Add member" onClick={()=>setEditM("new")} style={{color:"var(--side-text,var(--accent-ink))",fontWeight:700}}>
         <span className="ff-avatar" style={{background:"var(--accent-soft)",color:"var(--accent-ink)"}}>＋</span><span>Add member</span>
@@ -9812,7 +10428,7 @@ export default function App(){
     <div className="ff-main" style={{position:"relative"}}>
     {mode==="light"&&lookId==="studio"&&<div aria-hidden="true" style={{position:"absolute",inset:0,backgroundImage:bgPattern,backgroundRepeat:"repeat",opacity:0.28,pointerEvents:"none"}}/>}
     <div className="ff-top">
-      <div style={{fontWeight:800,fontSize:18,letterSpacing:-0.4}}>{activeMember?activeMember.name:activeTab===GK_TAB?"GK Facts":"Family"}</div>
+      <div style={{fontWeight:800,fontSize:18,letterSpacing:-0.4}}>{activeMember?activeMember.name:activeTab===GK_TAB?"GK Facts":activeTab===H2H_TAB?"Head to Head":activeTab===GUIDES_TAB?"Activity Guides":activeTab===CALC_TAB?"Calculators":"Family"}</div>
       <div style={{flex:1}}/>
       <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
         <button onClick={prevMo} style={navBtn} aria-label="Previous month">‹</button>
@@ -9876,6 +10492,9 @@ export default function App(){
         return <WrappedReady title={title} onPlay={()=>{ mark(); setWrapped(spec); }} onDismiss={mark}/>;
       })()}
 
+      {activeTab===GUIDES_TAB&&members.length>0&&<GuidesPage key="guides" members={shown} initialId={lastMemberTab.current}/>}
+      {activeTab===CALC_TAB&&<CalcPage key="calc"/>}
+      {activeTab===H2H_TAB&&members.length>0&&<HeadToHeadPage key="h2h" members={shown} logs={logs}/>}
       {activeTab===GK_TAB&&members.length>0&&<GkFactsPage key="gk" members={shown} logs={logs} initialId={lastMemberTab.current}/>}
 
       {/* Individual member tab */}
