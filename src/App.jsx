@@ -4627,8 +4627,8 @@ function computeGapStats(member, target, logs){
 // Trades live in logs[mid].gemTrades as {tradeId: {day, at, gems:{id:n}, pp, freeze}}; an undone trade is set to
 // null (not deleted) so the undo wins over the cloud copy on merge. A trade with freeze>0 stops new gems being
 // earned for that many days, starting the day after the trade (gems earned earlier that day are kept).
-const GEM_TRADE_PP={diamond:800,platinum:700,gold:600,ruby:500,sapphire:400,silver:300,emerald:200};
-const GEM_FREEZE_DAYS=10;
+const GEM_TRADE_PP={diamond:1000,platinum:900,gold:800,ruby:700,sapphire:600,silver:500,emerald:400};
+const GEM_FREEZE_DAYS=30;
 function getGemTrades(logs, mid){
   const raw=(logs&&logs[mid]&&logs[mid].gemTrades)||{};
   return Object.entries(raw).filter(([,t])=>t&&t.day&&t.gems).map(([id,t])=>({id,...t}))
@@ -4640,6 +4640,20 @@ function gemFreezeWindows(logs, mid){
 function gemFreezeUntil(logs, mid, today){ // last frozen day still ahead (or today), else null
   let end=null; for(const [a,b] of gemFreezeWindows(logs,mid)) if(b>=today && (!end||b>end)) end=b;
   return end;
+}
+// Countdown for the vault freeze: {start,end,total,left,pending,text,short} or null when not frozen
+function _daysBetween(a,b){ return Math.round((new Date(b+"T12:00:00")-new Date(a+"T12:00:00"))/86400000); }
+function gemFreezeInfo(logs, mid, today){
+  const live=gemFreezeWindows(logs,mid).filter(([,b])=>b>=today);
+  if(!live.length) return null;
+  const start=live.reduce((m,[a])=>a<m?a:m,live[0][0]), end=live.reduce((m,[,b])=>b>m?b:m,live[0][1]);
+  const total=_daysBetween(start,end)+1, pending=start>today;
+  const left=pending?total:_daysBetween(today,end)+1;
+  const until=_niceDay(_addDaysStr(end,1));
+  const text=pending?`Freeze starts tomorrow · ${total} days, gems resume ${until}`
+    : left===1?`Last frozen day · gems resume tomorrow (${until})`
+    : `Frozen · ${left} days left · gems resume ${until}`;
+  return {start,end,total,left,pending,text,short:pending?`starts tomorrow`:`${left}d left`};
 }
 function computeGemTraded(member, logs){
   const out={}; const today=todayStr();
@@ -5193,7 +5207,7 @@ function GemTradePanel({member,logs,allMembers,onGemTrade,onBack,onShow}){
     <button onClick={onBack} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:13,padding:0,marginBottom:12}}>‹ Back to vault</button>
     <div style={{fontSize:16,fontWeight:800,color:C.text,marginBottom:4}}>💱 Trade gems for Power Points</div>
     <div style={{fontSize:12,color:C.muted,marginBottom:14}}>Traded gems leave the vault. "Gems collected" still counts them. Same-day undo.</div>
-    {fzUntil&&<div style={{fontSize:12,padding:"8px 12px",borderRadius:10,background:"var(--t-blue)",color:"var(--ink-blue)",marginBottom:12}}>❄️ Vault frozen: no new gems until {_niceDay(_addDaysStr(fzUntil,1))}.</div>}
+    {fzUntil&&<div style={{fontSize:12,padding:"8px 12px",borderRadius:10,background:"var(--t-blue)",color:"var(--ink-blue)",marginBottom:12}}>❄️ {gemFreezeInfo(logs,member.id,today).text}. Another trade restarts the {GEM_FREEZE_DAYS} days.</div>}
     <div style={{display:"flex",flexDirection:"column",gap:6}}>
       {tradeable.map(g=>{ const h=held[g.id]||0, n=sel[g.id]||0;
         return <div key={g.id} data-testid={"trade-row-"+g.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:12,border:`1.5px solid ${n?g.color:C.border}`,background:n?`${g.color}14`:C.bg,opacity:h?1:.45}}>
@@ -5241,6 +5255,7 @@ function GemVaultDrawerImpl({member, logs, allMembers, onGemTrade, onClose}){
   const [view, setView] = useState("vault");
   const [show, setShow] = useState(null);
   const fzUntil = gemFreezeUntil(logs, member.id, todayStr());
+  const fz = gemFreezeInfo(logs, member.id, todayStr());
   const rarityOrder = ["Legendary","Epic","Rare","Uncommon","Common"];
   const rarityIcons = {Legendary:"🌟",Epic:"🔵",Rare:"🟡",Uncommon:"⚪",Common:"🟤"};
   const byRarity = {};
@@ -5273,7 +5288,14 @@ function GemVaultDrawerImpl({member, logs, allMembers, onGemTrade, onClose}){
           <div style={{fontSize:28,fontWeight:900,color:"#F9A825"}}>{total} <span style={{fontSize:13,color:"rgba(255,255,255,0.5)",fontWeight:400}}>gems collected</span></div>
           {heldTotal!==total&&<div data-testid="gems-held" style={{fontSize:12,color:"rgba(255,255,255,0.7)",fontWeight:700,textAlign:"right"}}>{heldTotal} in vault<br/><span style={{fontWeight:400,color:"rgba(255,255,255,0.45)"}}>{total-heldTotal} traded</span></div>}
         </div>
-        {fzUntil&&<div data-testid="vault-frozen" style={{marginTop:10,fontSize:12,fontWeight:700,color:"#BFE0FF",background:"rgba(80,160,255,0.18)",border:"1px solid rgba(140,200,255,0.35)",borderRadius:10,padding:"6px 10px"}}>❄️ Frozen: no new gems until {_niceDay(_addDaysStr(fzUntil,1))}</div>}
+        {fz&&<div data-testid="vault-frozen" style={{marginTop:10,fontSize:12,fontWeight:700,color:"#BFE0FF",background:"rgba(80,160,255,0.18)",border:"1px solid rgba(140,200,255,0.35)",borderRadius:10,padding:"8px 10px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            {!fz.pending&&<span data-testid="freeze-days" style={{fontSize:22,fontWeight:900,color:"#fff",lineHeight:1}}>{fz.left}</span>}
+            <span>❄️ {fz.text}</span>
+          </div>
+          <div style={{display:"flex",gap:3,marginTop:7}}>{Array.from({length:fz.total},(_,i)=>{ const done=!fz.pending&&i<fz.total-fz.left; const cur=!fz.pending&&i===fz.total-fz.left;
+            return <div key={i} style={{flex:1,height:5,borderRadius:3,background:done?"rgba(255,255,255,0.15)":cur?"#fff":"#6FB8FF",boxShadow:cur?"0 0 6px #fff":"none"}}/>; })}</div>
+        </div>}
         {onGemTrade&&view==="vault"&&<button data-testid="open-trade" onClick={()=>setView("trade")} style={{marginTop:12,width:"100%",padding:"10px 0",borderRadius:10,border:"none",cursor:"pointer",
           background:"linear-gradient(135deg,#F9A825,#FF7043)",color:"#2B1A00",fontWeight:900,fontSize:14}}>💱 Trade gems for PP</button>}
       </div>
@@ -5344,7 +5366,7 @@ const GemVaultDrawer=withSlide(GemVaultDrawerImpl);
 function GemVaultCard({member, logs, allMembers, onGemTrade}){
   const total = Object.values(computeGemVault(member, logs)).reduce((s,v)=>s+v, 0);
   const counts = computeGemHeld(member, logs);
-  const frozen = !!gemFreezeUntil(logs, member.id, todayStr());
+  const frozen = gemFreezeInfo(logs, member.id, todayStr());
   const [showDrawer, setShowDrawer] = useState(false);
   const prevGems=useRef(null);
   useEffect(()=>{ if(prevGems.current!==null&&total>prevGems.current) sfx("gem",350); prevGems.current=total; },[total]);
@@ -5364,7 +5386,7 @@ function GemVaultCard({member, logs, allMembers, onGemTrade}){
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div style={{flex:1}}>
           <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.5)",
-            letterSpacing:0.5,marginBottom:6}}>💎 GEM VAULT{frozen&&<span data-testid="card-frozen" style={{marginLeft:6,color:"#9FD0FF"}}>❄️ FROZEN</span>}</div>
+            letterSpacing:0.5,marginBottom:6}}>💎 GEM VAULT{frozen&&<span data-testid="card-frozen" style={{marginLeft:6,color:"#9FD0FF"}}>❄️ FROZEN · {frozen.short.toUpperCase()}</span>}</div>
           <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}>
             {earned.length === 0
               ? <span style={{fontSize:12,color:"rgba(255,255,255,0.35)"}}>No gems yet — start earning!</span>
