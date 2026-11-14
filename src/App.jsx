@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, Component } from "react";
+import { createPortal } from "react-dom";
 
 // ── Palette ───────────────────────────────────────────────────────────────────
 // Core colours are CSS variables so one switch flips the whole app between light and dark.
@@ -1052,10 +1053,19 @@ function computePowerPoints(member, logs){
       olympiadByDate[entry.date] = (olympiadByDate[entry.date]||0) + entry.points;
     }
   }
+  // Gem trades — PP lands on the trade's day (kept out of pace/"earned" figures via tradeByDate)
+  const tradeByDate = {};
+  const tradeOnlyDates = new Set(); // days with nothing but a trade: skip the daily scoring so the trade can't change it
+  for(const t of getGemTrades(logs, member.id)){
+    if(t.day > today || !(t.pp>0)) continue;
+    if(!allDates.has(t.day)) tradeOnlyDates.add(t.day);
+    allDates.add(t.day);
+    tradeByDate[t.day] = (tradeByDate[t.day]||0) + t.pp;
+  }
   const sortedDates = [...allDates].sort();
 
   let totalPP = 100; // base starting points
-  let breakdown = {atTarget:0, aboveTarget:0, belowTarget:0, pb:0, shielded:0, skipped:0, streakBonus:0, streakBreak:0, mysteryDays:0, eggBonus:0, gkBonus:0, braveryBonus:0, olympiadBonus:0, extraSessionBonus:0, distanceBonus:0};
+  let breakdown = {atTarget:0, aboveTarget:0, belowTarget:0, pb:0, shielded:0, skipped:0, streakBonus:0, streakBreak:0, mysteryDays:0, eggBonus:0, gkBonus:0, braveryBonus:0, olympiadBonus:0, gemTradeBonus:0, extraSessionBonus:0, distanceBonus:0};
   let prevStreak = 0;
   let levelHistory = []; // [{level, title, icon, date}]
   let lastLevelSeen = 1;
@@ -1069,6 +1079,15 @@ function computePowerPoints(member, logs){
 
   for(const dateStr of sortedDates){
     const ppBeforeDay = totalPP;
+    if(tradeOnlyDates.has(dateStr)){
+      const tp = tradeByDate[dateStr]||0;
+      totalPP += tp; breakdown.gemTradeBonus += tp;
+      dailyTags[dateStr]=["gemTrade"];
+      dailyEarned[dateStr] = totalPP - ppBeforeDay;
+      const lv = getLevel(totalPP);
+      if(lv.level > lastLevelSeen){ levelHistory.push({level:lv.level, title:lv.title, icon:lv.icon, date:dateStr}); lastLevelSeen = lv.level; }
+      continue;
+    }
     // Compute streak up to this day
     let streakOnDay = 0;
     const d = new Date(dateStr + "T00:00:00");
@@ -1375,6 +1394,14 @@ function computePowerPoints(member, logs){
       dailyTags[dateStr].push("olympiad");
     }
 
+    const tradePts = tradeByDate[dateStr]||0;
+    if(tradePts>0){
+      totalPP += tradePts;
+      breakdown.gemTradeBonus += tradePts;
+      if(!dailyTags[dateStr]) dailyTags[dateStr]=[];
+      dailyTags[dateStr].push("gemTrade");
+    }
+
     dailyEarned[dateStr] = totalPP - ppBeforeDay; // net change this day, multiplier + eggs + GK + Bravery included
 
     // Track level-up moments
@@ -1394,10 +1421,10 @@ function computePowerPoints(member, logs){
   let weekPP = 0;
   for(const dateStr of sortedDates){
     if(dateStr < weekStartStr) continue;
-    weekPP += Math.max(0, dailyEarned[dateStr] || 0);
+    weekPP += Math.max(0, (dailyEarned[dateStr] || 0) - (tradeByDate[dateStr] || 0));
   }
 
-  return { total: Math.round(totalPP), breakdown, weekPP, levelHistory, dailyEarned, dailyTags, dailyBreakdown };
+  return { total: Math.round(totalPP), breakdown, weekPP, levelHistory, dailyEarned, dailyTags, dailyBreakdown, tradeByDate };
 }
 
 // ── PP Pace Projection ────────────────────────────────────────────────────────
@@ -3823,7 +3850,7 @@ function PowerPointsPanel({member, logs, onClose, view="main", viewNonce=0}){
     below:{icon:"📉",label:"Below"}, shielded:{icon:"🛡️",label:"Shielded"}, skipped:{icon:"❌",label:"Skipped"},
     mystery:{icon:"🎁",label:"Mystery"}, egg:{icon:"🥚",label:"Egg"},
     gk:{icon:"🧠",label:"GK Quiz"}, gkWeekend:{icon:"🏆",label:"Weekly Review"},
-    bravery:{icon:"🦁",label:"Bravery"}, extraSession:{icon:"➕",label:"Extra Session"}, distance:{icon:"🏃",label:"Distance Bonus"},
+    bravery:{icon:"🦁",label:"Bravery"}, gemTrade:{icon:"💱",label:"Gem trade"}, extraSession:{icon:"➕",label:"Extra Session"}, distance:{icon:"🏃",label:"Distance Bonus"},
   };
 
   return <div ref={panelRef} style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,
@@ -3908,6 +3935,7 @@ function PowerPointsPanel({member, logs, onClose, view="main", viewNonce=0}){
             {label:"🧠 GK Learning",val:breakdown.gkBonus,show:breakdown.gkBonus>0},
             {label:"🦁 Bravery",val:breakdown.braveryBonus,show:breakdown.braveryBonus>0},
             {label:"🏅 Olympiad",val:breakdown.olympiadBonus,show:breakdown.olympiadBonus>0},
+            {label:"💱 Gem trades",val:breakdown.gemTradeBonus,show:breakdown.gemTradeBonus>0},
             {label:"➕ Extra sessions",val:breakdown.extraSessionBonus,show:breakdown.extraSessionBonus>0},
             {label:"🏃 Distance bonus",val:breakdown.distanceBonus,show:breakdown.distanceBonus>0},
             {label:"Starting bonus",val:100,show:true},
@@ -4399,6 +4427,12 @@ function _ppEarnedBetween(res, fromStr, toStr){
   for(const [d,v] of Object.entries(res.dailyEarned||{})) if(d>=fromStr && d<=toStr) t+=(v||0);
   return t;
 }
+// Same, minus PP that came from gem trades — for pace figures, which should reflect effort, not cash-ins
+function _ppPaceBetween(res, fromStr, toStr){
+  let t=_ppEarnedBetween(res, fromStr, toStr);
+  for(const [d,v] of Object.entries(res.tradeByDate||{})) if(d>=fromStr && d<=toStr) t-=(v||0);
+  return t;
+}
 function _addDaysStr(dateStr, n){
   const d=new Date(dateStr+"T00:00:00"); d.setDate(d.getDate()+n); return toLocalDateStr(d);
 }
@@ -4495,8 +4529,8 @@ function PPTrendChart({members,logs,title}){
   </div>;
 }
 function _dailyArr(res, fromStr, toStr){ // net PP for every calendar day in the range (0 where nothing happened)
-  const E=res.dailyEarned||{}, out=[]; let d=fromStr;
-  while(d<=toStr){ out.push(E[d]||0); d=_addDaysStr(d,1); }
+  const E=res.dailyEarned||{}, X=res.tradeByDate||{}, out=[]; let d=fromStr;
+  while(d<=toStr){ out.push((E[d]||0)-(X[d]||0)); d=_addDaysStr(d,1); }
   return out;
 }
 function _bestWindowPace(arr, n){ // best average PP/day over any n consecutive days (null if history is shorter than n)
@@ -4507,7 +4541,7 @@ function _bestWindowPace(arr, n){ // best average PP/day over any n consecutive 
 }
 function _bestDay(res, toStr){
   let best=null;
-  for(const [d,v] of Object.entries(res.dailyEarned||{})) if(d<=toStr && (best===null||v>best.v)) best={v:Math.round(v),date:d};
+  for(const [d,v0] of Object.entries(res.dailyEarned||{})){ const v=v0-((res.tradeByDate||{})[d]||0); if(d<=toStr && (best===null||v>best.v)) best={v:Math.round(v),date:d}; }
   return best;
 }
 function computeGapStats(member, target, logs){
@@ -4529,8 +4563,8 @@ function computeGapStats(member, target, logs){
   const laterStart = [first(me), first(tg)].sort().pop();
   if(laterStart > from) from = laterStart;
   const paceDays = Math.max(0, _daysBetweenStr(from, yesterday) + 1);
-  const myPace = paceDays>0 ? Math.round(_ppEarnedBetween(me, from, yesterday)/paceDays) : 0;
-  const tgPace = paceDays>0 ? Math.round(_ppEarnedBetween(tg, from, yesterday)/paceDays) : 0;
+  const myPace = paceDays>0 ? Math.round(_ppPaceBetween(me, from, yesterday)/paceDays) : 0;
+  const tgPace = paceDays>0 ? Math.round(_ppPaceBetween(tg, from, yesterday)/paceDays) : 0;
 
   // Catch-up forecast at those paces
   const closePerDay = myPace - tgPace;               // + = member gaining on target
@@ -4564,7 +4598,7 @@ function computeGapStats(member, target, logs){
   // Momentum: last 14 full days vs the 14 before them (only once there are 28 full days of history)
   let momentum = null;
   if(paceDays===28){
-    const r = (res, a, b) => Math.round(_ppEarnedBetween(res, a, b)/14);
+    const r = (res, a, b) => Math.round(_ppPaceBetween(res, a, b)/14);
     const mk = res => { const recent=r(res,_addDaysStr(today,-14),yesterday), prior=r(res,_addDaysStr(today,-28),_addDaysStr(today,-15));
       const diff=recent-prior, rel=Math.abs(diff)/Math.max(1,Math.abs(prior));
       return {recent, prior, dir: rel<0.05 ? 0 : (diff>0 ? 1 : -1)}; };
@@ -4589,6 +4623,35 @@ function computeGapStats(member, target, logs){
 // ── Gem Vault ─────────────────────────────────────────────────────────────────
 // 8 collectible gems earned through specific real achievements.
 // Purely prestige — no PP value. Each gem stacks; count grows over time.
+// ── Gem → PP trade ───────────────────────────────────────────────────────────
+// Trades live in logs[mid].gemTrades as {tradeId: {day, at, gems:{id:n}, pp, freeze}}; an undone trade is set to
+// null (not deleted) so the undo wins over the cloud copy on merge. A trade with freeze>0 stops new gems being
+// earned for that many days, starting the day after the trade (gems earned earlier that day are kept).
+const GEM_TRADE_PP={diamond:800,platinum:700,gold:600,ruby:500,sapphire:400,silver:300,emerald:200};
+const GEM_FREEZE_DAYS=10;
+function getGemTrades(logs, mid){
+  const raw=(logs&&logs[mid]&&logs[mid].gemTrades)||{};
+  return Object.entries(raw).filter(([,t])=>t&&t.day&&t.gems).map(([id,t])=>({id,...t}))
+    .sort((a,b)=>String(a.at||a.day).localeCompare(String(b.at||b.day)));
+}
+function gemFreezeWindows(logs, mid){
+  return getGemTrades(logs,mid).filter(t=>t.freeze>0).map(t=>[_addDaysStr(t.day,1),_addDaysStr(t.day,t.freeze)]);
+}
+function gemFreezeUntil(logs, mid, today){ // last frozen day still ahead (or today), else null
+  let end=null; for(const [a,b] of gemFreezeWindows(logs,mid)) if(b>=today && (!end||b>end)) end=b;
+  return end;
+}
+function computeGemTraded(member, logs){
+  const out={}; const today=todayStr();
+  for(const t of getGemTrades(logs,member.id)){ if(t.day>today) continue; for(const [g,n] of Object.entries(t.gems)) out[g]=(out[g]||0)+(n||0); }
+  return out;
+}
+function computeGemHeld(member, logs){
+  const earned=computeGemVault(member,logs), traded=computeGemTraded(member,logs), out={};
+  for(const g of GEM_DEFS) out[g.id]=Math.max(0,(earned[g.id]||0)-(traded[g.id]||0));
+  return out;
+}
+
 const GEM_DEFS = [
   {
     id:"diamond", icon:"💎", name:"Diamond", color:"#00BCD4",
@@ -4685,6 +4748,9 @@ function computeGemVault(member, logs){
   }
 
   const counts = {diamond:0,platinum:0,gold:0,ruby:0,sapphire:0,silver:0,pearl:0,emerald:0};
+  // Gems that land inside a post-trade freeze are not earned (progress like streaks still carries on)
+  const fzWins = gemFreezeWindows(logs, member.id);
+  const bump = (g, ds) => { if(!fzWins.some(([a,b])=>ds>=a&&ds<=b)) counts[g]++; };
 
   // Track all-time bests per activity for PB detection
   const actBests = {};
@@ -4710,22 +4776,22 @@ function computeGemVault(member, logs){
       // Streak tracking
       streak++;
       // Gold: every time streak hits multiple of 7
-      if(streak % 7 === 0) counts.gold++;
+      if(streak % 7 === 0) bump("gold", ds);
       // Platinum: every time streak hits 30
-      if(streak === 30 || (streak > 30 && streak % 30 === 0)) counts.platinum++;
+      if(streak === 30 || (streak > 30 && streak % 30 === 0)) bump("platinum", ds);
 
       // Pearl: comeback after 3+ day miss
       if(missStart !== null){
         const gap = Math.round((new Date(ds+"T00:00:00")-new Date(missStart+"T00:00:00"))/86400000);
-        if(gap >= 3) counts.pearl++;
+        if(gap >= 3) bump("pearl", ds);
         missStart = null;
       }
 
       // Above target streak
       if(dayAboveTarget(ds)){
         aboveStreak++;
-        if(aboveStreak === 7) counts.sapphire++;
-        else if(aboveStreak > 7 && aboveStreak % 7 === 0) counts.sapphire++;
+        if(aboveStreak === 7) bump("sapphire", ds);
+        else if(aboveStreak > 7 && aboveStreak % 7 === 0) bump("sapphire", ds);
       } else {
         aboveStreak = 0;
       }
@@ -4739,9 +4805,9 @@ function computeGemVault(member, logs){
         const prev = actBests[a.id] || 0;
         if(maxVal > prev && maxVal > (l.target||a.target)){
           // Silver: any PB
-          counts.silver++;
+          bump("silver", ds);
           // Ruby: PB beats previous by 20%+
-          if(prev > 0 && maxVal >= prev * 1.2) counts.ruby++;
+          if(prev > 0 && maxVal >= prev * 1.2) bump("ruby", ds);
           actBests[a.id] = maxVal;
         } else {
           if(prev === 0) actBests[a.id] = maxVal;
@@ -4749,7 +4815,7 @@ function computeGemVault(member, logs){
       }
 
       // Emerald: 3+ sessions in a day
-      if(sessionCount(ds) >= 3) counts.emerald++;
+      if(sessionCount(ds) >= 3) bump("emerald", ds);
 
       prevDone = true;
     } else {
@@ -4770,7 +4836,7 @@ function computeGemVault(member, logs){
     // We check: done === total days in that month and missed === 0
     const [y, m] = month.split('-').map(Number);
     const daysInThatMonth = new Date(y, m, 0).getDate();
-    if(data.done === daysInThatMonth && data.missed === 0) counts.diamond++;
+    if(data.done === daysInThatMonth && data.missed === 0) bump("diamond", month+"-"+String(daysInThatMonth).padStart(2,"0"));
   }
 
   return counts;
@@ -4980,9 +5046,201 @@ function GoldenGoalDrawerImpl({member, logs, onSave, onDelete, onClose}){
 }
 
 const GoldenGoalDrawer=withSlide(GoldenGoalDrawerImpl);
-function GemVaultDrawerImpl({member, logs, onClose}){
-  const counts = computeGemVault(member, logs);
-  const total = Object.values(counts).reduce((s,v)=>s+v, 0);
+// ── Gem trade: sounds (played on the trade itself even when app sounds are off — it's a deliberate tap) ──
+function sfxTrade(name,p,muted){
+  try{
+    if(muted||(typeof document!=="undefined"&&document.hidden)) return;
+    const c=sfxCtx(); if(!c) return; const t=c.currentTime+0.01; const vc=SFX.voice; SFX.voice=null;
+    try{
+      if(name==="whoosh"){ sfxTone(180,t,0.55,{type:"sawtooth",vol:0.12,glideTo:900}); sfxTone(360,t+0.05,0.5,{vol:0.25,glideTo:1500}); }
+      else if(name==="tick"){ const f=520*Math.pow(2,(p||0)*1.6); sfxTone(f,t,0.09,{type:"triangle",vol:0.32}); sfxTone(f*2,t+0.02,0.05,{vol:0.12}); }
+      else if(name==="done"){
+        [523.25,659.25,783.99,1046.5].forEach((f,i)=>sfxTone(f,t+i*0.08,0.22,{type:"triangle",vol:0.7}));
+        [1046.5,1318.5,1568,2093].forEach(f=>sfxTone(f,t+0.36,1.1,{vol:0.22}));
+        [2637,3136,3520,4186].forEach((f,i)=>sfxTone(f,t+0.5+i*0.06,0.12,{vol:0.12}));
+        sfxTone(110,t+0.34,0.6,{type:"sine",vol:0.9,glideTo:55});
+      }
+      else if(name==="level"){ [783.99,987.77,1174.7,1567.98].forEach((f,i)=>sfxTone(f,t+i*0.1,0.3,{type:"triangle",vol:0.6})); }
+    } finally { SFX.voice=vc; }
+  }catch{}
+}
+const _fmtPP=n=>Math.round(n).toLocaleString("en-US");
+const _niceDay=ds=>ds?new Date(ds+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"}):"";
+
+// Full-screen show: the traded gems pop in around the screen, fly into the PP orb one by one, the counter rolls up,
+// then a burst. Tap anywhere after the burst to close.
+function GemTradeShow({items,pp,member,before,after,freezeUntil,onDone}){
+  const reduce=useMemo(()=>{ try{ return window.matchMedia("(prefers-reduced-motion: reduce)").matches; }catch{ return false; } },[]);
+  const[shown,setShown]=useState(0); const target=useRef(0); const shownRef=useRef(0);
+  const[phase,setPhase]=useState("gather"); // gather → fly → burst
+  const[muted,setMuted]=useState(false); const mutedRef=useRef(false); mutedRef.current=muted;
+  const orb=useRef(null); const spriteEls=useRef([]);
+  const lvBefore=getLevel(before), lvAfter=getLevel(after), levelUp=lvAfter.level>lvBefore.level;
+  const sprites=useMemo(()=>{
+    const totalN=items.reduce((s,x)=>s+x.n,0), cap=reduce?12:Math.min(56,Math.max(totalN,1));
+    const list=[];
+    for(const it of items){ const k=Math.max(1,Math.round(it.n/totalN*cap)); for(let i=0;i<k;i++) list.push({icon:it.icon,color:it.color,val:it.pp/k}); }
+    for(let i=list.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [list[i],list[j]]=[list[j],list[i]]; }
+    const W=typeof window!=="undefined"?window.innerWidth:800, H=typeof window!=="undefined"?window.innerHeight:600;
+    const rx=Math.min(W*0.42,520), ry=Math.min(H*0.38,360);
+    return list.map((s,i)=>{ const a=(i/list.length)*Math.PI*2+Math.random()*0.5; const r=0.72+Math.random()*0.3;
+      return {...s,x:Math.cos(a)*rx*r,y:Math.sin(a)*ry*r,rot:(Math.random()-.5)*50,size:22+Math.random()*16}; });
+  },[]);
+  const confetti=useMemo(()=>Array.from({length:reduce?0:70},(_,i)=>{ const a=Math.random()*Math.PI*2, d=160+Math.random()*320;
+    return {x:Math.cos(a)*d,y:Math.sin(a)*d-60,c:["#F9A825","#00BCD4","#E53935","#43A047","#1E88E5","#fff","#C3A8FF"][i%7],w:5+Math.random()*7,r:Math.random()*720,del:Math.random()*120}; }),[]);
+  // smooth counter
+  useEffect(()=>{ let raf; const step=()=>{ const tg=target.current, cur=shownRef.current;
+      if(cur!==tg){ const nx=Math.abs(tg-cur)<Math.max(1,Math.abs(tg)*0.002)?tg:cur+(tg-cur)*0.2; shownRef.current=nx; setShown(nx); }
+      raf=requestAnimationFrame(step); }; raf=requestAnimationFrame(step); return ()=>cancelAnimationFrame(raf); },[]);
+  useEffect(()=>{
+    const timers=[]; const anims=[];
+    sfxTrade("whoosh",0,mutedRef.current);
+    const flyStart=reduce?250:900, spread=reduce?500:Math.min(2600,700+sprites.length*45);
+    timers.push(setTimeout(()=>setPhase("fly"),flyStart));
+    sprites.forEach((s,i)=>{
+      const el=spriteEls.current[i]; if(!el) return;
+      const delay=flyStart+(i/sprites.length)*spread;
+      let a; try{
+        a=el.animate([{transform:`translate(${s.x}px,${s.y}px) rotate(${s.rot}deg) scale(1)`,opacity:1},
+          {transform:`translate(${s.x*0.55}px,${s.y*0.55-30}px) rotate(${s.rot*2}deg) scale(1.15)`,opacity:1,offset:0.35},
+          {transform:"translate(0px,0px) rotate(0deg) scale(.25)",opacity:0.15}],
+          {duration:reduce?300:720,delay,easing:"cubic-bezier(.55,0,.8,.3)",fill:"forwards"});
+        anims.push(a);
+      }catch{}
+      timers.push(setTimeout(()=>{
+        target.current+=s.val; sfxTrade("tick",i/Math.max(1,sprites.length-1),mutedRef.current);
+        const o=orb.current; if(o){ try{ o.animate([{transform:"scale(1)"},{transform:"scale(1.12)"},{transform:"scale(1)"}],{duration:180}); }catch{} }
+      },delay+(reduce?300:720)));
+    });
+    const end=flyStart+spread+(reduce?350:800);
+    timers.push(setTimeout(()=>{ target.current=pp; setPhase("burst"); timers.push(setTimeout(()=>{ shownRef.current=pp; setShown(pp); },700)); sfxTrade("done",0,mutedRef.current);
+      if(levelUp) timers.push(setTimeout(()=>sfxTrade("level",0,mutedRef.current),900)); },end));
+    return ()=>{ timers.forEach(clearTimeout); anims.forEach(a=>{ try{a.cancel();}catch{} }); };
+  },[]);
+  const burst=phase==="burst";
+  return createPortal(<div data-testid="trade-show" onClick={()=>{ if(burst) onDone(); }} style={{position:"fixed",inset:0,zIndex:900,display:"flex",alignItems:"center",justifyContent:"center",
+      background:"radial-gradient(circle at 50% 50%, rgba(40,30,90,.92), rgba(5,6,14,.97) 70%)",cursor:burst?"pointer":"default",overflow:"hidden",userSelect:"none"}}>
+    <style>{`
+      @keyframes gtPopIn{from{transform:var(--from) scale(0);opacity:0}to{transform:var(--from) scale(1);opacity:1}}
+      @keyframes gtSpin{to{transform:rotate(360deg)}}
+      @keyframes gtRing{from{transform:scale(.3);opacity:.9}to{transform:scale(4.2);opacity:0}}
+      @keyframes gtConf{from{transform:translate(0,0) rotate(0);opacity:1}to{transform:translate(var(--cx),var(--cy)) rotate(var(--cr));opacity:0}}
+      @keyframes gtRise{from{transform:translateY(14px);opacity:0}to{transform:none;opacity:1}}
+      @keyframes gtGlow{0%,100%{box-shadow:0 0 40px 6px rgba(249,168,37,.45),inset 0 0 30px rgba(255,255,255,.2)}50%{box-shadow:0 0 80px 18px rgba(249,168,37,.75),inset 0 0 30px rgba(255,255,255,.35)}}
+    `}</style>
+    <button onClick={e=>{e.stopPropagation();setMuted(m=>!m);}} aria-label={muted?"Sound on":"Mute"} style={{position:"absolute",top:14,right:14,background:"rgba(255,255,255,.12)",border:"none",color:"#fff",borderRadius:10,padding:"8px 11px",fontSize:16,cursor:"pointer"}}>{muted?"🔇":"🔊"}</button>
+    {/* rotating rays */}
+    <div style={{position:"absolute",width:"160vmax",height:"160vmax",opacity:burst?.55:.25,transition:"opacity .6s",animation:reduce?"none":"gtSpin 18s linear infinite",
+      background:"repeating-conic-gradient(from 0deg, rgba(249,168,37,.10) 0 6deg, transparent 6deg 18deg)",pointerEvents:"none"}}/>
+    {/* sprites */}
+    {sprites.map((s,i)=><div key={i} ref={el=>spriteEls.current[i]=el} style={{position:"absolute",left:"50%",top:"50%",marginLeft:-s.size/2,marginTop:-s.size/2,fontSize:s.size,lineHeight:1,
+      transform:`translate(${s.x}px,${s.y}px) rotate(${s.rot}deg)`,["--from"]:`translate(${s.x}px,${s.y}px) rotate(${s.rot}deg)`,
+      animation:reduce?"none":`gtPopIn .45s cubic-bezier(.3,1.6,.5,1) ${Math.min(i*14,600)}ms both`,filter:`drop-shadow(0 0 10px ${s.color})`,pointerEvents:"none"}}>{s.icon}</div>)}
+    {/* shock rings + confetti */}
+    {burst&&!reduce&&<>{[0,180,360].map(d=><div key={d} style={{position:"absolute",width:180,height:180,borderRadius:"50%",border:"3px solid rgba(249,168,37,.8)",animation:`gtRing 1.1s ease-out ${d}ms both`,pointerEvents:"none"}}/>)}
+      {confetti.map((c,i)=><div key={i} style={{position:"absolute",left:"50%",top:"50%",width:c.w,height:c.w*0.45,background:c.c,borderRadius:2,["--cx"]:c.x+"px",["--cy"]:c.y+"px",["--cr"]:c.r+"deg",animation:`gtConf 1.6s cubic-bezier(.15,.7,.3,1) ${c.del}ms both`,pointerEvents:"none"}}/>)}</>}
+    {/* orb */}
+    <div style={{position:"relative",display:"flex",flexDirection:"column",alignItems:"center",gap:14,padding:"0 16px",textAlign:"center"}}>
+      <div ref={orb} style={{width:170,height:170,borderRadius:"50%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+        background:"radial-gradient(circle at 35% 30%, #FFE08A, #F9A825 45%, #B26A00)",animation:reduce?"none":"gtGlow 1.4s ease-in-out infinite",color:"#2B1A00"}}>
+        <div style={{fontSize:13,fontWeight:800,letterSpacing:".12em"}}>⚡ POWER</div>
+        <div data-testid="trade-count" style={{fontSize:shown>=100000?28:32,fontWeight:900,fontVariantNumeric:"tabular-nums"}}>+{_fmtPP(shown)}</div>
+        <div style={{fontSize:13,fontWeight:800,letterSpacing:".12em"}}>POINTS</div>
+      </div>
+      <div style={{minHeight:120,color:"#fff"}}>
+        {!burst&&<div style={{fontSize:15,opacity:.75}}>{phase==="gather"?"Melting down the gems…":"Converting to Power Points…"}</div>}
+        {burst&&<div style={{animation:reduce?"none":"gtRise .5s ease-out both"}}>
+          <div style={{fontSize:"clamp(22px,5vw,30px)",fontWeight:900}}>Trade complete! 🎉</div>
+          <div style={{fontSize:15,opacity:.85,marginTop:4}}>{member.name}: {_fmtPP(before)} → <b>{_fmtPP(after)} PP</b></div>
+          {levelUp&&<div style={{fontSize:16,fontWeight:800,color:"#FFD54F",marginTop:8}}>{lvAfter.icon} Level up! Level {lvAfter.level}: {lvAfter.title}</div>}
+          {freezeUntil&&<div style={{fontSize:14,marginTop:8,color:"#8EC0FF"}}>❄️ Gem Vault frozen: no new gems until {_niceDay(_addDaysStr(freezeUntil,1))}</div>}
+          <div style={{fontSize:12,opacity:.5,marginTop:14}}>Tap anywhere to close</div>
+        </div>}
+      </div>
+    </div>
+  </div>,document.body);
+}
+
+// Trade panel inside the Gem Vault drawer
+function GemTradePanel({member,logs,allMembers,onGemTrade,onBack,onShow}){
+  const today=todayStr();
+  const held=computeGemHeld(member,logs);
+  const tradeable=GEM_DEFS.filter(g=>GEM_TRADE_PP[g.id]);
+  const[sel,setSel]=useState({});
+  const {son,dad}=agreeParties(allMembers||[]);
+  const freezes=!!(son&&son.id===member.id);
+  const pick=(id,n)=>setSel(s=>({...s,[id]:Math.max(0,Math.min(held[id]||0,n))}));
+  const total=tradeable.reduce((s,g)=>s+(sel[g.id]||0)*GEM_TRADE_PP[g.id],0);
+  const count=tradeable.reduce((s,g)=>s+(sel[g.id]||0),0);
+  const allPP=tradeable.reduce((s,g)=>s+(held[g.id]||0)*GEM_TRADE_PP[g.id],0);
+  let before=0, pact=null;
+  try{ before=computePowerPoints(member,logs).total||0;
+    if(dad&&son&&dad.id===member.id&&total>0){ const sonPP=computePowerPoints(son,logs).total||0; if(before+total>sonPP) pact={ahead:before+total-sonPP}; } }catch{}
+  const trades=getGemTrades(logs,member.id).slice().reverse();
+  const fzUntil=gemFreezeUntil(logs,member.id,today);
+  const doTrade=()=>{
+    if(!total) return;
+    const gems={}; for(const g of tradeable) if(sel[g.id]>0) gems[g.id]=sel[g.id];
+    const tid="gt_"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    const trade={day:today,at:new Date().toISOString(),gems,pp:total,freeze:freezes?GEM_FREEZE_DAYS:0};
+    const items=tradeable.filter(g=>gems[g.id]).map(g=>({icon:g.icon,color:g.color,n:gems[g.id],pp:gems[g.id]*GEM_TRADE_PP[g.id]}));
+    onGemTrade(member.id,tid,trade);
+    setSel({});
+    onShow({items,pp:total,before,after:before+total,freezeUntil:freezes?_addDaysStr(today,GEM_FREEZE_DAYS):null});
+  };
+  const stepBtn={width:30,height:30,borderRadius:8,border:`1.5px solid ${C.border}`,background:C.surface,color:C.text,fontSize:16,fontWeight:800,cursor:"pointer",lineHeight:1};
+  return <div data-testid="trade-panel">
+    <button onClick={onBack} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:13,padding:0,marginBottom:12}}>‹ Back to vault</button>
+    <div style={{fontSize:16,fontWeight:800,color:C.text,marginBottom:4}}>💱 Trade gems for Power Points</div>
+    <div style={{fontSize:12,color:C.muted,marginBottom:14}}>Traded gems leave the vault. "Gems collected" still counts them. Same-day undo.</div>
+    {fzUntil&&<div style={{fontSize:12,padding:"8px 12px",borderRadius:10,background:"var(--t-blue)",color:"var(--ink-blue)",marginBottom:12}}>❄️ Vault frozen: no new gems until {_niceDay(_addDaysStr(fzUntil,1))}.</div>}
+    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {tradeable.map(g=>{ const h=held[g.id]||0, n=sel[g.id]||0;
+        return <div key={g.id} data-testid={"trade-row-"+g.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:12,border:`1.5px solid ${n?g.color:C.border}`,background:n?`${g.color}14`:C.bg,opacity:h?1:.45}}>
+          <span style={{fontSize:22}}>{g.icon}</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:700,color:C.text}}>{g.name}</div>
+            <div style={{fontSize:11,color:C.muted}}>{GEM_TRADE_PP[g.id]} PP each · {h} held{n?<b style={{color:C.text}}> · +{_fmtPP(n*GEM_TRADE_PP[g.id])}</b>:null}</div>
+          </div>
+          <button aria-label={"Less "+g.name} disabled={!n} onClick={()=>pick(g.id,n-1)} style={{...stepBtn,opacity:n?1:.4}}>−</button>
+          <div data-testid={"trade-n-"+g.id} style={{minWidth:26,textAlign:"center",fontWeight:800,color:C.text,fontVariantNumeric:"tabular-nums"}}>{n}</div>
+          <button aria-label={"More "+g.name} disabled={n>=h} onClick={()=>pick(g.id,n+1)} style={{...stepBtn,opacity:n<h?1:.4}}>+</button>
+          <button disabled={!h} onClick={()=>pick(g.id,n===h?0:h)} style={{...stepBtn,width:"auto",padding:"0 8px",fontSize:11,opacity:h?1:.4}}>{n===h&&h?"None":"All"}</button>
+        </div>; })}
+    </div>
+    <div style={{display:"flex",gap:8,marginTop:10}}>
+      <button data-testid="trade-all" disabled={!allPP} onClick={()=>{ const o={}; for(const g of tradeable) o[g.id]=held[g.id]||0; setSel(o); }} style={{flex:1,padding:"8px 0",borderRadius:10,border:`1.5px solid ${C.border}`,background:C.surface,color:C.text,fontWeight:700,fontSize:12,cursor:"pointer"}}>Select everything ({_fmtPP(allPP)} PP)</button>
+      <button disabled={!count} onClick={()=>setSel({})} style={{padding:"8px 14px",borderRadius:10,border:`1.5px solid ${C.border}`,background:C.surface,color:C.muted,fontWeight:700,fontSize:12,cursor:"pointer",opacity:count?1:.5}}>Clear</button>
+    </div>
+    {total>0&&freezes&&<div data-testid="trade-freeze-warn" style={{fontSize:12,padding:"10px 12px",borderRadius:10,background:"var(--t-blue)",color:"var(--ink-blue)",marginTop:12,lineHeight:1.5}}>
+      ❄️ <b>This freezes {member.name}'s Gem Vault for {GEM_FREEZE_DAYS} days.</b> No new gems from {_niceDay(_addDaysStr(today,1))} to {_niceDay(_addDaysStr(today,GEM_FREEZE_DAYS))}. Gems that would land then are lost; PP keeps counting as normal.</div>}
+    {pact&&<div data-testid="trade-pact-warn" style={{fontSize:12,padding:"10px 12px",borderRadius:10,background:"var(--t-red)",color:"var(--ink-red)",marginTop:12,lineHeight:1.5}}>
+      🚨 <b>This breaks the Power Points Pact.</b> It puts you {_fmtPP(pact.ahead)} PP ahead of {son.name}.</div>}
+    <button data-testid="trade-go" disabled={!total} onClick={doTrade} style={{width:"100%",marginTop:12,padding:"13px 0",borderRadius:12,border:"none",cursor:total?"pointer":"default",
+      background:total?"linear-gradient(135deg,#F9A825,#FF7043)":C.border,color:total?"#2B1A00":C.muted,fontWeight:900,fontSize:15}}>
+      {total?`Trade ${count} gem${count===1?"":"s"} for +${_fmtPP(total)} PP`:"Pick gems to trade"}</button>
+    {trades.length>0&&<div style={{marginTop:20}}>
+      <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>TRADE HISTORY</div>
+      {trades.map(t=><div key={t.id} data-testid="trade-hist" style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:`1px solid ${C.border}`,fontSize:12,color:C.text}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div><b>+{_fmtPP(t.pp)} PP</b> <span style={{color:C.muted}}>· {_niceDay(t.day)}{t.freeze?` · ❄️ ${t.freeze}-day freeze`:""}</span></div>
+          <div style={{color:C.muted,marginTop:2}}>{GEM_DEFS.filter(g=>t.gems[g.id]).map(g=>`${g.icon}×${t.gems[g.id]}`).join("  ")}</div>
+        </div>
+        {t.day===today&&<button data-testid="trade-undo" onClick={()=>onGemTrade(member.id,t.id,null)} style={{padding:"5px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",color:C.text,fontSize:11,fontWeight:700,cursor:"pointer"}}>Undo</button>}
+      </div>)}
+    </div>}
+  </div>;
+}
+
+function GemVaultDrawerImpl({member, logs, allMembers, onGemTrade, onClose}){
+  const earnedCounts = computeGemVault(member, logs);
+  const counts = computeGemHeld(member, logs);
+  const traded = computeGemTraded(member, logs);
+  const total = Object.values(earnedCounts).reduce((s,v)=>s+v, 0);
+  const heldTotal = Object.values(counts).reduce((s,v)=>s+v, 0);
+  const [view, setView] = useState("vault");
+  const [show, setShow] = useState(null);
+  const fzUntil = gemFreezeUntil(logs, member.id, todayStr());
   const rarityOrder = ["Legendary","Epic","Rare","Uncommon","Common"];
   const rarityIcons = {Legendary:"🌟",Epic:"🔵",Rare:"🟡",Uncommon:"⚪",Common:"🟤"};
   const byRarity = {};
@@ -5013,11 +5271,17 @@ function GemVaultDrawerImpl({member, logs, onClose}){
         </div>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{fontSize:28,fontWeight:900,color:"#F9A825"}}>{total} <span style={{fontSize:13,color:"rgba(255,255,255,0.5)",fontWeight:400}}>gems collected</span></div>
+          {heldTotal!==total&&<div data-testid="gems-held" style={{fontSize:12,color:"rgba(255,255,255,0.7)",fontWeight:700,textAlign:"right"}}>{heldTotal} in vault<br/><span style={{fontWeight:400,color:"rgba(255,255,255,0.45)"}}>{total-heldTotal} traded</span></div>}
         </div>
+        {fzUntil&&<div data-testid="vault-frozen" style={{marginTop:10,fontSize:12,fontWeight:700,color:"#BFE0FF",background:"rgba(80,160,255,0.18)",border:"1px solid rgba(140,200,255,0.35)",borderRadius:10,padding:"6px 10px"}}>❄️ Frozen: no new gems until {_niceDay(_addDaysStr(fzUntil,1))}</div>}
+        {onGemTrade&&view==="vault"&&<button data-testid="open-trade" onClick={()=>setView("trade")} style={{marginTop:12,width:"100%",padding:"10px 0",borderRadius:10,border:"none",cursor:"pointer",
+          background:"linear-gradient(135deg,#F9A825,#FF7043)",color:"#2B1A00",fontWeight:900,fontSize:14}}>💱 Trade gems for PP</button>}
       </div>
 
       {/* Drawer content */}
       <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px"}}>
+        {view==="trade"&&<GemTradePanel member={member} logs={logs} allMembers={allMembers} onGemTrade={onGemTrade} onBack={()=>setView("vault")} onShow={setShow}/>}
+        {view==="vault"&&<>
         {/* Gems by rarity */}
         {rarityOrder.map(rarity=>{
           const gems = byRarity[rarity];
@@ -5029,7 +5293,7 @@ function GemVaultDrawerImpl({member, logs, onClose}){
             <div style={{display:"flex",flexDirection:"column",gap:6}}>
               {gems.map(g=>{
                 const isEarned = g.count > 0;
-                return <div key={g.id} style={{
+                return <div key={g.id} data-testid={"vault-row-"+g.id} style={{
                   display:"flex",alignItems:"center",justifyContent:"space-between",
                   padding:"12px 14px",borderRadius:12,
                   background:isEarned?`${g.color}12`:C.bg,
@@ -5046,6 +5310,7 @@ function GemVaultDrawerImpl({member, logs, onClose}){
                   <div style={{fontSize:isEarned?22:14,fontWeight:900,
                     color:isEarned?g.color:C.muted,minWidth:44,textAlign:"right"}}>
                     {isEarned ? `×${g.count}` : "—"}
+                    {traded[g.id]>0&&<div style={{fontSize:10,fontWeight:600,color:C.muted}}>{traded[g.id]} traded</div>}
                   </div>
                 </div>;
               })}
@@ -5068,15 +5333,18 @@ function GemVaultDrawerImpl({member, logs, onClose}){
             ))}
           </div>
         </div>
+        </>}
       </div>
     </div>
+    {show&&<GemTradeShow {...show} member={member} onDone={()=>setShow(null)}/>}
   </>;
 }
 
 const GemVaultDrawer=withSlide(GemVaultDrawerImpl);
-function GemVaultCard({member, logs}){
-  const counts = computeGemVault(member, logs);
-  const total = Object.values(counts).reduce((s,v)=>s+v, 0);
+function GemVaultCard({member, logs, allMembers, onGemTrade}){
+  const total = Object.values(computeGemVault(member, logs)).reduce((s,v)=>s+v, 0);
+  const counts = computeGemHeld(member, logs);
+  const frozen = !!gemFreezeUntil(logs, member.id, todayStr());
   const [showDrawer, setShowDrawer] = useState(false);
   const prevGems=useRef(null);
   useEffect(()=>{ if(prevGems.current!==null&&total>prevGems.current) sfx("gem",350); prevGems.current=total; },[total]);
@@ -5096,7 +5364,7 @@ function GemVaultCard({member, logs}){
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div style={{flex:1}}>
           <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.5)",
-            letterSpacing:0.5,marginBottom:6}}>💎 GEM VAULT</div>
+            letterSpacing:0.5,marginBottom:6}}>💎 GEM VAULT{frozen&&<span data-testid="card-frozen" style={{marginLeft:6,color:"#9FD0FF"}}>❄️ FROZEN</span>}</div>
           <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}>
             {earned.length === 0
               ? <span style={{fontSize:12,color:"rgba(255,255,255,0.35)"}}>No gems yet — start earning!</span>
@@ -5122,7 +5390,7 @@ function GemVaultCard({member, logs}){
         </div>
       </div>
     </div>
-    {showDrawer&&<GemVaultDrawer member={member} logs={logs} onClose={()=>setShowDrawer(false)}/>}
+    {showDrawer&&<GemVaultDrawer member={member} logs={logs} allMembers={allMembers} onGemTrade={onGemTrade} onClose={()=>setShowDrawer(false)}/>}
   </>;
 }
 
@@ -5287,7 +5555,7 @@ function CountUp({value}){
   },[value]);
   return <>{shown.toLocaleString()}</>;
 }
-function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onGkUpdate,onGkDelete,onBraverySave,onBraveryDelete,onBraveryUpdate,onIllnessSave,onIllnessDelete,onOlympiadSave,onOlympiadDelete,onOlympiadUpdate,onGoldenGoalSave,onGoldenGoalDelete,onDeleteEntry,onWrapped}){
+function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBadge,year,month,theme,onOpenPP,onGrowthSave,onGkSave,onGkUpdate,onGkDelete,onBraverySave,onBraveryDelete,onBraveryUpdate,onIllnessSave,onIllnessDelete,onOlympiadSave,onOlympiadDelete,onOlympiadUpdate,onGoldenGoalSave,onGoldenGoalDelete,onGemTrade,onDeleteEntry,onWrapped}){
   const today=todayStr();
   const[showCal,setShowCal]=useState(true);
   const[showBadges,setShowBadges]=useState(false);
@@ -5465,7 +5733,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
     </div>
     <div className="mc-gem mc-w ff-in">
     {/* Gem Vault */}
-    <GemVaultCard member={member} logs={logs}/>
+    <GemVaultCard member={member} logs={logs} allMembers={allMembers} onGemTrade={onGemTrade}/>
 
     </div>
     {member.eggMeter&&<div className="mc-egg mc-w ff-in">
@@ -8297,7 +8565,7 @@ function wrappedMember(member,allMembers,logs,y,m){
   // Power Points as they stood at the end of the window
   const pp=withAsOf(E,()=>computePowerPoints(member,logs));
   let earned=0,bestDay=null;
-  for(const [d,v] of Object.entries(pp.dailyEarned||{})) if(d>=S&&d<=E){ earned+=(v||0); if(v>0&&(!bestDay||v>bestDay.pp)) bestDay={ds:d,pp:v}; }
+  for(const [d,v0] of Object.entries(pp.dailyEarned||{})) if(d>=S&&d<=E){ const v=(v0||0)-((pp.tradeByDate||{})[d]||0); earned+=v; if(v>0&&(!bestDay||v>bestDay.pp)) bestDay={ds:d,pp:v}; }
   const levels=(pp.levelHistory||[]).filter(l=>l.date>=S&&l.date<=E);
   // badges and gems: what was earned by the end of the month that wasn't earned the day before it began
   const dayBefore=_addDaysStr(S,-1);
@@ -9202,7 +9470,8 @@ function h2hMember(member,logs,period,pp){
   let ppSum=0,ppBase=0;
   const de=(pp&&pp.dailyEarned)||{};
   const bFrom=_addDaysStr(start,-90);
-  for(const [d,v] of Object.entries(de)){ if(d>=start&&d<=to) ppSum+=v||0; else if(d<start&&d>=bFrom) ppBase+=v||0; }
+  const dx=(pp&&pp.tradeByDate)||{};
+  for(const [d,v0] of Object.entries(de)){ const v=(v0||0)-(dx[d]||0); if(d>=start&&d<=to) ppSum+=v; else if(d<start&&d>=bFrom) ppBase+=v; }
   const bDays=first&&first<start?_h2hDaysBetween(first>bFrom?first:bFrom,_addDaysStr(start,-1)):0;
   const ppFair=period!=="all"&&bDays>0&&ppBase>0?(ppSum/span)/(ppBase/bDays):null;
   return {acts,active,span,streak,mins,pp:ppSum,ppFair,activeFair:span?active/span:null};
@@ -9765,7 +10034,7 @@ function cuPlan(chaser,target,logs,opts){
   const firstOf=x=>Object.keys(x.dailyEarned||{}).sort()[0]||today;
   let from=_addDaysStr(today,-28); const later=[firstOf(C),firstOf(T)].sort().pop(); if(later>from) from=later;
   const paceDays=Math.max(0,_daysBetweenStr(from,yest)+1);
-  const paceC=paceDays>0?_ppEarnedBetween(C,from,yest)/paceDays:0, paceT=paceDays>0?_ppEarnedBetween(T,from,yest)/paceDays:0;
+  const paceC=paceDays>0?_ppPaceBetween(C,from,yest)/paceDays:0, paceT=paceDays>0?_ppPaceBetween(T,from,yest)/paceDays:0;
   const m=getStreakMultiplier(memberStreakCount(chaser,logs));
   const r100=x=>Math.round(x/100)*100;
   // what each extra action is worth today, from the app's own scoring rules
@@ -10128,6 +10397,14 @@ export default function App(){
     });
   },[]);
 
+  const handleGemTrade=useCallback((mid,tid,trade)=>{
+    setLogs(prev=>{
+      const next={...prev,[mid]:{...(prev[mid]||{})}};
+      next[mid].gemTrades={...(next[mid].gemTrades||{}),[tid]:trade}; // null = undone (wins over the cloud copy)
+      return next;
+    });
+  },[]);
+
   const handleGoldenGoalDelete=useCallback((mid)=>{
     setLogs(prev=>{
       const next={...prev,[mid]:{...(prev[mid]||{})}};
@@ -10412,7 +10689,7 @@ export default function App(){
             <MemberCard member={m} logs={logs} allMembers={shown}
               onLogAll={handleLogAll} onEggChange={handleEggChange} onEdit={m=>setEditM(m)} onNewBadge={handleBadge} year={yr} month={mo} theme={theme}
               onOpenPP={(id,view)=>{setPpPanelFor(id);setPpView(v=>({view:view||"main",n:v.n+1}));}} onGrowthSave={handleGrowthSave}
-              onGkSave={handleGkSave} onGkUpdate={handleGkUpdate} onGkDelete={handleGkDelete} onBraverySave={handleBraverySave} onBraveryDelete={handleBraveryDelete} onBraveryUpdate={handleBraveryUpdate} onIllnessSave={handleIllnessSave} onIllnessDelete={handleIllnessDelete} onOlympiadSave={handleOlympiadSave} onOlympiadDelete={handleOlympiadDelete} onOlympiadUpdate={handleOlympiadUpdate} onGoldenGoalSave={handleGoldenGoalSave} onGoldenGoalDelete={handleGoldenGoalDelete} onDeleteEntry={handleDeleteEntry} onWrapped={(id,y,m)=>setWrapped({kind:"member",id,y,m})}/>
+              onGkSave={handleGkSave} onGkUpdate={handleGkUpdate} onGkDelete={handleGkDelete} onBraverySave={handleBraverySave} onBraveryDelete={handleBraveryDelete} onBraveryUpdate={handleBraveryUpdate} onIllnessSave={handleIllnessSave} onIllnessDelete={handleIllnessDelete} onOlympiadSave={handleOlympiadSave} onOlympiadDelete={handleOlympiadDelete} onOlympiadUpdate={handleOlympiadUpdate} onGoldenGoalSave={handleGoldenGoalSave} onGoldenGoalDelete={handleGoldenGoalDelete} onGemTrade={handleGemTrade} onDeleteEntry={handleDeleteEntry} onWrapped={(id,y,m)=>setWrapped({kind:"member",id,y,m})}/>
           </div>
           {ppPanelFor===m.id&&<div style={{flex:"1 1 320px",maxWidth:380,minWidth:280}}>
             <PowerPointsPanel member={m} logs={logs} view={ppView.view} viewNonce={ppView.n} onClose={()=>setPpPanelFor(null)}/>
