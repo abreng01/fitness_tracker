@@ -1027,7 +1027,11 @@ function levelTitleFor(member, l){
   const n = member && member.levelNames && member.levelNames[l.level];
   return (typeof n==="string" && n.trim()) ? n : l.title;
 }
-function namedLevel(member, l){ if(!l) return l; const t=levelTitleFor(member,l); return t===l.title ? l : {...l, title:t, origTitle:l.title}; }
+function namedLevel(member, l){
+  if(!l) return l; const t=levelTitleFor(member,l), ic=levelIconFor(member,l);
+  if(t===l.title && ic===l.icon) return l;
+  return {...l, title:t, icon:ic, ...(t!==l.title?{origTitle:l.title}:{}), ...(ic!==l.icon?{origIcon:l.icon}:{})};
+}
 function levelsOf(member){ return PP_LEVELS.map(l=>namedLevel(member,l)); }
 
 // Suggest a fresh name for a level: from the theme's tier for that level, never a name another level of this
@@ -1053,6 +1057,74 @@ function suggestLevelName(member, level, theme, extraUsed, extraSeen){
 function addSeen(seen, names){
   const out=[...(seen||[])]; for(const n of names) if(n && !out.includes(n)) out.push(n);
   return out.length>LEVEL_SEEN_CAP ? out.slice(out.length-LEVEL_SEEN_CAP) : out;
+}
+// ── Level icon themes ────────────────────────────────────────────────────────
+// Same five tiers as the names. Higher tiers lean on paired emojis (like the originals' 🌌👑) so there are
+// enough distinct icons; a shared general pool tops up any theme that runs short.
+const LEVEL_ICON_THEMES = {
+  classic:[
+    "🪵 🪨 🏹 🗡️ 🛡️ 🪓 🔨 🧭 🥾 🎒 🪃 🔦 🕯️ 🧱 ⛺ 🎯 🥊 🧗 🪢 ⚒️ 🔰 📜 🥉 🏃 🛶 🪝 🔧 🗺️ ⛏️ 🪖",
+    "⚔️ 🤺 🏇 🏰 🥈 🏅 ⚜️ 🔱 ⛓️ 🗝️ 🔑 🪙 💂 🏯 🗼 🚩 🏁 ⚓ 🎌 🎖️ 🏟️ 🛡️⚔️ 🗡️🛡️ 🏹🎯 ⚒️🔥 🪖⚔️ 🏰🚩 🔨⚡ 🥈⚔️ 🏅🛡️",
+    "🥇 🏆 🎗️ 🏛️ ⚖️ 💠 🔶 🔷 🎇 🎆 🗻 ⛰️ 🌋 🏔️ 🔥 ⚡ 🌪️ 🌊 🗿 🧿 🥇⚔️ 🏆🔥 🏛️⚡ ⚖️👑 🔥⚔️ ⚡🛡️ 🗻🚩 🌋🔥 🏔️🚩 🎖️✨",
+    "👑 🤴 🫅 💎 💍 🪄 🌞 🌟 ☀️ 🌅 🌄 🌠 🎺 👑🔥 👑⚔️ 👑🛡️ 💎👑 🏰👑 🌟👑 ☀️👑 🏆👑 ⚜️👑 🔱👑 💍✨ 💎⚔️ 🌅⚔️ 🌄👑 🦁? 🎺👑 🪄✨",
+    "🐐 ♾️ 💫 ✨ 🌈 🔮 🏟️👑 🌌 🌌👑 ♾️👑 💫👑 ✨👑 🌈👑 🔮👑 🗿👑 🐐👑 🏆✨ 🥇👑 🌟✨ ⚡👑 🔥👑 💥👑 🌋👑 🏔️👑 🗻👑 ☄️👑 🌠👑 💎✨ 🏛️👑 🎖️👑",
+  ],
+  space:[
+    "🔭 📡 🛰️ 🚀 🌑 🌒 🌓 🌔 🌕 🌖 🌗 🌘 🌙 🌚 🌛 🌜 🌝 ☄️ 🌠 ⭐ 🧑‍🚀 👨‍🚀 👩‍🚀 🌍 🌎 🌏 🪨 🔦 🧭 🌐",
+    "🪐 🛸 👽 👾 🌞 ☀️ 🌟 ✨ 💫 🌌 🚀✨ 🛰️✨ 🌕✨ 🌙✨ ☄️✨ 🔭✨ 📡✨ 🌍✨ 🪐✨ 🛸✨ 👽✨ 🧑‍🚀✨ 🌑✨ 🌒✨ 🌓✨ 🌔✨ 🌖✨ 🌗✨ 🌘✨ ⭐✨",
+    "🌌⭐ 🪐⭐ 🌞⭐ 💫⭐ 🌠⭐ ☄️⭐ 🚀⭐ 🛸⭐ 🌙⭐ 🌕⭐ 🔭⭐ 🧑‍🚀⭐ 🌍⭐ 📡⭐ 🛰️⭐ 👽⭐ 🌑⭐ 🌟⭐ ☀️⭐ 🌝⭐ 🌛⭐ 🌜⭐ 🌚⭐ 🌎⭐ 🌏⭐ 🪨⭐ 👾⭐ 🌐⭐ 🌒⭐ 🌘⭐",
+    "🌌💫 🪐💫 🌞💫 🌠💫 ☄️💫 🚀💫 🛸💫 🌙💫 🌕💫 🌟💫 ☀️💫 🌍💫 🔭💫 🧑‍🚀💫 🛰️💫 📡💫 👽💫 🌑💫 🌌🔥 🪐🔥 ☄️🔥 🚀🔥 🌞🔥 🌟🔥 ☀️🔥 🌠🔥 🌙🔥 🌕🔥 🛸🔥 💥✨",
+    "🌌👑 🪐👑 🌞👑 🌠👑 ☄️👑 🚀👑 🛸👑 🌙👑 🌕👑 🌟👑 ☀️👑 🌍👑 🔭👑 🧑‍🚀👑 🛰️👑 💫👑 ✨👑 🕳️ 🕳️✨ 🕳️👑 ♾️ ♾️✨ 🌌♾️ 🌀 🌀✨ 🌀👑 💥 💥👑 🌈🌌 🔮🌌",
+  ],
+  myth:[
+    "🧚 🧝 🧙 🧞 🧜 🪄 🏺 📜 🗝️ 🕯️ 🔮 🧿 🍄 🌿 🌳 🪶 🐚 🪨 🗿 🏹 🛡️ 🗡️ 🌒 🔥 💧 🌬️ ⚱️ 🪬 🧌 👹",
+    "🐉 🦄 🦅 🐍 🦁 🐂 🦂 🐺 🐎 🪽 🔱 ⚔️ 🏛️ ⚱️✨ 🏺✨ 🧿✨ 📜✨ 🔮✨ 🪄✨ 🐉✨ 🦄✨ 🦅✨ 🐍✨ 🦁✨ 🐂✨ 🐺✨ 🪽✨ 🧙✨ 🧞✨ 🧝✨",
+    "⚡ 🌞 🌙 🌊 🌋 🌪️ 🏛️⚡ 🔱⚡ 🐉🔥 🦅🔥 🦁🔥 🐂⚡ 🐍⚡ 🐺🌙 🪽⚡ 🏹⚡ ⚔️⚡ 🛡️⚡ 🔥⚔️ 🌊🔱 🌋🔥 🌞🔥 🌙✨ 🪶⚡ 🗿⚡ 🧙⚡ 🧞⚡ 🔮⚡ 🪄⚡ 🏺⚡",
+    "🏛️👑 🔱👑 🐉👑 🦅👑 🦁👑 🐂👑 🐍👑 🐺👑 🪽👑 ⚡👑 🌞👑 🌙👑 🌊👑 🌋👑 🌪️👑 🏔️⚡ 🌈 🌈⚡ 🌳✨ 🌳⚡ 🌳👑 🪐⚡ 🌠⚡ ☄️⚡ 💫⚡ ✨⚡ 🔥👑 🌊⚡ 🏹👑 ⚔️👑",
+    "♾️ 🌌 🌌⚡ 🌌👑 ♾️⚡ ♾️👑 🌀 🌀⚡ 🌀👑 💥 💥⚡ 🔨⚡ 🔱🌊 🏹🔥 🗡️⚡ 🛡️👑 🌳🌌 🐉🌌 🦅🌌 🔮🌌 🏛️🌌 🌞🌌 🌋🌌 💎⚡ 💎👑 🌈👑 🪽👑✨ 🐉👑✨ ⚡⚡ 🔥🔥",
+  ],
+  ninja:[
+    "🥋 🤸 🧘 🎋 🎍 🍃 🌿 🎐 🪷 🍵 🍙 🏮 📜 🪭 🌫️ 💨 🌑 🌒 🪵 🪨 🎎 ⛩️? 🗾 🎏 🀄 🎴 🥢 🎑 🪁 🌸",
+    "🥷 ⚔️ 🗡️ 🔪 🏯 🌙 🌘 🌗 ⭐ 💫 🌸✨ 🥋✨ 🥷✨ 🗡️✨ 🏯✨ 🌙✨ 🎋✨ 🍃✨ 🏮✨ 📜✨ 🪭✨ 🌫️✨ 💨✨ 🎐✨ 🪷✨ 🥢✨ 🎴✨ 🗾✨ 🌑✨ 🌒✨",
+    "🥷⚡ ⚔️⚡ 🗡️⚡ 🏯⚡ 🌙⚡ 🌑⚡ 🌫️⚡ 💨⚡ 🍃⚡ 🌸⚡ 🔥 ⚡ 🌪️ 🌊 🥷🔥 ⚔️🔥 🗡️🔥 🏯🔥 🌙🔥 🍃🔥 🌸🔥 🏮🔥 📜🔥 🪭🔥 🥋🔥 🥋⚡ 🌑🔥 🌫️🔥 💨🔥 🪷⚡",
+    "🥷👑 ⚔️👑 🗡️👑 🏯👑 🌙👑 🌑👑 🌫️👑 💨👑 🍃👑 🌸👑 🏮👑 📜👑 🪭👑 🥋👑 🗾👑 🌪️👑 🌊👑 🔥👑 ⚡👑 🗻 🗻⚡ 🗻👑 🗻✨ 🌋 🌋⚡ 🌋👑 🐉 🐉⚡ 🐉👑 🐉🔥",
+    "🌩️ 🌩️👑 🌪️⚡ 🌊⚡ 🌑🌙 🥷🌑 🥷🌌 ⚔️🌌 🗡️🌌 🏯🌌 🌌 🌌👑 ♾️ ♾️👑 🌀 🌀👑 💥 💥👑 🌋🔥 🗻🔥 🐉🌌 🥷💫 ⚔️💫 🌙💫 🌸🌌 🍃🌌 💨🌌 🌫️🌌 🔥🔥 ⚡⚡",
+  ],
+};
+const LEVEL_ICON_GENERAL = "⭐ 🌟 ✨ 💫 ⚡ 🔥 💥 🌈 🌀 ☄️ 🌙 ☀️ 🌊 🌋 🏔️ ⛰️ 🗻 🌲 🌳 🍀 🌸 🌻 🍁 ❄️ 💧 🌪️ 🎯 🎲 🏹 🎖️ 🏅 🥇 🥈 🥉 🏆 🎗️ 🎨 🎼 🥁 🎺 🚀 🛸 🛰️ ⛵ 🏎️ 🛹 🏂 🪂 🏄 🧗 🚴 🤸 🏋️ 🤺 🏇 💎 💍 👑 🔮 🪄 🧿 🗝️ 🔑 🛡️ ⚔️ 🗡️ 🏰 🏯 🗼 🏛️ ⚖️ 🧲 🔭 ⚗️ 🧪 🧬 💡 🔦 🕯️ 📜 📯 🔔 🎁 🎉 🧩 ♟️ 🪐 🌍 🌌 ♾️ 🧭 ⏳ ⚓ 🪶 🧱 🔱 ⚜️ 💠 🔶 🔷 🟣 🟠 🟡 🟢 🔵 🔴".split(" ");
+const LEVEL_ICON_POOLS = Object.fromEntries(Object.entries(LEVEL_ICON_THEMES).map(([id,tiers])=>[id, tiers.map(t=>t.split(" ").filter(x=>x&&!x.includes("?")))]));
+const LEVEL_ICON_MAX = 16;
+
+function levelIconFor(member, l){
+  const n = member && member.levelIcons && member.levelIcons[l.level];
+  return (typeof n==="string" && n.trim()) ? n : l.icon;
+}
+// First one or two emoji graphemes of typed text, or "" if it holds no emoji
+function cleanEmoji(text){
+  const t=String(text||"").trim(); if(!t) return "";
+  let parts;
+  try{ parts=[...new Intl.Segmenter(undefined,{granularity:"grapheme"}).segment(t)].map(x=>x.segment); }catch{ parts=Array.from(t); }
+  parts=parts.filter(g=>/\p{Extended_Pictographic}|\p{Regional_Indicator}/u.test(g)).slice(0,2);
+  return parts.join("").slice(0,LEVEL_ICON_MAX);
+}
+// Suggest a fresh icon: theme tier first, then neighbouring tiers, then the general pool; never one another level
+// of this member shows, never one they've been shown already (until the pools run out).
+function suggestLevelIcon(member, level, theme, extraUsed, extraSeen){
+  const pools = LEVEL_ICON_POOLS[theme] || LEVEL_ICON_POOLS.classic;
+  const used = new Set();
+  for(const l of PP_LEVELS) if(l.level!==level) used.add(levelIconFor(member,l));
+  for(const x of (extraUsed||[])) used.add(x);
+  const cur = levelIconFor(member, PP_LEVELS[level-1]||{level,icon:""});
+  const seen = new Set([...(member.iconSeen||[]), ...(extraSeen||[])]);
+  const t = levelNameTier(level);
+  const lists = [t, t+1, t-1, t+2, t-2].filter(x=>x>=0&&x<=4).map(i=>pools[i]).concat([LEVEL_ICON_GENERAL]);
+  for(const pass of [0,1]){
+    for(const list of lists){
+      const c = list.filter(n=>!used.has(n) && n!==cur && (pass===1 || !seen.has(n)));
+      if(c.length) return c[Math.floor(Math.random()*c.length)];
+    }
+  }
+  return null;
 }
 
 function getStreakMultiplier(streak){
@@ -3772,7 +3844,8 @@ function LevelPathStrip({total, color, onOpen, member}){
 function LevelNameBar({member, onPatchMember}){
   const theme = LEVEL_THEMES[member.levelTheme] ? member.levelTheme : "classic";
   const custom = Object.values(member.levelNames||{}).filter(v=>typeof v==="string"&&v.trim()).length;
-  const [confirm, setConfirm] = useState(null); // "all" | "reset"
+  const customIcons = Object.values(member.levelIcons||{}).filter(v=>typeof v==="string"&&v.trim()).length;
+  const [confirm, setConfirm] = useState(null); // "all" | "icons" | "reset" | "resetIcons"
   useEffect(()=>{ if(!confirm) return; const t=setTimeout(()=>setConfirm(null),4000); return ()=>clearTimeout(t); },[confirm]);
   const renameAll = ()=>{
     // placeholders stand in for not-yet-named levels so the original titles don't block the theme's names
@@ -3785,10 +3858,21 @@ function LevelNameBar({member, onPatchMember}){
     onPatchMember(member.id,{levelNames:names, levelSeen:addSeen(member.levelSeen, shown)});
     setConfirm(null);
   };
+  const reiconAll = ()=>{
+    const ph={}; for(const l of PP_LEVELS) ph[l.level]="\u0000"+l.level;
+    const icons={}, shown=[]; let tmp={...member, levelIcons:ph};
+    for(const l of PP_LEVELS){
+      const n = suggestLevelIcon(tmp, l.level, theme, Object.values(icons), shown) || l.icon;
+      icons[l.level]=n; shown.push(n); tmp={...tmp, levelIcons:{...ph,...icons}};
+    }
+    onPatchMember(member.id,{levelIcons:icons, iconSeen:addSeen(member.iconSeen, shown)});
+    setConfirm(null);
+  };
+  const two = (key, fn) => ()=>{ if(confirm===key) fn(); else setConfirm(key); };
   const chip = on => ({padding:"5px 10px",borderRadius:99,border:`1.5px solid ${on?"#F9A825":C.border}`,background:on?"var(--t-yellow)":C.surface,
     color:on?"var(--ink-orange)":C.text,fontWeight:on?800:600,fontSize:12,cursor:"pointer",whiteSpace:"nowrap"});
   return <div data-testid="lvname-bar" style={{padding:"10px 12px 8px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
-    <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:6}}>NAME THEME · {member.name.toUpperCase()}'S LEVELS</div>
+    <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:6}}>NAME & ICON THEME · {member.name.toUpperCase()}'S LEVELS</div>
     <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
       {LEVEL_THEME_IDS.map(id=><button key={id} data-testid={"lvtheme-"+id} onClick={()=>onPatchMember(member.id,{levelTheme:id})} style={chip(id===theme)}>{LEVEL_THEMES[id].icon} {LEVEL_THEMES[id].label}</button>)}
     </div>
@@ -3796,9 +3880,16 @@ function LevelNameBar({member, onPatchMember}){
       <button data-testid="lvname-all" onClick={()=>confirm==="all"?renameAll():setConfirm("all")} style={{padding:"6px 12px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:800,fontSize:12,
         background:confirm==="all"?"#E65100":"linear-gradient(135deg,#F9A825,#FF7043)",color:confirm==="all"?"#fff":"#2B1A00"}}>
         {confirm==="all"?`Tap again to rename all ${PP_LEVELS.length}`:`🎲 Rename all (${LEVEL_THEMES[theme].label})`}</button>
-      {custom>0&&<button data-testid="lvname-reset" onClick={()=>{ if(confirm==="reset"){ onPatchMember(member.id,{levelNames:{}}); setConfirm(null); } else setConfirm("reset"); }} style={{padding:"6px 10px",borderRadius:8,border:`1.5px solid ${confirm==="reset"?"#C62828":C.border}`,background:C.surface,color:confirm==="reset"?"#C62828":C.muted,fontWeight:700,fontSize:12,cursor:"pointer"}}>
-        {confirm==="reset"?"Tap again to restore all":"↺ Restore originals"}</button>}
-      <span style={{fontSize:11,color:C.muted,marginLeft:"auto"}}>{custom?`${custom} renamed`:"Tap ✏️ on any level"}</span>
+      <button data-testid="lvicon-all" onClick={two("icons",reiconAll)} style={{padding:"6px 12px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:800,fontSize:12,
+        background:confirm==="icons"?"#6A1B9A":"linear-gradient(135deg,#AB47BC,#5C6BC0)",color:"#fff"}}>
+        {confirm==="icons"?`Tap again for ${PP_LEVELS.length} new icons`:`🎨 New icons for all`}</button>
+    </div>
+    <div style={{display:"flex",gap:6,marginTop:6,alignItems:"center",flexWrap:"wrap"}}>
+      {custom>0&&<button data-testid="lvname-reset" onClick={two("reset",()=>{ onPatchMember(member.id,{levelNames:{}}); setConfirm(null); })} style={{padding:"5px 10px",borderRadius:8,border:`1.5px solid ${confirm==="reset"?"#C62828":C.border}`,background:C.surface,color:confirm==="reset"?"#C62828":C.muted,fontWeight:700,fontSize:11,cursor:"pointer"}}>
+        {confirm==="reset"?"Tap again to restore names":"↺ Original names"}</button>}
+      {customIcons>0&&<button data-testid="lvicon-reset" onClick={two("resetIcons",()=>{ onPatchMember(member.id,{levelIcons:{}}); setConfirm(null); })} style={{padding:"5px 10px",borderRadius:8,border:`1.5px solid ${confirm==="resetIcons"?"#C62828":C.border}`,background:C.surface,color:confirm==="resetIcons"?"#C62828":C.muted,fontWeight:700,fontSize:11,cursor:"pointer"}}>
+        {confirm==="resetIcons"?"Tap again to restore icons":"↺ Original icons"}</button>}
+      <span style={{fontSize:11,color:C.muted,marginLeft:"auto"}}>{custom||customIcons?[custom&&`${custom} renamed`,customIcons&&`${customIcons} new icons`].filter(Boolean).join(" · "):"Tap ✏️ to rename · tap an icon to change it"}</span>
     </div>
   </div>;
 }
@@ -3841,8 +3932,51 @@ function LevelNameEditor({member, l: shownLevel, onPatchMember, onDone}){
   </div>;
 }
 
+// Inline editor for one level's icon: 🎲 suggests, tap one from the grid or paste any emoji, ✓ keeps
+function LevelIconEditor({member, l: shownLevel, onPatchMember, onDone}){
+  const l = PP_LEVELS[shownLevel.level-1];
+  const theme = LEVEL_THEMES[member.levelTheme] ? member.levelTheme : "classic";
+  const [val, setVal] = useState(()=>levelIconFor(member,l));
+  const [typed, setTyped] = useState("");
+  const [shown, setShown] = useState([]);
+  const roll = ()=>{ const n=suggestLevelIcon(member, l.level, theme, [], shown); if(n){ setVal(n); setShown(x=>[...x,n]); } };
+  useEffect(()=>{ roll(); },[]);
+  const usedBy = ic => PP_LEVELS.find(o=>o.level!==l.level && levelIconFor(member,o)===ic);
+  const clashL = val && val!==l.icon ? usedBy(val) : null;
+  const grid = useMemo(()=>{
+    const pools=LEVEL_ICON_POOLS[theme]||LEVEL_ICON_POOLS.classic, t=levelNameTier(l.level);
+    const out=[]; for(const ic of [...pools[t], ...(pools[t+1]||[]), ...(pools[t-1]||[])]) if(!out.includes(ic) && !usedBy(ic)) out.push(ic);
+    return out.slice(0,30);
+  },[theme, member.levelIcons]);
+  const save = ()=>{
+    if(!val||clashL) return;
+    const icons={...(member.levelIcons||{})};
+    if(val===l.icon) delete icons[l.level]; else icons[l.level]=val;
+    onPatchMember(member.id,{levelIcons:icons, iconSeen:addSeen(member.iconSeen, shown)}); onDone();
+  };
+  const restore = ()=>{ const icons={...(member.levelIcons||{})}; delete icons[l.level]; onPatchMember(member.id,{levelIcons:icons, iconSeen:addSeen(member.iconSeen, shown)}); onDone(); };
+  const btn = {height:30,minWidth:30,borderRadius:8,border:`1.5px solid ${C.border}`,background:C.surface,color:C.text,fontSize:14,fontWeight:800,cursor:"pointer",padding:"0 8px"};
+  return <div data-testid="lvicon-editor" onClick={e=>e.stopPropagation()} style={{marginTop:6,marginLeft:30,display:"flex",flexDirection:"column",gap:6}}>
+    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+      <div data-testid="lvicon-preview" style={{minWidth:48,height:36,borderRadius:10,border:`1.5px solid ${clashL?"#C62828":"#AB47BC"}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,background:C.bg,padding:"0 6px"}}>{val}</div>
+      <button data-testid="lvicon-roll" title="New icon" onClick={roll} style={btn}>🎲</button>
+      <input data-testid="lvicon-input" value={typed} placeholder="or paste an emoji" onChange={e=>{ setTyped(e.target.value); const c=cleanEmoji(e.target.value); if(c) setVal(c); }}
+        style={{flex:1,minWidth:0,height:30,borderRadius:8,border:`1.5px solid ${C.border}`,padding:"0 8px",fontSize:13,background:C.bg,color:C.text}}/>
+      <button data-testid="lvicon-save" title="Keep" disabled={!val||!!clashL} onClick={save} style={{...btn,background:"#2E7D32",borderColor:"#2E7D32",color:"#fff",opacity:!val||clashL?0.4:1}}>✓</button>
+      <button title="Cancel" onClick={onDone} style={btn}>✕</button>
+    </div>
+    <div data-testid="lvicon-grid" style={{display:"flex",flexWrap:"wrap",gap:4}}>
+      {grid.map(ic=><button key={ic} onClick={()=>{ setVal(ic); setShown(x=>x.includes(ic)?x:[...x,ic]); }} style={{minWidth:34,height:32,borderRadius:8,border:`1.5px solid ${ic===val?"#AB47BC":C.border}`,background:ic===val?"var(--t-purple, rgba(171,71,188,.12))":C.surface,fontSize:16,cursor:"pointer",padding:"0 4px"}}>{ic}</button>)}
+    </div>
+    <div style={{display:"flex",gap:8,alignItems:"center",fontSize:11,color:clashL?"#C62828":C.muted}}>
+      {clashL?<span>Level {clashL.level} already uses this icon</span>:<span>{LEVEL_THEMES[theme].icon} {LEVEL_THEMES[theme].label} icons · original: {l.icon}</span>}
+      {levelIconFor(member,l)!==l.icon&&<button data-testid="lvicon-restore" onClick={restore} style={{marginLeft:"auto",background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:11,fontWeight:700,textDecoration:"underline"}}>↺ Use original</button>}
+    </div>
+  </div>;
+}
+
 function LevelsList({total, level, nextLevel, completeLevelDates, member, onPatchMember}){
-  const [editing, setEditing] = useState(null);
+  const [editing, setEditing] = useState(null); // {level, kind:"name"|"icon"}
   const groups = [];
   for(const l of levelsOf(member)){
     const g = l.level<10 ? 0 : Math.min(9, Math.floor(l.level/10));
@@ -3884,14 +4018,16 @@ function LevelsList({total, level, nextLevel, completeLevelDates, member, onPatc
             const isCur = l.level===level.level, isEarned = total>=l.pp, isNext = nextLevel&&l.level===nextLevel.level;
             const dateStr = completeLevelDates[l.level];
             const dateLabel = dateStr ? new Date(dateStr+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"}) : null;
-            const isEd = editing===l.level;
+            const isEd = !!editing && editing.level===l.level;
             return <div key={l.level} data-testid={"lvrow-"+l.level} ref={isCur?curRef:null} style={{padding:"7px 10px",
               background:isCur?"#1a1a2e":"transparent",borderRadius:8,marginBottom:3,
               opacity:isEarned||isNext||isEd?1:0.35,
               border:`1px solid ${isCur?"#FFD700":isNext?"#F9A825":"transparent"}`}}>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <span style={{fontSize:10,fontWeight:700,color:isCur?"#FFD700":C.muted,minWidth:22,textAlign:"right"}}>{l.level}</span>
-                <span style={{fontSize:14,minWidth:22}}>{l.icon}</span>
+                {onPatchMember&&member
+                  ? <button data-testid={"lviconbtn-"+l.level} title="Change this level's icon" onClick={()=>setEditing({level:l.level,kind:"icon"})} style={{fontSize:14,minWidth:22,background:"none",border:"none",padding:0,cursor:"pointer",lineHeight:1.2}}>{l.icon}</button>
+                  : <span style={{fontSize:14,minWidth:22}}>{l.icon}</span>}
                 <span style={{flex:1,fontSize:12,fontWeight:isCur||isNext?700:500,color:isCur?"#FFD700":C.text}}>
                   {l.title}
                   {l.origTitle&&<span title={"Originally "+l.origTitle} style={{marginLeft:5,fontSize:9,color:isCur?"rgba(255,255,255,0.45)":C.muted}}>({l.origTitle})</span>}
@@ -3902,9 +4038,10 @@ function LevelsList({total, level, nextLevel, completeLevelDates, member, onPatc
                   {l.pp.toLocaleString()} PP
                   {isEarned&&dateLabel&&<span style={{display:"block"}}>{dateLabel}</span>}
                 </span>
-                {onPatchMember&&member&&!isEd&&<button data-testid={"lvedit-"+l.level} title="Rename this level" onClick={()=>setEditing(l.level)} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,padding:"2px 4px",opacity:0.75}}>✏️</button>}
+                {onPatchMember&&member&&!isEd&&<button data-testid={"lvedit-"+l.level} title="Rename this level" onClick={()=>setEditing({level:l.level,kind:"name"})} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,padding:"2px 4px",opacity:0.75}}>✏️</button>}
               </div>
-              {isEd&&<LevelNameEditor member={member} l={l} onPatchMember={onPatchMember} onDone={()=>setEditing(null)}/>}
+              {isEd&&editing.kind==="name"&&<LevelNameEditor member={member} l={l} onPatchMember={onPatchMember} onDone={()=>setEditing(null)}/>}
+              {isEd&&editing.kind==="icon"&&<LevelIconEditor member={member} l={l} onPatchMember={onPatchMember} onDone={()=>setEditing(null)}/>}
               {isNext&&<div style={{marginTop:6,marginLeft:30}}>
                 <div style={{background:C.bg,borderRadius:99,height:5,overflow:"hidden",border:`1px solid ${C.border}`}}>
                   <div style={{height:"100%",width:`${nextPct}%`,background:"linear-gradient(90deg,#FFD700,#FFA500)"}}/>
@@ -6385,7 +6522,7 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
       <div style={{display:"flex",gap:8}}>
         {!isNew&&<button onClick={()=>{if(window.confirm("Remove?"))onDelete(member.id);}} style={{padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",cursor:"pointer",color:C.missed,fontWeight:600}}>Delete</button>}
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>{setGapVisibleOnDevice(gapOnThisDevice);onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,illnessEnabled,stackPoints,chaseTarget,...(pin?{pin}:{}),...(photo?{photo}:{}),...(member?.memberLook?{memberLook:member.memberLook}:{}),...(member?.memberLookAcc?{memberLookAcc:member.memberLookAcc}:{}),...(member?.memberCustom?{memberCustom:member.memberCustom}:{}),...(member?.agreement?{agreement:member.agreement}:{}),...(member?.levelNames?{levelNames:member.levelNames}:{}),...(member?.levelTheme?{levelTheme:member.levelTheme}:{}),...(member?.levelSeen?{levelSeen:member.levelSeen}:{})});}} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
+        <button onClick={()=>{setGapVisibleOnDevice(gapOnThisDevice);onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,illnessEnabled,stackPoints,chaseTarget,...(pin?{pin}:{}),...(photo?{photo}:{}),...(member?.memberLook?{memberLook:member.memberLook}:{}),...(member?.memberLookAcc?{memberLookAcc:member.memberLookAcc}:{}),...(member?.memberCustom?{memberCustom:member.memberCustom}:{}),...(member?.agreement?{agreement:member.agreement}:{}),...(member?.levelNames?{levelNames:member.levelNames}:{}),...(member?.levelTheme?{levelTheme:member.levelTheme}:{}),...(member?.levelSeen?{levelSeen:member.levelSeen}:{}),...(member?.levelIcons?{levelIcons:member.levelIcons}:{}),...(member?.iconSeen?{iconSeen:member.iconSeen}:{})});}} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
       </div>
     </div>
   </div>;
