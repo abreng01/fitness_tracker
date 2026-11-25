@@ -482,6 +482,13 @@ function getHistoricalTarget(logEntry, activityId, currentTarget, logs, memberId
   return currentTarget;
 }
 
+// Egg PP: 1000 per egg, doubled on the member's mystery bonus day
+const EGG_PP=1000;
+function eggPPFor(memberId, dateStr, count){ return (count||0)*EGG_PP*(isMysteryBonusDay(memberId, dateStr)?2:1); }
+function eggPPTotal(logs, memberId, prefix){
+  let t=0; for(const [d,c] of Object.entries(getEggLogs(logs,memberId))) if(!prefix||d.startsWith(prefix)) t+=eggPPFor(memberId,d,c);
+  return t;
+}
 function getEggLogs(logs, memberId){
   const raw=(logs[memberId] && logs[memberId].eggs) || {};
   // A day whose eggs were all removed is stored as 0 (so the removal survives the cloud merge); hide those.
@@ -1353,11 +1360,12 @@ function computePowerPoints(member, logs){
     // Add egg PP for this date inside the loop so levelHistory sees it correctly
     const eggsThisDay = eggLogDates[dateStr] || 0;
     if(eggsThisDay > 0){
-      const eggPP = eggsThisDay * 1000;
+      const eggPP = eggPPFor(member.id, dateStr, eggsThisDay);
       totalPP += eggPP;
       breakdown.eggBonus += eggPP;
       if(!dailyTags[dateStr]) dailyTags[dateStr]=[];
       dailyTags[dateStr].push("egg");
+      if(eggPP > eggsThisDay*EGG_PP && !dailyTags[dateStr].includes("mystery")) dailyTags[dateStr].push("mystery");
     }
 
     // Add GK (verbal quiz) PP for this date inside the loop, same pattern as eggs
@@ -3830,7 +3838,7 @@ function PowerPointsPanel({member, logs, onClose, view="main", viewNonce=0}){
   const eggLogsForDates = getEggLogs(logs, member.id);
   const allDailyPP = {...dailyEarned};
   for(const [d, count] of Object.entries(eggLogsForDates)){
-    allDailyPP[d] = (allDailyPP[d]||0) + (count||0)*1000;
+    allDailyPP[d] = (allDailyPP[d]||0) + eggPPFor(member.id, d, count);
   }
   const sortedDailyDates = Object.keys(allDailyPP).sort();
   let running = 100;
@@ -4229,7 +4237,7 @@ function EggHistoryDrawerImpl({member, logs, onEggChange, onClose}){
           borderRadius:12,padding:"14px 16px",marginBottom:16,textAlign:"center"}}>
           <div style={{fontSize:10,fontWeight:700,color:"var(--ink-blue)",letterSpacing:0.5,marginBottom:2}}>MONTHLY TOTAL</div>
           <div style={{fontSize:24,fontWeight:900,color:"var(--ink-blue)"}}>{monthTotal % 1 === 0 ? monthTotal : monthTotal.toFixed(1)} <span style={{fontSize:14}}>🥚</span></div>
-          <div style={{fontSize:11,color:"var(--ink-blue)"}}>+{(monthTotal*1000).toLocaleString()} ⚡ this month</div>
+          <div style={{fontSize:11,color:"var(--ink-blue)"}}>+{eggPPTotal(logs, member.id, monthPrefix).toLocaleString()} ⚡ this month</div>
         </div>
 
         {/* Inline editor for selected date */}
@@ -4289,7 +4297,7 @@ function EggHistoryDrawerImpl({member, logs, onEggChange, onClose}){
               transition:"background 0.1s",
             }}>
               <span style={{fontSize:10,fontWeight:600,color:(count>0||isSelected)?"#fff":C.muted}}>{d}</span>
-              {count>0&&<span style={{fontSize:9,color:"#fff"}}>🥚{count===0.5?"½":count>1?count:""}</span>}
+              {count>0&&<span style={{fontSize:9,color:"#fff"}}>🥚{count===0.5?"½":count>1?count:""}{isMysteryBonusDay(member.id,dateStr)?"🎁":""}</span>}
             </div>;
           })}
         </div>
@@ -4332,7 +4340,8 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
     },100);
   }
 
-  const ppLabel = totalCount % 1 === 0 ? `+${(totalCount*1000).toLocaleString()} ⚡ total` : `+${(totalCount*1000).toLocaleString()} ⚡ total`;
+  const ppLabel = `+${eggPPTotal(logs, member.id).toLocaleString()} ⚡ total`;
+  const mystToday = isMysteryBonusDay(member.id, today);
 
   return <>
   <div style={{
@@ -4365,13 +4374,13 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
       <span style={{fontSize:24,display:"inline-block",animation:"henBounce 0.7s ease-in-out"}}>🐔</span>
       <span style={{fontSize:16,display:"inline-block",animation:"eggDrop 0.9s 0.3s ease-out both",marginTop:-4}}>🥚</span>
       <span style={{position:"absolute",top:0,right:-6,fontSize:12,fontWeight:800,color:"#F9A825",
-        whiteSpace:"nowrap",animation:"ppFloat 1.2s 0.2s ease-out both"}}>+1,000 ⚡</span>
+        whiteSpace:"nowrap",animation:"ppFloat 1.2s 0.2s ease-out both"}}>{mystToday?"+2,000 ⚡ 🎁 2×":"+1,000 ⚡"}</span>
     </div>}
     {celebrateHalf&&<div style={{position:"absolute",top:6,right:16,display:"flex",flexDirection:"column",alignItems:"center",pointerEvents:"none",zIndex:5}}>
       <span style={{fontSize:20,display:"inline-block",animation:"henBounce 0.7s ease-in-out"}}>🐔</span>
       <span style={{fontSize:13,display:"inline-block",animation:"eggDrop 0.9s 0.3s ease-out both",marginTop:-4}}>🥚½</span>
       <span style={{position:"absolute",top:0,right:-6,fontSize:12,fontWeight:800,color:"#F9A825",
-        whiteSpace:"nowrap",animation:"ppFloat 1.2s 0.2s ease-out both"}}>+500 ⚡</span>
+        whiteSpace:"nowrap",animation:"ppFloat 1.2s 0.2s ease-out both"}}>{mystToday?"+1,000 ⚡ 🎁 2×":"+500 ⚡"}</span>
     </div>}
     <div>
       <div style={{fontSize:11,fontWeight:700,color:"var(--ink-blue)",letterSpacing:0.5,marginBottom:2}}>🥚 EGG-O-METER</div>
@@ -4379,7 +4388,7 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
         <Pop v={totalCount} style={{fontSize:20,fontWeight:900,color:"var(--ink-blue)"}}>{totalCount % 1 === 0 ? totalCount : totalCount.toFixed(1)}</Pop>
         <span style={{fontSize:11,color:"var(--ink-blue)"}}>eggs · {ppLabel}</span>
       </div>
-      {todayCount>0&&<div style={{fontSize:11,color:"var(--ink-blue)",marginTop:2}}>{todayCount % 1 === 0 ? todayCount : todayCount.toFixed(1)} today</div>}
+      {todayCount>0&&<div data-testid="egg-today" style={{fontSize:11,color:"var(--ink-blue)",marginTop:2}}>{todayCount % 1 === 0 ? todayCount : todayCount.toFixed(1)} today{mystToday&&<b> · 🎁 2× Mystery day: +{eggPPFor(member.id,today,todayCount).toLocaleString()} ⚡</b>}</div>}
     </div>
     <div style={{display:"flex",alignItems:"center",gap:8}}>
       <button onClick={()=>setShowHistory(true)} style={{
@@ -6087,7 +6096,7 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
           </div>
           <div>
             <div style={{fontSize:13,fontWeight:600,color:eggMeter?"#F57F17":C.text}}>🥚 Egg-O-Meter</div>
-            <div style={{fontSize:11,color:C.muted}}>Each egg logged adds +1000 Power Points</div>
+            <div style={{fontSize:11,color:C.muted}}>Each egg logged adds +1000 Power Points (2× on your mystery bonus day)</div>
           </div>
         </div>
       </div>
