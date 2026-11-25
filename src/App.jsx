@@ -973,15 +973,88 @@ const PP_LEVELS = [
   {level:100, pp:3500000,title:"Immortal",     icon:"🌌👑"},
 ];
 
-function getLevel(pp){
+// Pass the member to get their custom level names (see Level name themes below)
+function getLevel(pp, member){
   let current = PP_LEVELS[0];
   for(const l of PP_LEVELS){ if(pp >= l.pp) current = l; else break; }
-  return current;
+  return member ? namedLevel(member, current) : current;
 }
-function getNextLevel(pp){
-  for(const l of PP_LEVELS){ if(pp < l.pp) return l; }
+function getNextLevel(pp, member){
+  for(const l of PP_LEVELS){ if(pp < l.pp) return member ? namedLevel(member, l) : l; }
   return null; // already at max
 }
+// ── Level name themes ────────────────────────────────────────────────────────
+// Five tiers per theme (levels 1–20, 21–40, 41–60, 61–80, 81–100) so names get grander as levels climb.
+// Names are solid nouns, titles, heroes and legends — no filler adjectives. Major deities that families worship
+// today are left out on purpose; anyone can still type their own name for a level.
+const LEVEL_THEMES = {
+  classic:{label:"Classic", icon:"⚔️", tiers:[
+    "Recruit|Novice|Trainee|Squire|Page|Apprentice|Footman|Archer|Slinger|Spearman|Watchman|Lookout|Runner|Pathfinder|Tracker|Rider|Herald|Courier|Striker|Grappler|Duelist|Yeoman|Bowman|Sentry|Bannerman|Torchbearer|Swordhand|Shieldbearer|Skirmisher|Hunter|Trapper|Forager|Militiaman|Drummer|Outrider|Rookie|Cadet|Scout|Brawler|Fighter",
+    "Soldier|Corporal|Sergeant|Legionary|Hoplite|Centurion|Knight|Paladin|Templar|Crusader|Lancer|Cavalier|Dragoon|Hussar|Musketeer|Grenadier|Marksman|Sharpshooter|Commando|Vanguard|Sentinel|Guardian|Protector|Defender|Enforcer|Raider|Marauder|Berserker|Viking|Spartan|Huscarl|Myrmidon|Praetorian|Ironclad|Trooper|Warden|Warrior|Gladiator|Ranger|Avenger",
+    "Lieutenant|Captain|Major|Colonel|Commander|Champion|Conqueror|Vanquisher|Warmaster|Warlord|Warchief|Chieftain|Baron|Viscount|Earl|Marquis|Duke|Archduke|Prince|Regent|Governor|Consul|Tribune|Legate|General|Marshal|Admiral|Commodore|Brigadier|Strategist|Tactician|Battlemaster|Swordmaster|Blademaster|Castellan|Constable|Seneschal|Viceroy|Lord Commander|Knight Commander",
+    "Monarch|Sovereign|Emperor|Kaiser|Tsar|Sultan|Shah|Pharaoh|Maharaja|Samrat|Chakravarti|Caesar|Imperator|Overlord|High King|Highlord|Lord Protector|Grand Marshal|Field Marshal|Supreme Commander|Grand Admiral|Grand Duke|Archon|Hegemon|Khan|Great Khan|Doge|Lionheart|Kingmaker|Ironheart|Battlelord|Conqueror King|Battle King|Iron Emperor|High Commander|Chief of Chiefs|Lord of War|Crown Prince|Emperor-General|King of the Hill",
+    "Legend|Myth|Icon|Immortal|Titan|Colossus|Juggernaut|Leviathan|Behemoth|Paragon|Exemplar|Grandmaster|Ascendant|Apex|Pinnacle|Zenith|Demigod|Olympian|Hall of Famer|The GOAT|Worldbreaker|Stormbringer|Lightbringer|Dawnbringer|Oathkeeper|Grand Champion|World Champion|Mythmaker|Legendmaker|King of Kings|Lord of Legends|Champion of Ages|Conqueror of Worlds|Champion of Champions|Hall of Legends|Crownbearer|Thronekeeper|Legend of Legends|Hero of Ages|Master of All",
+  ]},
+  space:{label:"Space", icon:"🚀", tiers:[
+    "Stargazer|Skywatcher|Spotter|Observer|Comet|Meteor|Meteorite|Asteroid|Moonlet|Satellite|Sputnik|Rocket|Booster|Capsule|Lander|Rover|Probe|Glider|Shuttle|Payload|Orbiter|Photon|Proton|Neutron|Electron|Quark|Mercury|Luna|Phobos|Deimos|Ceres|Vesta|Pallas|Halley|Vostok|Gemini|Aryabhata|Rohini|Chandrayaan|Mangalyaan|Launchpad|Countdown",
+    "Pilot|Navigator|Astronaut|Cosmonaut|Gaganaut|Spacewalker|Voyager|Pioneer|Explorer|Mariner|Discovery|Endeavour|Columbia|Atlantis|Challenger|Odyssey|Cassini|Galileo|Kepler|Hubble|Juno|Rosetta|Perseverance|Curiosity|Ingenuity|Venus|Mars|Europa|Ganymede|Callisto|Enceladus|Triton|Charon|Pluto|Starship|Falcon|Orion|Artemis|Gaganyaan|Aditya-L1",
+    "Star Captain|Star Commander|Mission Commander|Station Chief|Moonwalker|Starfarer|Starfighter|Starhawk|Star Ranger|Sunrunner|Saturn|Jupiter|Neptune|Sirius|Vega|Rigel|Altair|Deneb|Polaris|Arcturus|Aldebaran|Antares|Betelgeuse|Canopus|Capella|Procyon|Spica|Regulus|Pollux|Castor|Fomalhaut|Achernar|Bellatrix|Mira|Pulsar|Quasar|Magnetar|Nova|Titan Station|Lunar Base",
+    "Supernova|Hypernova|Nebula|Galaxy|Milky Way|Andromeda|Triangulum|Sombrero|Whirlpool|Pinwheel|Crab Nebula|Eagle Nebula|Horsehead|Pillars of Creation|Constellation|Starforge|Star Admiral|Fleet Admiral|Galactic Admiral|Starlord|Sunlord|Red Giant|Blue Giant|Neutron Star|Binary Star|Star Cluster|Pleiades|Hyades|Omega Centauri|Proxima|Alpha Centauri|Event Horizon|Wormhole|Warp Drive|Hyperdrive|Lightspeed|Starbreaker|Comet King|Orbit Master|Galaxy Ranger",
+    "Black Hole|Singularity|Sagittarius A*|Big Bang|Multiverse|Universe|Cosmos|Infinity|Eternity|Omniverse|Dark Matter|Dark Energy|Gamma Ray Burst|Great Attractor|Laniakea|Supercluster|Hypergiant|UY Scuti|Cosmic Dawn|Starmaker|Starborn|Voidwalker|Cosmic Titan|Celestial Emperor|Galactic Emperor|Star Emperor|Sun King|Cosmic Overlord|Lord of the Cosmos|Master of Galaxies|Ruler of Stars|Keeper of Light|Quantum Lord|Time Lord|Space-Time|Spacefarer Prime|Cosmic Legend|Galaxy Lord|Nebula Lord|Universe Prime",
+  ]},
+  myth:{label:"Mythology", icon:"🏛️", tiers:[
+    "Satyr|Faun|Dryad|Sprite|Pixie|Kobold|Imp|Gnome|Elf|Dwarf|Yaksha|Gandharva|Kinnara|Vanara|Naga|Scarab|Icarus|Argonaut|Cyclops|Harpy|Siren|Gorgon|Chimera|Griffin|Hippogriff|Basilisk|Wyvern|Troll|Ogre|Golem|Djinn|Genie|Selkie|Banshee|Kelpie|Brownie|Leprechaun|Will-o'-wisp|Fire Imp|Rune Bearer",
+    "Pegasus|Minotaur|Hydra|Kraken|Phoenix|Unicorn|Sphinx|Manticore|Cerberus|Sleipnir|Valkyrie|Einherjar|Jason|Theseus|Perseus|Odysseus|Ajax|Hector|Bellerophon|Atalanta|Orpheus|Abhimanyu|Ghatotkacha|Nakula|Sahadeva|Eklavya|Lakshmana|Sugriva|Angada|Jatayu|Sampati|Anubis|Sobek|Bastet|Khepri|Enkidu|Fenrir|Talos|Argus|Cu Chulainn",
+    "Achilles|Hercules|Beowulf|Sigurd|Ragnar|Arjuna|Bhima|Karna|Bhishma|Drona|Yudhishthira|Ashwatthama|Garuda|Airavata|Tyr|Heimdall|Baldur|Freyr|Njord|Ullr|Vidar|Thoth|Sekhmet|Apollo|Ares|Hermes|Hephaestus|Athena|Prometheus|Atlas|Hyperion|Helios|Nike|Gilgamesh|Lancelot|Galahad|Merlin|Fionn|Mahabali|Bhagiratha",
+    "Thor|Loki|Freya|Frigg|Poseidon|Hades|Ra|Osiris|Horus|Set|Amun|Indra|Surya|Agni|Vayu|Varuna|Jormungandr|Ymir|Surtr|Typhon|Oceanus|Leviathan|Behemoth|Marduk|King Arthur|Valhalla|Olympus|Asgard|Avalon|Camelot|Amaravati|Svarga|Bifrost|Aegis|Golden Fleece|Trident|Vimana|Kamadhenu|Kalpavriksha|Pushpaka",
+    "Zeus|Odin|Kronos|Gaia|Chaos|Atum|Amun-Ra|Yggdrasil|Ragnarok|Mount Meru|Mjolnir|Gungnir|Excalibur|Brahmastra|Vajra|Gandiva|Ouroboros|Titanomachy|Elysium|Hall of Heroes|Sky Father|World Tree|Allfather|Thunderbolt|Sun Chariot|Flame of Olympus|Phoenix King|Dragon Emperor|Titan King|Lord of Olympus|King of Asgard|Ruler of Valhalla|Keeper of Meru|Bearer of Vajra|Wielder of Mjolnir|Master of Brahmastra|Rider of Garuda|Slayer of Hydra|Legend of Troy|Mythborn",
+  ]},
+  ninja:{label:"Ninja", icon:"🥷", tiers:[
+    "Pupil|Deshi|Kohai|Genin|Ashigaru|White Belt|Yellow Belt|Orange Belt|Green Belt|Blue Belt|Purple Belt|Brown Belt|Red Belt|Kunai|Shuriken|Tanto|Kama|Nunchaku|Sai|Tonfa|Bokken|Shinai|Bo Staff|Hanbo|Tessen|Fukiya|Kusari|Makibishi|Shadow|Smoke|Mist|Leaf|Reed|Pebble|Ember|Spark|Dojo Kid|Sparrer|Kata Runner|Rooftop Runner",
+    "Shinobi|Ninja|Kunoichi|Chunin|Senpai|Ronin|Bushi|Yamabushi|Sohei|Kenshi|Kendoka|Karateka|Judoka|Aikidoka|Ninjato|Katana|Wakizashi|Naginata|Yari|Kusarigama|Nightblade|Shadowblade|Black Belt|Iga Shinobi|Koga Shinobi|Onmitsu|Shadowrunner|Shadow Strike|Night Watch|Moonblade|Steel Fist|Iron Palm|Wind Walker|Fire Fist|Storm Blade|Mist Walker|Shadow Fang|Rain Blade|Thunder Kick|Dojo Champion",
+    "Jonin|Sensei|Shihan|Hanshi|Kyoshi|Renshi|Shidoshi|Hatamoto|Oniwaban|Kage|Oni|Tengu|Iga Master|Koga Master|Shadow Master|Katana Master|Dojo Master|Ishikawa Goemon|Momochi Sandayu|Fujibayashi|Mochizuki|Shadow Captain|Master of Silence|Head Sensei|Night Master|Mist Master|Storm Master|Iron Sensei|Black Lotus|Lotus Blade|Jade Fist|Katana of Dawn|Silver Shuriken|Phantom Blade|Ghost Step|Shadow Clan|Blade Saint|Lotus Master|Scroll Keeper|Temple Guardian",
+    "Kensei|Soke|Daimyo|Shogun|Shadow Lord|Shadow Shogun|Mist Lord|Hattori Hanzo|Fuma Kotaro|Miyamoto Musashi|Sasaki Kojiro|Tsukahara Bokuden|Yagyu Munenori|Oda Nobunaga|Tokugawa Ieyasu|Takeda Shingen|Uesugi Kenshin|Date Masamune|Sanada Yukimura|Honda Tadakatsu|Grand Shinobi|Ninja Lord|Blade Emperor|Iron Shogun|Storm Shogun|Night Emperor|Phantom Lord|Ghost Shogun|Clan Leader|Master of Shadows|Lord of Blades|Keeper of Scrolls|Grand Kensei|Shogun of Mist|Dragon Fist|Sword Saint|Thousand Blades|Ten Thousand Steps|Emperor of Shadows|Sensei of Legends",
+    "Raijin|Fujin|Susanoo|Kusanagi|Masamune|Muramasa|Honjo Masamune|Shadow Emperor|Phantom|Spectre|Void|Ghost|Wraith|Legend of Koga|Ninja Legend|Kage of Kages|Grand Shogun|Shogun of Ages|Shadow God|Storm God|Thunder God|Wind God|Blade of Heaven|Mountain Sage|Heaven's Edge|Mist Phantom|Void Walker|Night Sovereign|Lord of the Void|Master of Elements|Sage of Six Blades|Thousand Shadows|Midnight|Typhoon|Shinobi Prime|Way of the Sword|Bushido|Path of Shadows|Ronin King|Legend of Iga",
+  ]},
+};
+const LEVEL_THEME_IDS = Object.keys(LEVEL_THEMES);
+const LEVEL_NAME_POOLS = Object.fromEntries(LEVEL_THEME_IDS.map(id=>[id, LEVEL_THEMES[id].tiers.map(t=>t.split("|"))]));
+const levelNameTier = lv => Math.min(4, Math.floor((lv-1)/20));
+const LEVEL_NAME_MAX = 24, LEVEL_SEEN_CAP = 900;
+
+// Name for a level as this member sees it (their custom name, else the original)
+function levelTitleFor(member, l){
+  const n = member && member.levelNames && member.levelNames[l.level];
+  return (typeof n==="string" && n.trim()) ? n : l.title;
+}
+function namedLevel(member, l){ if(!l) return l; const t=levelTitleFor(member,l); return t===l.title ? l : {...l, title:t, origTitle:l.title}; }
+function levelsOf(member){ return PP_LEVELS.map(l=>namedLevel(member,l)); }
+
+// Suggest a fresh name for a level: from the theme's tier for that level, never a name another level of this
+// member already shows, never one they've already been shown (until that tier's pool runs out).
+function suggestLevelName(member, level, theme, extraUsed, extraSeen){
+  const pools = LEVEL_NAME_POOLS[theme] || LEVEL_NAME_POOLS.classic;
+  const norm = s => String(s||"").trim().toLowerCase();
+  const used = new Set();
+  for(const l of PP_LEVELS) if(l.level!==level) used.add(norm(levelTitleFor(member,l)));
+  for(const x of (extraUsed||[])) used.add(norm(x));
+  const cur = norm(levelTitleFor(member, PP_LEVELS[level-1]||{level,title:""}));
+  const seen = new Set([...(member.levelSeen||[]), ...(extraSeen||[])].map(norm));
+  const t = levelNameTier(level);
+  const order = [t, t+1, t-1, t+2, t-2].filter(x=>x>=0&&x<=4);
+  for(const pass of [0,1]){ // pass 0 skips names already seen; pass 1 allows them again once a tier is exhausted
+    for(const ti of order){
+      const c = pools[ti].filter(n=>{ const k=norm(n); return !used.has(k) && k!==cur && (pass===1 || !seen.has(k)); });
+      if(c.length) return c[Math.floor(Math.random()*c.length)];
+    }
+  }
+  return null;
+}
+function addSeen(seen, names){
+  const out=[...(seen||[])]; for(const n of names) if(n && !out.includes(n)) out.push(n);
+  return out.length>LEVEL_SEEN_CAP ? out.slice(out.length-LEVEL_SEEN_CAP) : out;
+}
+
 function getStreakMultiplier(streak){
   if(streak >= 30) return 5;
   if(streak >= 14) return 3;
@@ -1091,7 +1164,7 @@ function computePowerPoints(member, logs){
       totalPP += tp; breakdown.gemTradeBonus += tp;
       dailyTags[dateStr]=["gemTrade"];
       dailyEarned[dateStr] = totalPP - ppBeforeDay;
-      const lv = getLevel(totalPP);
+      const lv = getLevel(totalPP, member);
       if(lv.level > lastLevelSeen){ levelHistory.push({level:lv.level, title:lv.title, icon:lv.icon, date:dateStr}); lastLevelSeen = lv.level; }
       continue;
     }
@@ -1413,7 +1486,7 @@ function computePowerPoints(member, logs){
     dailyEarned[dateStr] = totalPP - ppBeforeDay; // net change this day, multiplier + eggs + GK + Bravery included
 
     // Track level-up moments
-    const dayLevel = getLevel(totalPP);
+    const dayLevel = getLevel(totalPP, member);
     if(dayLevel.level > lastLevelSeen){
       levelHistory.push({level:dayLevel.level, title:dayLevel.title, icon:dayLevel.icon, date:dateStr});
       lastLevelSeen = dayLevel.level;
@@ -1438,7 +1511,7 @@ function computePowerPoints(member, logs){
 // ── PP Pace Projection ────────────────────────────────────────────────────────
 function projectNextLevel(member, logs){
   const {total, weekPP} = computePowerPoints(member, logs);
-  const nextLevel = getNextLevel(total);
+  const nextLevel = getNextLevel(total, member);
   if(!nextLevel) return null; // maxed out
   if(weekPP <= 0) return { nextLevel, daysAway: null, weeksAway: null };
 
@@ -3435,13 +3508,13 @@ function BadgeDrawerImpl({member, allEarned, acts, logs, onClose}){
   // Level badges — use PP total to determine earned/locked (same as PowerPointsPanel)
   // This ensures Level 1 is always earned (0 PP threshold) and no gaps from levelHistory
   const {total: memberPPTotal, levelHistory} = computePowerPoints(member, logs);
-  const earnedLevels = PP_LEVELS.filter(l => memberPPTotal >= l.pp)
+  const earnedLevels = levelsOf(member).filter(l => memberPPTotal >= l.pp)
     .map(l => {
       // Enrich with date from levelHistory if available
       const hist = levelHistory.find(h => h.level === l.level);
       return {...l, date: hist?.date || null};
     });
-  const lockedLevelsList = PP_LEVELS.filter(l => memberPPTotal < l.pp);
+  const lockedLevelsList = levelsOf(member).filter(l => memberPPTotal < l.pp);
 
   function levelBadgeTier(lvl){
     if(lvl>=50) return {bg:"#E8F4FD",bd:"#1565C0",tx:"#0D47A1",tier:"Diamond"};
@@ -3664,12 +3737,12 @@ function levelPosition(total){
   return Math.min(1, ((cur.level-1)+frac)/(maxLv-1));
 }
 
-function LevelPathStrip({total, color, onOpen}){
-  const cur = getLevel(total);
+function LevelPathStrip({total, color, onOpen, member}){
+  const cur = getLevel(total, member);
   const idx = PP_LEVELS.findIndex(l=>l.level===cur.level);
   const SHOW = 4;
   const start = Math.max(0, Math.min(idx, PP_LEVELS.length-SHOW));
-  const path = PP_LEVELS.slice(start, start+SHOW);
+  const path = levelsOf(member).slice(start, start+SHOW);
   return <div onClick={onOpen} title="See all levels" style={{
       display:"flex",alignItems:"center",gap:6,overflowX:"auto",whiteSpace:"nowrap",
       background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"8px 10px",
@@ -3695,9 +3768,83 @@ function LevelPathStrip({total, color, onOpen}){
   </div>;
 }
 
-function LevelsList({total, level, nextLevel, completeLevelDates}){
+// Theme picker + rename-all bar shown above the level list
+function LevelNameBar({member, onPatchMember}){
+  const theme = LEVEL_THEMES[member.levelTheme] ? member.levelTheme : "classic";
+  const custom = Object.values(member.levelNames||{}).filter(v=>typeof v==="string"&&v.trim()).length;
+  const [confirm, setConfirm] = useState(null); // "all" | "reset"
+  useEffect(()=>{ if(!confirm) return; const t=setTimeout(()=>setConfirm(null),4000); return ()=>clearTimeout(t); },[confirm]);
+  const renameAll = ()=>{
+    // placeholders stand in for not-yet-named levels so the original titles don't block the theme's names
+    const ph={}; for(const l of PP_LEVELS) ph[l.level]="\u0000"+l.level;
+    const names={}, shown=[]; let tmp={...member, levelNames:ph};
+    for(const l of PP_LEVELS){
+      const n = suggestLevelName(tmp, l.level, theme, Object.values(names), shown) || l.title;
+      names[l.level]=n; shown.push(n); tmp={...tmp, levelNames:{...ph,...names}};
+    }
+    onPatchMember(member.id,{levelNames:names, levelSeen:addSeen(member.levelSeen, shown)});
+    setConfirm(null);
+  };
+  const chip = on => ({padding:"5px 10px",borderRadius:99,border:`1.5px solid ${on?"#F9A825":C.border}`,background:on?"var(--t-yellow)":C.surface,
+    color:on?"var(--ink-orange)":C.text,fontWeight:on?800:600,fontSize:12,cursor:"pointer",whiteSpace:"nowrap"});
+  return <div data-testid="lvname-bar" style={{padding:"10px 12px 8px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+    <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:6}}>NAME THEME · {member.name.toUpperCase()}'S LEVELS</div>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+      {LEVEL_THEME_IDS.map(id=><button key={id} data-testid={"lvtheme-"+id} onClick={()=>onPatchMember(member.id,{levelTheme:id})} style={chip(id===theme)}>{LEVEL_THEMES[id].icon} {LEVEL_THEMES[id].label}</button>)}
+    </div>
+    <div style={{display:"flex",gap:6,marginTop:8,alignItems:"center",flexWrap:"wrap"}}>
+      <button data-testid="lvname-all" onClick={()=>confirm==="all"?renameAll():setConfirm("all")} style={{padding:"6px 12px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:800,fontSize:12,
+        background:confirm==="all"?"#E65100":"linear-gradient(135deg,#F9A825,#FF7043)",color:confirm==="all"?"#fff":"#2B1A00"}}>
+        {confirm==="all"?`Tap again to rename all ${PP_LEVELS.length}`:`🎲 Rename all (${LEVEL_THEMES[theme].label})`}</button>
+      {custom>0&&<button data-testid="lvname-reset" onClick={()=>{ if(confirm==="reset"){ onPatchMember(member.id,{levelNames:{}}); setConfirm(null); } else setConfirm("reset"); }} style={{padding:"6px 10px",borderRadius:8,border:`1.5px solid ${confirm==="reset"?"#C62828":C.border}`,background:C.surface,color:confirm==="reset"?"#C62828":C.muted,fontWeight:700,fontSize:12,cursor:"pointer"}}>
+        {confirm==="reset"?"Tap again to restore all":"↺ Restore originals"}</button>}
+      <span style={{fontSize:11,color:C.muted,marginLeft:"auto"}}>{custom?`${custom} renamed`:"Tap ✏️ on any level"}</span>
+    </div>
+  </div>;
+}
+
+// Inline editor for one level's name: 🎲 suggests, type your own, ✓ keeps, ↺ restores the original
+function LevelNameEditor({member, l: shownLevel, onPatchMember, onDone}){
+  const l = PP_LEVELS[shownLevel.level-1]; // the original (unrenamed) level
+  const theme = LEVEL_THEMES[member.levelTheme] ? member.levelTheme : "classic";
+  const [val, setVal] = useState(()=>levelTitleFor(member,l));
+  const [shown, setShown] = useState([]);
+  const roll = ()=>{
+    const n = suggestLevelName(member, l.level, theme, [], shown);
+    if(n){ setVal(n); setShown(x=>[...x,n]); }
+  };
+  useEffect(()=>{ roll(); },[]);
+  const clean = String(val||"").replace(/\s+/g," ").trim().slice(0,LEVEL_NAME_MAX);
+  const norm = x=>String(x||"").trim().toLowerCase();
+  const clash = clean && PP_LEVELS.some(o=>o.level!==l.level && norm(levelTitleFor(member,o))===norm(clean));
+  const save = ()=>{
+    if(!clean||clash) return;
+    const names = {...(member.levelNames||{})};
+    if(clean===l.title) delete names[l.level]; else names[l.level]=clean;
+    onPatchMember(member.id,{levelNames:names, levelSeen:addSeen(member.levelSeen, shown)});
+    onDone();
+  };
+  const restore = ()=>{ const names={...(member.levelNames||{})}; delete names[l.level]; onPatchMember(member.id,{levelNames:names, levelSeen:addSeen(member.levelSeen, shown)}); onDone(); };
+  const btn = {height:30,minWidth:30,borderRadius:8,border:`1.5px solid ${C.border}`,background:C.surface,color:C.text,fontSize:14,fontWeight:800,cursor:"pointer",padding:"0 8px"};
+  return <div data-testid="lvname-editor" onClick={e=>e.stopPropagation()} style={{marginTop:6,marginLeft:30,display:"flex",flexDirection:"column",gap:6}}>
+    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+      <input data-testid="lvname-input" value={val} maxLength={LEVEL_NAME_MAX} onChange={e=>setVal(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter") save(); if(e.key==="Escape") onDone(); }}
+        style={{flex:1,minWidth:0,height:30,borderRadius:8,border:`1.5px solid ${clash?"#C62828":"#F9A825"}`,padding:"0 10px",fontSize:13,fontWeight:700,background:C.bg,color:C.text}}/>
+      <button data-testid="lvname-roll" title="New name" onClick={roll} style={btn}>🎲</button>
+      <button data-testid="lvname-save" title="Keep" disabled={!clean||clash} onClick={save} style={{...btn,background:"#2E7D32",borderColor:"#2E7D32",color:"#fff",opacity:!clean||clash?0.4:1}}>✓</button>
+      <button title="Cancel" onClick={onDone} style={btn}>✕</button>
+    </div>
+    <div style={{display:"flex",gap:8,alignItems:"center",fontSize:11,color:clash?"#C62828":C.muted}}>
+      {clash?<span>Another level already uses this name</span>:<span>{LEVEL_THEMES[theme].icon} {LEVEL_THEMES[theme].label} theme · original: {l.title}</span>}
+      {levelTitleFor(member,l)!==l.title&&<button data-testid="lvname-restore" onClick={restore} style={{marginLeft:"auto",background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:11,fontWeight:700,textDecoration:"underline"}}>↺ Use original</button>}
+    </div>
+  </div>;
+}
+
+function LevelsList({total, level, nextLevel, completeLevelDates, member, onPatchMember}){
+  const [editing, setEditing] = useState(null);
   const groups = [];
-  for(const l of PP_LEVELS){
+  for(const l of levelsOf(member)){
     const g = l.level<10 ? 0 : Math.min(9, Math.floor(l.level/10));
     if(!groups[g]) groups[g] = {key:g, levels:[]};
     groups[g].levels.push(l);
@@ -3737,15 +3884,17 @@ function LevelsList({total, level, nextLevel, completeLevelDates}){
             const isCur = l.level===level.level, isEarned = total>=l.pp, isNext = nextLevel&&l.level===nextLevel.level;
             const dateStr = completeLevelDates[l.level];
             const dateLabel = dateStr ? new Date(dateStr+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"}) : null;
-            return <div key={l.level} ref={isCur?curRef:null} style={{padding:"7px 10px",
+            const isEd = editing===l.level;
+            return <div key={l.level} data-testid={"lvrow-"+l.level} ref={isCur?curRef:null} style={{padding:"7px 10px",
               background:isCur?"#1a1a2e":"transparent",borderRadius:8,marginBottom:3,
-              opacity:isEarned||isNext?1:0.35,
+              opacity:isEarned||isNext||isEd?1:0.35,
               border:`1px solid ${isCur?"#FFD700":isNext?"#F9A825":"transparent"}`}}>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <span style={{fontSize:10,fontWeight:700,color:isCur?"#FFD700":C.muted,minWidth:22,textAlign:"right"}}>{l.level}</span>
                 <span style={{fontSize:14,minWidth:22}}>{l.icon}</span>
                 <span style={{flex:1,fontSize:12,fontWeight:isCur||isNext?700:500,color:isCur?"#FFD700":C.text}}>
                   {l.title}
+                  {l.origTitle&&<span title={"Originally "+l.origTitle} style={{marginLeft:5,fontSize:9,color:isCur?"rgba(255,255,255,0.45)":C.muted}}>({l.origTitle})</span>}
                   {isCur&&<span style={{marginLeft:6,fontSize:9,fontWeight:800,color:"#1a1a2e",background:"#FFD700",borderRadius:99,padding:"1px 6px"}}>YOU</span>}
                   {isNext&&<span style={{marginLeft:6,fontSize:9,fontWeight:800,color:"var(--ink-orange)",background:"var(--t-orange)",borderRadius:99,padding:"1px 6px"}}>NEXT</span>}
                 </span>
@@ -3753,7 +3902,9 @@ function LevelsList({total, level, nextLevel, completeLevelDates}){
                   {l.pp.toLocaleString()} PP
                   {isEarned&&dateLabel&&<span style={{display:"block"}}>{dateLabel}</span>}
                 </span>
+                {onPatchMember&&member&&!isEd&&<button data-testid={"lvedit-"+l.level} title="Rename this level" onClick={()=>setEditing(l.level)} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,padding:"2px 4px",opacity:0.75}}>✏️</button>}
               </div>
+              {isEd&&<LevelNameEditor member={member} l={l} onPatchMember={onPatchMember} onDone={()=>setEditing(null)}/>}
               {isNext&&<div style={{marginTop:6,marginLeft:30}}>
                 <div style={{background:C.bg,borderRadius:99,height:5,overflow:"hidden",border:`1px solid ${C.border}`}}>
                   <div style={{height:"100%",width:`${nextPct}%`,background:"linear-gradient(90deg,#FFD700,#FFA500)"}}/>
@@ -3773,7 +3924,7 @@ function FamilyLevelLadder({members, logs}){
   const maxLv = PP_LEVELS[PP_LEVELS.length-1].level;
   const rows = members.map(m=>{
     const total = computePowerPoints(m, logs).total;
-    return {m, total, lv:getLevel(total), next:getNextLevel(total), pos:levelPosition(total)};
+    return {m, total, lv:getLevel(total, m), next:getNextLevel(total, m), pos:levelPosition(total)};
   }).sort((a,b)=>b.total-a.total);
   const leader = rows[0];
   const ticks = [1,25,50,75,maxLv];
@@ -3815,11 +3966,11 @@ function FamilyLevelLadder({members, logs}){
   </div>;
 }
 
-function PowerPointsPanel({member, logs, onClose, view="main", viewNonce=0}){
+function PowerPointsPanel({member, logs, onClose, onPatchMember, view="main", viewNonce=0}){
   const {total, breakdown, weekPP, levelHistory, dailyEarned, dailyTags, dailyBreakdown} = computePowerPoints(member, logs);
   const projection = projectNextLevel(member, logs);
-  const level = getLevel(total);
-  const nextLevel = getNextLevel(total);
+  const level = getLevel(total, member);
+  const nextLevel = getNextLevel(total, member);
   const pct = nextLevel ? Math.round(((total - level.pp) / (nextLevel.pp - level.pp)) * 100) : 100;
   const [tab, setTab] = useState("overview"); // overview | history | info
   const [showLevels, setShowLevels] = useState(view==="levels");
@@ -3850,8 +4001,8 @@ function PowerPointsPanel({member, logs, onClose, view="main", viewNonce=0}){
   }
 
 
-  const earnedLevels = PP_LEVELS.filter(l => total >= l.pp);
-  const lockedLevels = PP_LEVELS.filter(l => total < l.pp);
+  const earnedLevels = levelsOf(member).filter(l => total >= l.pp);
+  const lockedLevels = levelsOf(member).filter(l => total < l.pp);
 
   const TAG_INFO = {
     pb:{icon:"🌟",label:"PB"}, above:{icon:"💪",label:"Above"}, at:{icon:"✅",label:"At target"},
@@ -3904,7 +4055,8 @@ function PowerPointsPanel({member, logs, onClose, view="main", viewNonce=0}){
           padding:"4px 10px",cursor:"pointer",fontSize:12,fontWeight:600,color:C.muted}}>← Back</button>
         <span style={{fontWeight:700,fontSize:13}}>📖 All {PP_LEVELS.length} Levels</span>
       </div>
-      <LevelsList total={total} level={level} nextLevel={nextLevel} completeLevelDates={completeLevelDates}/>
+      {onPatchMember&&<LevelNameBar member={member} onPatchMember={onPatchMember}/>}
+      <LevelsList total={total} level={level} nextLevel={nextLevel} completeLevelDates={completeLevelDates} member={member} onPatchMember={onPatchMember}/>
     </> : <>
     {/* Tabs */}
     <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
@@ -4322,7 +4474,7 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
       if(delta===0.5){ setCelebrateHalf(true); setTimeout(()=>setCelebrateHalf(false),1400); }
       else { setCelebrate(true); setTimeout(()=>setCelebrate(false),1400); }
     }
-    const prevLevel = getLevel(computePowerPoints(member, logs).total);
+    const prevLevel = getLevel(computePowerPoints(member, logs).total, member);
     onEggChange(member.id, today, delta);
     setTimeout(()=>{
       const nextLogs = {...logs, [member.id]: {...(logs[member.id]||{})}};
@@ -4330,7 +4482,7 @@ function EggMeter({member, logs, onEggChange, onNewBadge}){
       const newCount = Math.max(0, (eggs[today]||0)+delta);
       if(newCount===0) delete eggs[today]; else eggs[today]=newCount;
       nextLogs[member.id].eggs = eggs;
-      const newLevel = getLevel(computePowerPoints(member, nextLogs).total);
+      const newLevel = getLevel(computePowerPoints(member, nextLogs).total, member);
       if(newLevel.level > prevLevel.level && onNewBadge){
         onNewBadge({id:`pp_level_${newLevel.level}`,e:newLevel.icon,
           label:`Level ${newLevel.level}: ${newLevel.title}!`,
@@ -5098,7 +5250,7 @@ function GemTradeShow({items,pp,member,before,after,freezeUntil,onDone}){
   const[phase,setPhase]=useState("gather"); // gather → fly → burst
   const[muted,setMuted]=useState(false); const mutedRef=useRef(false); mutedRef.current=muted;
   const orb=useRef(null); const spriteEls=useRef([]);
-  const lvBefore=getLevel(before), lvAfter=getLevel(after), levelUp=lvAfter.level>lvBefore.level;
+  const lvBefore=getLevel(before,member), lvAfter=getLevel(after,member), levelUp=lvAfter.level>lvBefore.level;
   const sprites=useMemo(()=>{
     const totalN=items.reduce((s,x)=>s+x.n,0), cap=reduce?12:Math.min(56,Math.max(totalN,1));
     const list=[];
@@ -5608,8 +5760,8 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
     io.observe(el); return ()=>io.disconnect();
   },[]);
   const ppData = computePowerPoints(member, logs);
-  const ppLevel = getLevel(ppData.total);
-  const ppNext = getNextLevel(ppData.total);
+  const ppLevel = getLevel(ppData.total, member);
+  const ppNext = getNextLevel(ppData.total, member);
 
   const acts=member.activities||[];
   const avgPct=memberConsPct(member,logs,year,month);
@@ -5759,7 +5911,7 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
     </div>
     <div className="mc-w ff-in">
     {/* Level path — current level and the next few */}
-    <LevelPathStrip total={ppData.total} color={member.color} onOpen={()=>onOpenPP&&onOpenPP(member.id,"levels")}/>
+    <LevelPathStrip total={ppData.total} color={member.color} member={member} onOpen={()=>onOpenPP&&onOpenPP(member.id,"levels")}/>
 
     </div>
     <div className="mc-gem mc-w ff-in">
@@ -5892,9 +6044,9 @@ function MemberCard({member,logs,allMembers,onLogAll,onEggChange,onEdit,onNewBad
             }
           }
           // PP level-up check
-          const prevLevel=getLevel(computePowerPoints(member,logs).total);
+          const prevLevel=getLevel(computePowerPoints(member,logs).total,member);
           setTimeout(()=>{
-            const newLevel=getLevel(computePowerPoints(member,logs).total);
+            const newLevel=getLevel(computePowerPoints(member,logs).total,member);
             if(newLevel.level>prevLevel.level){
               onNewBadge({id:`pp_level_${newLevel.level}`,e:newLevel.icon,
                 label:`Level ${newLevel.level}: ${newLevel.title}!`,
@@ -6233,7 +6385,7 @@ function EditModal({member,isNew,allMembers,onSave,onDelete,onClose}){
       <div style={{display:"flex",gap:8}}>
         {!isNew&&<button onClick={()=>{if(window.confirm("Remove?"))onDelete(member.id);}} style={{padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.missed}`,background:"none",cursor:"pointer",color:C.missed,fontWeight:600}}>Delete</button>}
         <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${C.border}`,background:"none",cursor:"pointer",fontWeight:600,color:C.muted}}>Cancel</button>
-        <button onClick={()=>{setGapVisibleOnDevice(gapOnThisDevice);onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,illnessEnabled,stackPoints,chaseTarget,...(pin?{pin}:{}),...(photo?{photo}:{}),...(member?.memberLook?{memberLook:member.memberLook}:{}),...(member?.memberLookAcc?{memberLookAcc:member.memberLookAcc}:{}),...(member?.memberCustom?{memberCustom:member.memberCustom}:{}),...(member?.agreement?{agreement:member.agreement}:{})});}} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
+        <button onClick={()=>{setGapVisibleOnDevice(gapOnThisDevice);onSave({id:member?.id??Date.now().toString(),name,emoji,color,activities:acts,alternating,startDate,eggMeter,memberTheme,memberPattern,gkEnabled,braveryEnabled,illnessEnabled,stackPoints,chaseTarget,...(pin?{pin}:{}),...(photo?{photo}:{}),...(member?.memberLook?{memberLook:member.memberLook}:{}),...(member?.memberLookAcc?{memberLookAcc:member.memberLookAcc}:{}),...(member?.memberCustom?{memberCustom:member.memberCustom}:{}),...(member?.agreement?{agreement:member.agreement}:{}),...(member?.levelNames?{levelNames:member.levelNames}:{}),...(member?.levelTheme?{levelTheme:member.levelTheme}:{}),...(member?.levelSeen?{levelSeen:member.levelSeen}:{})});}} style={{flex:2,padding:"10px 0",borderRadius:8,border:"none",background:color,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Save</button>
       </div>
     </div>
   </div>;
@@ -7475,7 +7627,7 @@ function computeFamilyPulse(members, logs){
 
   const stats = members.map(m=>{
     const {total, dailyEarned} = computePowerPoints(m, logs);
-    const nextLevel = getNextLevel(total);
+    const nextLevel = getNextLevel(total, m);
     const ppToNext = nextLevel ? nextLevel.pp - total : null;
     let recentEarned = 0;
     for(const [date, pp] of Object.entries(dailyEarned)){
@@ -7630,7 +7782,7 @@ function FamilyDashboard({members, logs, yr, mo, MONTHS}){
           <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:0.5,marginBottom:8}}>⚡ POWER POINTS</div>
           <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
             {ppRanked.map((s,i)=>{
-              const lv=getLevel(s.pp.total);
+              const lv=getLevel(s.pp.total, s.m);
               return <div key={s.m.id} style={{
                 flex:1,minWidth:140,padding:"12px 16px",borderRadius:12,
                 background:i===0?"var(--fx-grad,linear-gradient(135deg,#1a1a2e,#16213e))":C.bg,
@@ -10428,6 +10580,10 @@ export default function App(){
     });
   },[]);
 
+  const handlePatchMember=useCallback((mid,patch)=>{
+    setMembers(p=>p.map(m=>m.id===mid?{...m,...patch}:m));
+  },[]);
+
   const handleGemTrade=useCallback((mid,tid,trade)=>{
     setLogs(prev=>{
       const next={...prev,[mid]:{...(prev[mid]||{})}};
@@ -10723,7 +10879,7 @@ export default function App(){
               onGkSave={handleGkSave} onGkUpdate={handleGkUpdate} onGkDelete={handleGkDelete} onBraverySave={handleBraverySave} onBraveryDelete={handleBraveryDelete} onBraveryUpdate={handleBraveryUpdate} onIllnessSave={handleIllnessSave} onIllnessDelete={handleIllnessDelete} onOlympiadSave={handleOlympiadSave} onOlympiadDelete={handleOlympiadDelete} onOlympiadUpdate={handleOlympiadUpdate} onGoldenGoalSave={handleGoldenGoalSave} onGoldenGoalDelete={handleGoldenGoalDelete} onGemTrade={handleGemTrade} onDeleteEntry={handleDeleteEntry} onWrapped={(id,y,m)=>setWrapped({kind:"member",id,y,m})}/>
           </div>
           {ppPanelFor===m.id&&<div style={{flex:"1 1 320px",maxWidth:380,minWidth:280}}>
-            <PowerPointsPanel member={m} logs={logs} view={ppView.view} viewNonce={ppView.n} onClose={()=>setPpPanelFor(null)}/>
+            <PowerPointsPanel member={m} logs={logs} onPatchMember={handlePatchMember} view={ppView.view} viewNonce={ppView.n} onClose={()=>setPpPanelFor(null)}/>
           </div>}
         </div>
       ))}
